@@ -12,6 +12,10 @@ license-files = ["requirements/LICENSE"]
 dependencies = ["pydantic==2.14.1", "tzdata==2026.5"]
 
 [project.optional-dependencies]
+demo = [
+  "fastapi==0.143.3", "uvicorn==0.54.0", "httpx==0.28.1",
+  "mcp==1.30.0,<2", "cryptography==50.0.2", "google-auth[requests]==2.62.0",
+]
 agent = [
   "google-adk[mcp]==2.6.3",
   "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
