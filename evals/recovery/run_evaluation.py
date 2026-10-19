@@ -20,6 +20,7 @@ from pathlib import Path
 import re
 import socket
 import sys
+import sysconfig
 import time
 from types import SimpleNamespace, ModuleType
 import uuid
@@ -539,7 +540,15 @@ def main(argv=None):
             "evaluated_samples": 0, "quality_metrics": None, "provider_model": None, "provider_run_ids": [],
             "sdk_imported": False, "native_criteria": "DEFERRED", "passed_criteria": []})
         return 2
-    roots = args.sdk_root or [PRODUCT / d / "Lib/site-packages" for d in (".venv-agent", ".venv-build", ".venv-mcp")]
+    # Under Python 3.12 -S, sys.prefix/sysconfig can point at the base Python.
+    # Prefer the environment containing the invoked executable without running
+    # site.main() or any installed .pth startup hooks.
+    prefix = Path(sys.executable).parent.parent
+    environment_sites = [prefix / "Lib/site-packages",
+        prefix / f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"]
+    roots = args.sdk_root or [p for p in environment_sites if p.is_dir()]
+    if not roots:
+        roots = list(dict.fromkeys(sysconfig.get_path(name) for name in ("purelib", "platlib")))
     try:
         bootstrap(sdk_roots=roots, production_root=args.production_root, fixture_root=args.fixture_root, local=args.mode == "offline")
         write_json(args.output / "compatibility.json", compatibility())
