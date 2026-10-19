@@ -66,4 +66,5 @@ campuspulse_recovery = ["web/assets/logo/*.js", "web/assets/logo/assets/*.png", 
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "requirements/test_environment.py"]
+pythonpath = ["src", "."]
 addopts = "-ra --import-mode=importlib"
