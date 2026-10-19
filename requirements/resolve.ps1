@@ -22,3 +22,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Dev resolution failed' }
 & $uvPath --no-config pip compile requirements/bootstrap.in --python-version 3.10 `
     --universal --generate-hashes --no-header --output-file requirements/bootstrap.lock --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Bootstrap resolution failed' }
+& $uvPath --no-config pip compile pyproject.toml --all-extras --python-version 3.12.13 `
+    --universal --constraint requirements/agent-linux.lock --constraint requirements/dev.lock `
+    --generate-hashes --no-header --no-annotate --output-file requirements/test.lock --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Combined test environment resolution failed' }
