@@ -139,6 +139,7 @@ python -m pytest tests/agent_engine -q
 ASGI worker, ADK, локальный MCP transport, solver, grants и approval. Внешние модель,
 Calendar, проверка входа и документы синтетические; реальные подключения не проверяются.
 Полный прогон с Firestore Emulator описан в README.
+Зафиксированный результат проверки: [AGENT-ENGINE-VALIDATION.md](AGENT-ENGINE-VALIDATION.md).
 
 Официальные источники: [custom operations](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-a-custom-agent),
 [развёртывание и установка wheel](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent).
