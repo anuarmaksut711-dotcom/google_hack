@@ -36,7 +36,11 @@ def main():
     os.environ["W12_NETWORK_MODE"] = opts.mode
     os.environ["W12_JOINED_EVIDENCE_DIR"] = str(opts.report.parent / (opts.report.stem + "-joined"))
 
-    os.environ["PYTHONPATH"] = str(Path(__file__).resolve().parent) + os.pathsep + os.environ.get("PYTHONPATH", "")
+    root = Path(__file__).resolve().parents[2]
+    paths = [str(Path(__file__).resolve().parent), str(root / "src"), str(root)]
+    sys.path[:0] = paths
+    inherited = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+    os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([*paths, *inherited]))
     import network_guard
     child_counts = {"python_fenced": 0, "other_processes": 0}
     child_listeners = []
