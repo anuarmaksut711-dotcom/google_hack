@@ -51,6 +51,11 @@ class AgentEngineRuntime:
     def register_operations(self):
         return {'async': ['async_query']}
 
+    def __reduce__(self):
+        # Allowlist reconstruction. Even future transient attributes must not
+        # carry clients, active request scopes or credential caches to storage.
+        return (type(self), (CloudSettings.model_validate_json(self._settings_json).model_dump(),))
+
     async def async_query(self, invocation: str, service_token: str) -> dict:
         """Invoke one saved grant; the worker verifies the backend's signed token.
 
