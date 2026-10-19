@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "campuspulse-recovery"
+version = "0.1.0"
+description = "CampusPulse Recovery Agent product package"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["requirements/LICENSE"]
+dependencies = ["pydantic==2.14.1", "tzdata==2026.5"]
+
+[project.optional-dependencies]
+agent = [
+  "google-adk[mcp]==2.6.3",
+  "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+  "mcp==1.30.0,<2",
+  "google-auth[requests,pyopenssl]==2.62.0",
+  "google-genai==2.31.0",
+  "cloudpickle==3.1.2",
+]
+mcp = [
+  "mcp==1.30.0,<2",
+  "google-cloud-firestore==2.34.1",
+  "google-api-python-client==2.201.0",
+  "google-auth[requests,pyopenssl]==2.62.0",
+  "google-auth-httplib2==0.4.4",
+]
+web = [
+  "fastapi==0.143.3",
+  "uvicorn==0.54.0",
+  "google-cloud-aiplatform[agent_engines]==1.165.1",
+  "google-cloud-firestore==2.34.1",
+  "google-auth[requests,pyopenssl]==2.62.0",
+  "cloudpickle==3.1.2",
+]
+dev = ["pytest==9.1.1", "build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "requirements/test_environment.py"]
+addopts = "-ra --import-mode=importlib"

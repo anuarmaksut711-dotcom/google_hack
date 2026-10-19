@@ -1,0 +1,28 @@
+{
+  "mode": "local_development",
+  "project_id": null,
+  "agent_region": null,
+  "model_location": null,
+  "web_cloud_run_region": null,
+  "mcp_cloud_run_region": null,
+  "firestore_location": null,
+  "firestore_database": "(default)",
+  "workspace_access_mode": "explicit_resource_sharing",
+  "student": {
+    "trusted_user_id": null,
+    "allowed_signin_principal": null,
+    "spreadsheet_id": null,
+    "assignments_a1_range": null,
+    "calendar_id": null,
+    "timezone": "Asia/Qyzylorda"
+  },
+  "identities": {
+    "backend_service_account": null,
+    "agent_service_account": null,
+    "mcp_service_account": null
+  },
+  "secrets": {
+    "oauth_client_secret_reference": null,
+    "oauth_refresh_token_secret_reference": null
+  }
+}
