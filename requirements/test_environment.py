@@ -4,8 +4,26 @@ from importlib import metadata
 import os
 import subprocess
 import sys
+from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
+
+
+@pytest.fixture(scope="module")
+def wheel_archive(tmp_path_factory):
+    """Inspect what ships, before pip adds interpreter-specific bytecode."""
+    root = Path(__file__).resolve().parents[1]
+    output = tmp_path_factory.mktemp("wheel")
+    result = subprocess.run([
+        sys.executable, "-m", "build", "--wheel", "--no-isolation",
+        "--outdir", str(output), str(root),
+    ], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+    wheels = list(output.glob("*.whl"))
+    assert len(wheels) == 1
+    with ZipFile(wheels[0]) as archive:
+        yield archive
 
 
 def _private_artifact_path(path):
@@ -48,17 +66,16 @@ def test_namespace_import_without_credentials(tmp_path):
     assert result.stdout.strip() == metadata.version("campuspulse-recovery")
 
 
-def test_wheel_contains_mit_notice():
-    dist = metadata.distribution("campuspulse-recovery")
-    notices = [p for p in dist.files if str(p).endswith("licenses/requirements/LICENSE")]
+def test_wheel_contains_mit_notice(wheel_archive):
+    notices = [p for p in wheel_archive.namelist() if p.endswith("licenses/requirements/LICENSE")]
     assert len(notices) == 1
-    notice = dist.locate_file(notices[0]).read_text(encoding="utf-8")
+    notice = wheel_archive.read(notices[0]).decode("utf-8")
     assert "Copyright (c) 2025 Taylor Wilsdon" in notice
     assert "Permission is hereby granted" in notice
 
 
-def test_wheel_has_no_upstream_or_private_files():
-    dist = metadata.distribution("campuspulse-recovery")
-    files = [str(p).replace("\\", "/") for p in dist.files]
+def test_wheel_has_no_upstream_or_private_files(wheel_archive):
+    files = wheel_archive.namelist()
     assert all(p.startswith(("campuspulse_recovery/", "campuspulse_recovery-")) for p in files)
     assert not any(_private_artifact_path(p) for p in files)
+    assert not any("__pycache__/" in p or p.endswith((".pyc", ".pyo")) for p in files)
