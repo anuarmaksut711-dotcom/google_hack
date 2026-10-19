@@ -1,4 +1,4 @@
-"""One server-configured principal -> student -> Sheet/range/calendar policy.
+"""One server-configured principal -> student -> assignments/calendar policy.
 
 Call require_* BEFORE any API/store dispatch. This module performs no I/O.
 Resource IDs in model results, stored plans and browser requests are data to
@@ -17,9 +17,16 @@ from .context import AccessDenied, Boundary, ServerRunBinding, TrustedRequestCon
 
 
 class ResourcePolicy:
-    def __init__(self, config: AppConfig, *, environment: Environment) -> None:
+    def __init__(self, config: AppConfig, *, environment: Environment,
+                 assignments_resource_id: str | None = None) -> None:
         self._config = AppConfig.model_validate(config)
         self._config.require_environment(environment)
+        # Trusted startup may select a Moodle cache instead of the configured
+        # Sheet. Requests/models cannot select or expand this source binding.
+        from pydantic import TypeAdapter
+        from ..domain.models import ResourceId
+        self.assignments_resource_id = TypeAdapter(ResourceId).validate_python(
+            self._config.student.spreadsheet_id if assignments_resource_id is None else assignments_resource_id)
 
     @property
     def config(self) -> AppConfig:
@@ -82,7 +89,7 @@ class ResourcePolicy:
         trusted = self.require_context(context)
         source = SourceReference.model_validate(source)
         self.require_owner(context, source.owner_id)
-        expected_resource = trusted.sheet_id if source.kind == SourceKind.ASSIGNMENTS else trusted.calendar_id
+        expected_resource = self.assignments_resource_id if source.kind == SourceKind.ASSIGNMENTS else trusted.calendar_id
         if source.resource_id != expected_resource or source.config_revision != trusted.config_revision:
             raise AccessDenied("source_resource_binding_mismatch")
         if current_run:
