@@ -1,0 +1,3 @@
+-r voice-client.in
+# Only optional audio distribution; Raw streams require no NumPy.
+sounddevice==0.5.3

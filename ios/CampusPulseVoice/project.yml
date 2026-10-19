@@ -1,0 +1,189 @@
+{
+  "name": "CampusPulseVoice",
+  "options": {
+    "minimumXcodeGenVersion": "2.38.0",
+    "xcodeVersion": "15.0",
+    "developmentLanguage": "ru",
+    "deploymentTarget": {
+      "iOS": "15.0"
+    }
+  },
+  "configFiles": {
+    "Debug": "Config/Public.xcconfig",
+    "Release": "Config/Public.xcconfig"
+  },
+  "settings": {
+    "base": {
+      "SWIFT_VERSION": "5.0",
+      "TARGETED_DEVICE_FAMILY": "1",
+      "ENABLE_TESTABILITY": "YES"
+    }
+  },
+  "fileGroups": [
+    "Config"
+  ],
+  "targets": {
+    "CampusPulseVoice": {
+      "type": "application",
+      "platform": "iOS",
+      "sources": [
+        {
+          "path": "Sources/Transport",
+          "includes": [
+            "*.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Sources/Session",
+          "includes": [
+            "*.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Sources/Audio",
+          "includes": [
+            "*.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Sources/App",
+          "includes": [
+            "*.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Resources/LICENSE-GOOGLE-AUDIO.txt",
+          "buildPhase": "resources"
+        }
+      ],
+      "settings": {
+        "base": {
+          "PRODUCT_BUNDLE_IDENTIFIER": "$(CAMPUSPULSE_BUNDLE_ID)",
+          "INFOPLIST_FILE": "Resources/Info.plist",
+          "GENERATE_INFOPLIST_FILE": "NO",
+          "IPHONEOS_DEPLOYMENT_TARGET": "$(CAMPUSPULSE_IOS_DEPLOYMENT_TARGET)"
+        }
+      }
+    },
+    "CampusPulseVoiceTests": {
+      "type": "bundle.unit-test",
+      "platform": "iOS",
+      "sources": [
+        {
+          "path": "Tests/Transport",
+          "includes": [
+            "DevicePairingTests.swift",
+            "WireCodecTests.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Tests/Session",
+          "includes": [
+            "SessionMachineTests.swift",
+            "VoiceSessionTests.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Tests/Audio",
+          "includes": [
+            "AudioControllerTests.swift",
+            "AudioConversionTests.swift",
+            "AudioPlayerTests.swift",
+            "AudioStateTests.swift",
+            "CaptureReadinessTests.swift",
+            "JointAudioPipelineTests.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Tests/App",
+          "includes": [
+            "*.swift"
+          ],
+          "buildPhase": "sources",
+          "excludes": [
+            "Upstream/**",
+            "PreR1/**",
+            "**/.*/**"
+          ]
+        },
+        {
+          "path": "Fixtures/Protocol",
+          "type": "folder",
+          "buildPhase": "resources"
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "CampusPulseVoice"
+        }
+      ],
+      "settings": {
+        "base": {
+          "PRODUCT_BUNDLE_IDENTIFIER": "$(CAMPUSPULSE_BUNDLE_ID).Tests",
+          "GENERATE_INFOPLIST_FILE": "YES",
+          "IPHONEOS_DEPLOYMENT_TARGET": "$(CAMPUSPULSE_IOS_DEPLOYMENT_TARGET)"
+        }
+      }
+    }
+  },
+  "schemes": {
+    "CampusPulseVoice": {
+      "build": {
+        "targets": {
+          "CampusPulseVoice": "all",
+          "CampusPulseVoiceTests": [
+            "test"
+          ]
+        }
+      },
+      "test": {
+        "targets": [
+          "CampusPulseVoiceTests"
+        ],
+        "gatherCoverageData": false
+      }
+    }
+  }
+}

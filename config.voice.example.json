@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "preparation_only": true,
+  "synthetic_example": true,
+  "application": {
+    "mode": "cloud",
+    "project_id": "campuspulse-w13-example",
+    "agent_region": "us-central1",
+    "model_location": "us-central1",
+    "web_cloud_run_region": "us-central1",
+    "mcp_cloud_run_region": "us-central1",
+    "firestore_location": "us-central1",
+    "firestore_database": "(default)",
+    "workspace_access_mode": "explicit_resource_sharing",
+    "student": {
+      "trusted_user_id": "synthetic_student_w13",
+      "allowed_signin_principal": "https://accounts.example.invalid#synthetic-subject",
+      "spreadsheet_id": "synthetic_sheet_w13",
+      "assignments_a1_range": "Assignments!A1:H20",
+      "calendar_id": "synthetic-calendar@example.invalid",
+      "timezone": "Asia/Qyzylorda"
+    },
+    "identities": {
+      "backend_service_account": "w13-backend@campuspulse-w13-example.iam.gserviceaccount.com",
+      "agent_service_account": "w13-agent@campuspulse-w13-example.iam.gserviceaccount.com",
+      "mcp_service_account": "w13-mcp@campuspulse-w13-example.iam.gserviceaccount.com"
+    },
+    "secrets": {
+      "oauth_client_secret_reference": null,
+      "oauth_refresh_token_secret_reference": null
+    }
+  },
+  "deployment": {
+    "project_number": "123456789012",
+    "backend_service": "w13-example-backend",
+    "mcp_service": "w13-example-mcp",
+    "backend_origin": "https://backend.example.invalid",
+    "mcp_audience": "https://synthetic-w13-mcp.run.app",
+    "agent_resource": "projects/123456789012/locations/us-central1/reasoningEngines/987654321012",
+    "live_model": "gemini-example-unverified",
+    "request_timeout_seconds": 600,
+    "end_to_end_http2": false,
+    "mcp_public": false
+  },
+  "voice": {
+    "provider_mode": "managed_production",
+    "read_only": true,
+    "max_session_seconds": 540,
+    "idle_seconds": 120,
+    "heartbeat_seconds": 10,
+    "heartbeat_timeout_seconds": 30,
+    "cleanup_seconds": 2,
+    "reconnect": "explicit_user_start_fresh_connection_no_audio_replay",
+    "durable_fence": "FirestoreVoiceSessions_and_VoiceInvocations",
+    "automatic_activity_detection": false
+  }
+}

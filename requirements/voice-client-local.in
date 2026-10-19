@@ -1,0 +1,9 @@
+-r voice-client.in
+# Loopback TLS/ASGI + targeted tests only. No Google SDK or model network.
+fastapi==0.141.1
+starlette==1.8.0
+uvicorn==0.54.0
+httpx==0.28.1
+cryptography==50.0.2
+tzdata==2026.5
+pytest==9.1.1

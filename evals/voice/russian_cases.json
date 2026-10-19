@@ -1,0 +1,52 @@
+{
+  "evidence_class": "windows_local",
+  "language": "ru-RU",
+  "synthetic_now": "2026-10-18T10:00:00Z",
+  "timezone": "Asia/Qyzylorda",
+  "horizon_hours": 72,
+  "forbidden_tools": ["apply_plan", "verify_plan"],
+  "cases": [
+    {
+      "id": "deadlines",
+      "prompt": "Какие дедлайны у меня ближайшие и сколько работы осталось?",
+      "tools": ["read_assignments"],
+      "expected": {"solver_status": "feasible", "remaining": [30, 60], "scheduled": [30, 60], "operation_kinds": ["create", "create"], "deadline_order": ["a", "b"], "proof": "none"},
+      "speech_expectation": "Назвать подтверждённые сроки, read_at, часовой пояс и оставшиеся минуты. Для ответа календарь не обязателен."
+    },
+    {
+      "id": "hour",
+      "prompt": "У меня свободный час. Что успею сделать? Прошлый блок был вчера, но задание я ещё не закончил.",
+      "tools": ["read_assignments", "read_calendar", "solve_repair"],
+      "expected": {"solver_status": "feasible", "remaining": [45], "scheduled": [45], "operation_kinds": ["create"], "findings": ["past_block_not_completion"], "proof": "none"},
+      "speech_expectation": "Предложить 45 минут в подтверждённом часовом окне. Прошедший блок не уменьшает явно заданную оставшуюся работу."
+    },
+    {
+      "id": "changed",
+      "prompt": "Планы поменялись: дедлайн перенесли раньше. Как переставить мой блок?",
+      "tools": ["read_assignments", "read_calendar", "solve_repair"],
+      "expected": {"solver_status": "feasible", "remaining": [60], "scheduled": [60], "operation_kinds": ["update"], "proof": "none"},
+      "speech_expectation": "Показать предложение до нового срока в коротком горизонте; календарь не изменён, глобальная минимальность не доказана."
+    },
+    {
+      "id": "unknown",
+      "prompt": "Я не знаю, сколько ещё займёт задание. Распланируй его.",
+      "tools": ["read_assignments"],
+      "expected": {"solver_status": "needs_input", "remaining": [null], "scheduled": [], "operation_kinds": [], "findings": ["needs_input_remaining_minutes"], "proof": "none"},
+      "speech_expectation": "Уточнить оставшуюся работу. Не заменять неизвестную оценку нулём и не считать прошлое время завершением."
+    },
+    {
+      "id": "nochange",
+      "prompt": "Ничего не поменялось. Нужно ли менять текущий план?",
+      "tools": ["read_assignments", "read_calendar", "solve_repair"],
+      "expected": {"solver_status": "no_change", "remaining": [60], "scheduled": [60], "operation_kinds": [], "proof": "none"},
+      "speech_expectation": "В проверенном горизонте изменения не нужны. Это не подтверждает выполнение задания и не утверждает глобальную оптимальность."
+    },
+    {
+      "id": "deficit",
+      "prompt": "Всего свободно четыре часа, но до ближайшего дедлайна только час. Поместятся ли 90 минут работы?",
+      "tools": ["read_assignments", "read_calendar", "solve_repair"],
+      "expected": {"solver_status": "infeasible", "remaining": [90], "scheduled": [], "operation_kinds": [], "findings": ["deadline_capacity_deficit"], "deficit_minutes": 30, "deadline": "2026-10-18T11:00:00Z", "proof": "capacity_certificate"},
+      "speech_expectation": "Назвать дефицит 30 минут до конкретного срока: более поздние три часа его не устраняют. Вывод ограничен источниками, рабочими окнами и горизонтом."
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "version": "1",
+  "header_bytes": 24,
+  "header_byte_order": "big",
+  "pcm_byte_order": "little",
+  "pcm_hex": "0080ffff00000100ff7f3412cced2a00",
+  "samples": [
+    -32768,
+    -1,
+    0,
+    1,
+    32767,
+    4660,
+    -4660,
+    42
+  ],
+  "vectors": [
+    {
+      "file": "input-v1.bin",
+      "kind": "input",
+      "connection_generation": 16909060,
+      "generation": 0,
+      "sequence": 168496141,
+      "sample_rate": 16000,
+      "hex": "435056410101001801020304000000000a0b0c0d000000100080ffff00000100ff7f3412cced2a00",
+      "sha256": "787924a64941a190dc931f14ea7b63758a621f60d82da997c197d2b62d4c55ef"
+    },
+    {
+      "file": "output-v1.bin",
+      "kind": "output",
+      "connection_generation": 16909060,
+      "generation": 287454020,
+      "sequence": 168496141,
+      "sample_rate": 24000,
+      "hex": "435056410102001801020304112233440a0b0c0d000000100080ffff00000100ff7f3412cced2a00",
+      "sha256": "e07ccbf11f0b7f8f04fef810fd54c615994060ec2640f05a3bc6dfe2242e509f"
+    }
+  ]
+}

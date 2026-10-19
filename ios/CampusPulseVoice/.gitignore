@@ -1,0 +1,8 @@
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.xcresult/
+Config/Local.xcconfig
+Tests/App/.scratch-*/
+Tests/App/__pycache__/
+.DS_Store
