@@ -564,13 +564,15 @@ def _worker(namespace, gate, output, mode):
         try:
             with s.h.request("mcp") as ctx:
                 if mode == "claim":
+                    holder = "worker-" + str(os.getpid())
                     try:
-                        lease = await s.acquire(ctx, "worker-" + str(os.getpid()))
+                        lease = await s.acquire(ctx, holder)
                         result = {"status": "acquired", "generation": lease.generation}
                     except PortError as exc:
 
 
                         result = {"status": "refused", "code": str(exc)}
+                    result["holder_id"] = holder
                 else:
                     state = await s.store.get(ctx, "req-1")
                     result = {"status": "read", "operation_status": state.operations[0].status,
@@ -598,9 +600,57 @@ def test_emulator_independent_processes_exclusive_claim(tmp_path):
             stdout, stderr = process.communicate(timeout=50)
             assert process.returncode == 0, stdout + stderr
         results = [json.loads(p.read_text(encoding="utf-8")) for p in outputs]
-        assert sorted(r["status"] for r in results) == ["acquired", "refused"]
-        assert next(r for r in results if r["status"] == "refused")["code"] in {
-            "calendar_claim_busy", "storage_transaction_outcome_unknown"}
+        acquired = [r for r in results if r["status"] == "acquired"]
+        assert len(acquired) <= 1, results
+        for result in results:
+            assert result["status"] in {"acquired", "refused"}, results
+            if result["status"] == "refused":
+                assert result["code"] in {
+                    "calendar_claim_busy", "storage_transaction_outcome_unknown"}, results
+
+        async def persisted_claim():
+            s, client = _emulator_setup(namespace)
+            try:
+                document = await client.document(_claim_path(s.h.config.student.calendar_id)).get()
+                return _decode(document.to_dict(), "calendar_claim", _Claim) if document.exists else None
+            finally:
+                client.close()
+
+        # Contention can exhaust both SDK transactions in the emulator. A failed
+        # response is not proof that no claim committed: inspect durable state.
+        claim = asyncio.run(persisted_claim())
+        if claim is None:
+            assert not acquired, results
+            assert all(r["code"] == "storage_transaction_outcome_unknown" for r in results), results
+        else:
+            assert claim.lease.generation == 1
+            assert claim.lease.holder_id in {r["holder_id"] for r in results}
+            if acquired:
+                assert acquired[0]["generation"] == 1
+                assert claim.lease.holder_id == acquired[0]["holder_id"]
+
+        # An independent, uncontended process must acquire an empty claim or
+        # refuse the persisted owner. This checks progress and exclusivity
+        # without blindly replaying an uncertain Calendar operation.
+        probe_output = tmp_path / "probe.json"
+        probe = subprocess.Popen([sys.executable, "-c", code, namespace, str(gate), str(probe_output), "claim"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        processes.append(probe)
+        stdout, stderr = probe.communicate(timeout=50)
+        assert probe.returncode == 0, stdout + stderr
+        result = json.loads(probe_output.read_text(encoding="utf-8"))
+        if claim is None:
+            assert result["status"] == "acquired", result
+            assert result["generation"] == 1
+            expected_holder = result["holder_id"]
+        else:
+            assert result["status"] == "refused", result
+            assert result["code"] == "calendar_claim_busy", result
+            expected_holder = claim.lease.holder_id
+        final_claim = asyncio.run(persisted_claim())
+        assert final_claim is not None
+        assert final_claim.lease.generation == 1
+        assert final_claim.lease.holder_id == expected_holder
     finally:
         for process in processes:
             if process.poll() is None:
