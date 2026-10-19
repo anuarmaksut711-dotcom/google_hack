@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import inspect
+import logging
 import os
 import re
 
@@ -51,6 +52,13 @@ class AgentEngineRuntime:
     def register_operations(self):
         return {'async': ['async_query']}
 
+    def set_up(self):
+        # Match cloud.__main__: SDK logs can include source text, prompts and
+        # transport errors. This dedicated runtime keeps a permanent process
+        # policy, never a per-request global toggle racing concurrent queries.
+        # Typed/redacted Firestore journal events remain available.
+        logging.disable(logging.CRITICAL)
+
     def __reduce__(self):
         # Allowlist reconstruction. Even future transient attributes must not
         # carry clients, active request scopes or credential caches to storage.
@@ -62,6 +70,7 @@ class AgentEngineRuntime:
         Arguments are private backend credentials, never model/browser input.
         A platform OAuth token alone does not authorize this worker operation.
         """
+        self.set_up()
         import httpx
         if (not isinstance(invocation, str) or re.fullmatch(r'[A-Za-z0-9_-]{43}', invocation) is None
                 or not isinstance(service_token, str)
