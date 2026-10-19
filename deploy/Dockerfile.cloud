@@ -1,0 +1,19 @@
+FROM python:3.12.13-slim-bookworm AS build
+WORKDIR /build
+COPY requirements/dev.lock /locks/dev.lock
+RUN python -m pip install --no-cache-dir --require-hashes -r /locks/dev.lock
+COPY pyproject.toml ./
+COPY requirements/LICENSE requirements/LICENSE
+COPY src src
+RUN python -m build --no-isolation --wheel --outdir /wheels
+
+FROM python:3.12.13-slim-bookworm
+WORKDIR /app
+COPY requirements/cloud-linux.lock /locks/cloud-linux.lock
+RUN python -m pip install --no-cache-dir --require-hashes -r /locks/cloud-linux.lock
+COPY --from=build /wheels /wheels
+RUN python -m pip install --no-cache-dir --no-deps /wheels/*.whl && useradd --uid 10001 --create-home app
+USER 10001
+ENV PORT=8080 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+EXPOSE 8080
+CMD ["python", "-m", "campuspulse_recovery.cloud"]

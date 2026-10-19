@@ -55,6 +55,22 @@ def test_thought_only_response_does_not_become_visible_answer():
     run(scenario())
 
 
+def test_calendar_advice_profile_can_plan_in_chat_without_recovery_buttons_or_tools():
+    async def scenario():
+        model = SyntheticModel(model='gemini-synthetic')
+        agent = AdkConversationAgent(ConversationTarget(provider='gemini_api',
+            model='gemini-synthetic'), model_factory=lambda: model, profile='calendar_advice')
+        await agent.reply(history=(), message='Plan my week', user_id='student-1',
+            session_id='session-1', sources={'assignments':['Moodle assignment due October 24']})
+        request, = model._requests
+        instruction = str(request.config.system_instruction)
+        assert 'конкретные даты' in instruction and 'Moodle assignment due October 24' in instruction
+        assert 'Прошедший срок не доказывает' in instruction
+        assert 'Не направляй к кнопке' in instruction
+        assert not request.tools_dict
+    run(scenario())
+
+
 def test_cloud_factory_rejects_local_runner_as_agent_engine_substitute():
     from campuspulse_recovery.web.views.app import create_ui_app
     from tests.web.test_approval import Setup, ORIGIN

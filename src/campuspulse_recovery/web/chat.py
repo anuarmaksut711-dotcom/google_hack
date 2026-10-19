@@ -47,10 +47,15 @@ class ChatAgent(Protocol):
 
 
 class ChatStore(_Repository):
+    def __init__(self, *args, owner_history=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.owner_history = owner_history
+
     def path(self, context):
         c = self._request(context)
         return 'cp_conversations/' + _key(c.trusted.project_id, c.trusted.owner_id,
-            c.trusted.calendar_id, c.trusted.config_revision, c.session_id)
+            c.trusted.calendar_id, c.trusted.config_revision,
+            'owner-history-v1' if self.owner_history else c.session_id)
 
     async def read(self, context):
         saved = await self.documents.get(self.path(context))
@@ -102,9 +107,9 @@ class ChatStore(_Repository):
         return await self.documents.transact(transact)
 
 
-def create_chat_router(*, auth, documents, policy, agent=None, projection=None):
+def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False):
     router = APIRouter()
-    store = ChatStore(documents, policy)
+    store = ChatStore(documents, policy, owner_history=owner_history)
 
     async def fresh(request, original):
         current = await auth.load(request)
@@ -116,7 +121,12 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None):
         for original, turn in zip(chat.turns, turns):
             if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=90):
                 turn['status'] = 'unknown'
-        return {'available': agent is not None, 'turns': turns}
+        result = {'available': agent is not None, 'turns': turns}
+        failure = getattr(agent, 'last_failure', None)
+        if failure in {'provider_request_rejected','provider_auth_failed','provider_access_denied',
+                'provider_model_unavailable','provider_quota','provider_unavailable','chat_runtime_failed'}:
+            result['failure_code'] = failure
+        return result
 
     @router.get('/api/chat')
     async def history(request: Request):

@@ -209,7 +209,7 @@ class DemoSystem:
             saved=await self.stored_evidence(context,plan_reference(plan))
             if saved.run_id==run.run_id:
                 evidence=saved
-        source_notice = NOTICE if self.chat_agent is None else 'ДЕМО · тестовые задания и календарь. Чат использует настоящий Gemini; восстановление работает на тестовых данных.'
+        source_notice = NOTICE if self.chat_agent is None else 'ДЕМО · тестовые задания и календарь. Чат настроен на Gemini; восстановление работает на тестовых данных.'
         return SafeSources(assignments=(source_notice,*assignments),calendar=("Тестовый календарь · свежее чтение адаптера",*calendar),verification=evidence)
 
     def runs(self,auth):
@@ -236,7 +236,7 @@ class DemoSystem:
         app.router.lifespan_context=lifespan
         @app.get('/demo',response_class=HTMLResponse)
         async def entry():
-            notice = NOTICE if self.chat_agent is None else 'Чат обращается к Gemini через Vertex AI. Источники и вход тестовые, история сбрасывается при перезапуске сервера.'
+            notice = NOTICE if self.chat_agent is None else 'Чат настроен на Gemini. Источники и вход тестовые, история сбрасывается при перезапуске сервера.'
             return '<!doctype html><html lang="ru"><meta charset="utf-8"><title>CampusPulse · ДЕМО</title><h1>CampusPulse · локальное ДЕМО</h1><p>'+notice+'</p><p>Только тестовый вход. Не вводите Google-пароль или токены.</p><button id="demo-signin">Открыть тестовое расписание</button><p id="result" role="status"></p><script src="/demo-signin.js"></script></html>'
         @app.get('/demo-signin.js')
         async def signin_js():

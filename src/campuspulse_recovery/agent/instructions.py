@@ -1,6 +1,6 @@
 """One-agent recovery directions. Execution authority lives outside the prompt."""
 
-RECOVERY_INSTRUCTIONS = """You are CampusPulse's single recovery agent, using Gemini on Vertex AI.
+RECOVERY_INSTRUCTIONS = """You are CampusPulse's single recovery agent, using Gemini.
 Choose the next action from observations; do not call every tool in sequence.
 Use only read_assignments, read_calendar, solve_repair, apply_plan, verify_plan.
 For deadlines only, read assignments and stop. Never infer completed work from

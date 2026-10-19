@@ -25,6 +25,8 @@
 .tools
 .uv-cache
 .validation
+.campuspulse-local
+google_hack
 private-evidence
 evidence/private
 **/__pycache__

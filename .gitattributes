@@ -1,0 +1,3 @@
+# Generated protocol fixtures are compared byte-for-byte on Windows and Linux.
+tests/voice/fixtures/protocol/*.json text eol=lf
+tests/voice/fixtures/protocol/*.bin -text

@@ -4,10 +4,12 @@
 param(
     [Parameter(Mandatory)][string]$InputsPath,
     [ValidateSet('Inspect', 'Apply')][string]$Mode = 'Inspect',
-    [switch]$BindRuntime
+    [switch]$BindRuntime,
+    [switch]$CloudRunRuntime
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($CloudRunRuntime -and $BindRuntime) { throw 'Choose Cloud Run runtime or the legacy Agent Engine binding.' }
 $cfg = Get-Content -Raw -LiteralPath $InputsPath | ConvertFrom-Json -AsHashtable
 function Need([string]$Key, [string]$Pattern) {
     if (-not $cfg.ContainsKey($Key) -or $cfg[$Key] -isnot [string] -or $cfg[$Key] -notmatch $Pattern) {
@@ -158,6 +160,10 @@ $condition = "title=campuspulse_database_only,expression=$dbExpression"
 if ($cfg.firestore_database -eq '(default)') { $condition = "title=campuspulse_default_database_only,expression=$dbExpression" }
 foreach ($key in @('backend_service_account', 'mcp_service_account')) {
     Grant @('projects', $project) "serviceAccount:$($cfg[$key])" "projects/$project/roles/campuspulseFirestoreData" $condition
+}
+if ($CloudRunRuntime) {
+    Grant @('projects', $project) "serviceAccount:$($cfg.agent_service_account)" "projects/$project/roles/campuspulseFirestoreData" $condition
+    Grant @('projects', $project) "serviceAccount:$($cfg.backend_service_account)" "projects/$project/roles/campuspulseGeminiCaller"
 }
 Grant @('projects', $project) "serviceAccount:$($cfg.agent_service_account)" "projects/$project/roles/campuspulseGeminiCaller"
 Grant @('projects', $project) "serviceAccount:$($cfg.mcp_service_account)" "projects/$project/roles/campuspulseApiConsumer"

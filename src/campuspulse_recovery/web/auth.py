@@ -56,11 +56,17 @@ class GoogleSignInVerifier:
 
     async def verify(self, token: str, *, nonce: str, now: datetime) -> VerifiedSignIn:
         def check():
+            import requests
             from google.auth.transport.requests import Request
             from google.oauth2.id_token import verify_oauth2_token
 
+            class BoundedRequest(Request):
+                def __call__(self, *args, **kwargs):
+                    kwargs['timeout'] = 5
+                    return super().__call__(*args, **kwargs)
             try:
-                claims = verify_oauth2_token(token, Request(), audience=self.client_id)
+                with requests.Session() as transport:
+                    claims = verify_oauth2_token(token, BoundedRequest(session=transport), audience=self.client_id)
                 if (claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com")
                         or claims.get("aud") != self.client_id
                         or not isinstance(claims.get("sub"), str) or not claims["sub"]
@@ -75,7 +81,11 @@ class GoogleSignInVerifier:
             except Exception:
                 raise AccessDenied("signin_rejected") from None
 
-        return await asyncio.to_thread(check)
+        try:
+            async with asyncio.timeout(8):
+                return await asyncio.to_thread(check)
+        except TimeoutError:
+            raise AccessDenied('signin_unavailable') from None
 
 
 class LoginChallenge(Contract):
@@ -188,6 +198,8 @@ class WebAuth(_Repository):
                 raise AccessDenied("signin_challenge_expired")
             tx.set(path, _encode("web_challenge", latest.model_copy(update={"consumed": True})))
             tx.create("cp_web_sessions/" + digest(cookie), _encode("web_session", session))
+            tx.create("cp_web_session_index/" + digest(binding.session_id),
+                      {"path": "cp_web_sessions/" + digest(cookie)})
 
         await self.documents.transact(create)
         return cookie, csrf, session

@@ -40,6 +40,23 @@ web = [
   "cloudpickle==3.1.2",
 ]
 dev = ["pytest==9.1.1", "build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0"]
+calendar = ["icalendar==6.3.2", "httpx==0.28.1"]
+multiuser = [
+  "icalendar==6.3.2", "httpx==0.28.1", "cryptography==50.0.2",
+  "fastapi==0.141.1", "uvicorn==0.54.0", "google-auth[requests]==2.62.0",
+]
+cloud = [
+  "google-adk[mcp]==2.6.3",
+  "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+  "google-genai==2.31.0",
+  "mcp==1.30.0,<2",
+  "google-cloud-firestore==2.34.1",
+  "google-api-python-client==2.201.0",
+  "google-auth[requests,pyopenssl]==2.62.0",
+  "google-auth-httplib2==0.4.4",
+  # ADK 2.6.3 caps OpenTelemetry at 1.42.1; FastAPI 0.143 requires >=1.44.
+  "fastapi==0.141.1", "uvicorn==0.54.0", "httpx==0.28.1", "cloudpickle==3.1.2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

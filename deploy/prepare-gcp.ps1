@@ -62,6 +62,9 @@ if ($WhatIfPreference) {
     foreach ($key in @('backend_service_account', 'agent_service_account', 'mcp_service_account')) {
         Change $cfg[$key] @('iam', 'service-accounts', 'create', ($cfg[$key].Split('@')[0]))
     }
+    if ($cfg.build_service_account.EndsWith("@$project.iam.gserviceaccount.com")) {
+        Change $cfg.build_service_account @('iam', 'service-accounts', 'create', ($cfg.build_service_account.Split('@')[0]))
+    }
     Change $cfg.artifact_registry_repository @('artifacts', 'repositories', 'create', $cfg.artifact_registry_repository,
         "--location=$($cfg.artifact_registry_location)", '--repository-format=docker')
     Change $cfg.firestore_database @('firestore', 'databases', 'create', "--database=$($cfg.firestore_database)",
@@ -139,6 +142,11 @@ Write-Output (@{ status = 'actual_readback'; cloud_build_default = $buildDefault
 if ($cfg.build_service_account -eq "$number@cloudbuild.gserviceaccount.com") {
     if (($buildDefault | ConvertTo-Json -Compress) -notmatch [regex]::Escape($cfg.build_service_account)) { throw 'Legacy build identity was not returned by discovery.' }
 } else {
+    if ($cfg.build_service_account.EndsWith("@$project.iam.gserviceaccount.com") -and
+        $cfg.build_service_account -notin @($identities | ForEach-Object { $_.email })) {
+        Change $cfg.build_service_account @('iam', 'service-accounts', 'create', ($cfg.build_service_account.Split('@')[0]),
+            '--display-name=CampusPulse build')
+    }
     $build = Gcp @('iam', 'service-accounts', 'describe', $cfg.build_service_account)
     if ($build['disabled'] -eq $true) { throw 'Selected build identity disabled.' }
 }

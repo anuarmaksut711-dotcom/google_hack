@@ -4,6 +4,8 @@ SCRIPT = r"""'use strict';
   const $ = id => document.getElementById(id);
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, pendingText = null;
+  const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
+  let moodleRevision = 0, moodleBusy = false;
   const feedback = (message, error = false) => {
     $('feedback').textContent = message;
     $('feedback').dataset.error = String(error);
@@ -15,6 +17,7 @@ SCRIPT = r"""'use strict';
   };
   async function api(path, payload) {
     const options = {credentials: 'same-origin', cache: 'no-store', redirect: 'error'};
+    if (path.startsWith('/api/moodle')) options.signal = AbortSignal.timeout(110000);
     if (payload !== undefined) Object.assign(options, {method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf()}, body: JSON.stringify(payload)});
     const response = await fetch(path, options);
@@ -26,11 +29,153 @@ SCRIPT = r"""'use strict';
         messages[409] = 'Запрос чата уже выполняется, был изменён или достигнут лимит диалога. Обновите историю.';
         messages[503] = 'Агент недоступен. Проверьте настройку Vertex AI на сервере.';
       }
-      throw new Error(messages[response.status] || 'Не удалось получить результат. Обновите состояние.');
+      const error = new Error(messages[response.status] || 'Не удалось получить результат. Обновите состояние.');
+      error.status = response.status;
+      throw error;
     }
     return response;
   }
 
+  function clearMoodle(message) {
+    if (!moodleEnabled) return;
+    $('moodle-tasks').replaceChildren(); $('moodle-courses').replaceChildren();
+    $('moodle-status').textContent = message;
+  }
+  function moodleDate(value) {
+    return new Date(value).toLocaleString('ru-RU', {timeZone: document.body.dataset.timezone,
+      dateStyle: 'medium', timeStyle: 'short'});
+  }
+  function moodleGrade(item) {
+    // A published zero is a score; an absent score is never inferred as zero.
+    if (item.grade_value !== null && item.grade_value !== undefined)
+      return String(item.grade_value) + (item.grade_max === null || item.grade_max === undefined ? '' : ' / ' + item.grade_max);
+    if (item.grade_display !== null && item.grade_display !== undefined && item.grade_display !== '')
+      return item.grade_display + (item.grade_max === null || item.grade_max === undefined ? '' : ' (максимум ' + item.grade_max + ')');
+    return 'Ещё не оценено';
+  }
+  function moodleLink(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.hostname !== 'lms.astanait.edu.kz' || url.port ||
+          url.username || url.password || url.hash || !/^\/mod\/(assign|quiz)\/view\.php$/.test(url.pathname) ||
+          [...url.searchParams.keys()].some(key => key !== 'id') ||
+          url.searchParams.getAll('id').length !== 1 || !/^\d+$/.test(url.searchParams.get('id'))) return null;
+      return url.href;
+    } catch { return null; }
+  }
+  function showMoodle(state) {
+    const tasks = $('moodle-tasks'), courses = $('moodle-courses');
+    tasks.replaceChildren(); courses.replaceChildren();
+    const snapshot = state.snapshot;
+    const calendarFeed = state.source_kind === 'calendar_feed';
+    if (calendarFeed) {
+      $('moodle-heading').textContent = 'Дедлайны из Moodle';
+      const sourceLink = document.querySelector('.nav-link[href="#moodle"]');
+      if (sourceLink) sourceLink.textContent = 'Дедлайны Moodle';
+    }
+    let message;
+    if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде CampusPulse, чтобы настроить доступ к своему аккаунту.';
+    else if (!snapshot) message = state.error ?
+      'Задания пока не получены. Проверьте доступ к Moodle и повторите обновление.' :
+      'Задания ещё не загружены. Ожидаем первое обновление.';
+    else {
+      message = 'Последнее обновление: ' + moodleDate(state.last_success || snapshot.fetched_at) + '.';
+      if (state.error) message += ' Не удалось обновить задания. Показаны ранее полученные данные.';
+      else if (state.stale) message += ' Данные могли измениться. Нажмите «Обновить задания».';
+      if (state.syncing) message += ' Обновление выполняется.';
+    }
+    if (state.error === 'auth_failed' || state.error === 'identity_mismatch')
+      message += ' Доступ к аккаунту Moodle нужно подключить заново через команду CampusPulse.';
+    if (calendarFeed) message += ' Календарь передаёт события и сроки; оценки и статусы сдачи недоступны.';
+    $('moodle-status').textContent = message;
+    if (!snapshot || !state.connected) return;
+    if (snapshot.courses.length) {
+      const heading = document.createElement('h3'), list = document.createElement('ul');
+      heading.textContent = 'Баллы по предметам'; list.className = 'moodle-course-list';
+      for (const course of snapshot.courses) {
+        const item = document.createElement('li'), title = document.createElement('strong'), grade = document.createElement('span');
+        title.textContent = course.title; grade.textContent = moodleGrade(course);
+        item.append(title, grade); list.append(item);
+      }
+      courses.append(heading, list);
+    }
+    const heading = document.createElement('h3'); heading.textContent = calendarFeed ? 'Будущие сроки' : 'Задания'; tasks.append(heading);
+    if (!snapshot.tasks.length) {
+      const empty = document.createElement('p'); empty.textContent = 'В полученных данных Moodle заданий нет.';
+      tasks.append(empty); return;
+    }
+    const list = document.createElement('ul'); list.className = 'moodle-task-list';
+    const pastList = document.createElement('ul'), doneList = document.createElement('ul');
+    pastList.className = doneList.className = 'moodle-task-list';
+    for (const task of snapshot.tasks) {
+      const group = !calendarFeed ? 'upcoming' : task.view_group ||
+        (new Date(task.due_at).getTime() <= Date.now() ? 'past' : 'upcoming');
+      const item = document.createElement('li'), subject = document.createElement('p'), title = document.createElement('h4'),
+        description = document.createElement('p'), details = document.createElement('dl');
+      subject.className = 'moodle-subject'; subject.textContent = task.course_title;
+      title.textContent = task.title; description.className = 'moodle-description';
+      description.textContent = task.description || 'Описание не предоставлено в Moodle.';
+      const values = calendarFeed ? [
+        ['Срок', moodleDate(task.due_at)],
+        ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в CampusPulse' :
+          group === 'past' ? 'Срок прошёл; статус сдачи неизвестен' : 'Статус сдачи неизвестен'],
+      ] : [
+        ['Срок сдачи', task.due_at ? moodleDate(task.due_at) : 'Не указан'],
+        ['Сдача', {todo: 'Не сдано', draft: 'Черновик', submitted: 'Сдано', graded: 'Оценено', unknown: 'Статус недоступен'}[task.submission_status] || 'Статус недоступен'],
+        ['Баллы', moodleGrade(task)],
+      ];
+      for (const [label, value] of values) {
+        const term = document.createElement('dt'), detail = document.createElement('dd');
+        term.textContent = label; detail.textContent = value; details.append(term, detail);
+      }
+      item.append(subject, title, description, details);
+      const href = moodleLink(task.url);
+      if (href) {
+        const link = document.createElement('a'); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+        link.textContent = 'Открыть задание в Moodle'; item.append(link);
+      }
+      if (calendarFeed) {
+        const button = document.createElement('button'); button.type = 'button';
+        button.dataset.taskId = task.id; button.dataset.done = String(group !== 'completed');
+        button.textContent = group === 'completed' ? 'Вернуть в работу' : 'Отметить выполненным';
+        item.append(button);
+      }
+      (group === 'completed' ? doneList : group === 'past' ? pastList : list).append(item);
+    }
+    if (calendarFeed && !list.children.length) {
+      const empty = document.createElement('p'); empty.textContent = 'Будущих сроков в текущем экспорте нет.';
+      tasks.append(empty);
+    }
+    tasks.append(list);
+    for (const [label, archived] of [['Прошедшие сроки', pastList], ['Выполнено вами', doneList]]) {
+      if (!archived.children.length) continue;
+      const section = document.createElement('details'), summary = document.createElement('summary');
+      summary.textContent = label + ' (' + archived.children.length + ')';
+      section.append(summary, archived); tasks.append(section);
+    }
+  }
+  async function loadMoodle() {
+    if (!moodleEnabled || moodleBusy) return;
+    const revision = ++moodleRevision;
+    moodleBusy = true; $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'true');
+    try {
+      const saved = await (await api('/api/moodle')).json();
+      if (revision !== moodleRevision) return;
+      showMoodle(saved);
+      if (saved.connected) {
+        const updated = await (await api('/api/moodle/sync', {})).json();
+        if (revision === moodleRevision) showMoodle(updated);
+      }
+    } catch (error) {
+      if (revision !== moodleRevision) return;
+      if (error.status === 403) clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
+      else $('moodle-status').textContent = 'Не удалось обновить задания. Если показаны сохранённые данные, они могли измениться. Повторите обновление.';
+    } finally {
+      if (revision === moodleRevision) {
+        moodleBusy = false; $('moodle-refresh').disabled = false; $('moodle').setAttribute('aria-busy', 'false');
+      }
+    }
+  }
 
   function stored(name, value) {
     if (!scope) throw new Error('Сначала требуется вход.');
@@ -88,9 +233,22 @@ SCRIPT = r"""'use strict';
     log.hidden = !chat.turns.length;
     $('workspace').classList.toggle('has-chat', chat.turns.length > 0);
     if (chat.turns.length) document.dispatchEvent(new Event('campuspulse:chat-history'));
-    $('chat-status').textContent = chatAvailable ?
+    const calendarAdvice = document.body.dataset.chatMode === 'calendar_advice';
+    $('chat-status').textContent = calendarAdvice ? (chatAvailable ?
+      'Составьте план в чате по дедлайнам Moodle. Укажите свободные часы и время на задания.' :
+      'Для составления плана подключите Gemini к локальному серверу.') : (chatAvailable ?
       'Чат с агентом · изменения календаря применяются через согласование плана.' :
-      'Агент не подключён к этому серверу. Для ответов нужно настроить Vertex AI.';
+      'Агент не подключён к этому серверу. Для ответов нужно настроить Vertex AI.');
+    const providerErrors = {
+      provider_request_rejected: 'Gemini отклонил запрос. Проверьте API-ключ и настройки модели.',
+      provider_auth_failed: 'Gemini не принял API-ключ. Проверьте ключ при запуске сервера.',
+      provider_access_denied: 'У ключа нет доступа к Gemini. Проверьте проект и ограничения ключа в AI Studio.',
+      provider_model_unavailable: 'Выбранная модель Gemini недоступна. Проверьте модель в настройках сервера.',
+      provider_quota: 'Gemini сообщил об ограничении квоты. Проверьте бесплатные лимиты проекта в AI Studio.',
+      provider_unavailable: 'Gemini временно недоступен. Попробуйте отправить сообщение позже.',
+      chat_runtime_failed: 'Ошибка подключения чата. Проверьте состояние локального сервера.'
+    };
+    if (providerErrors[chat.failure_code]) $('chat-status').textContent = providerErrors[chat.failure_code];
     controls();
   }
   async function loadChat() {
@@ -262,7 +420,26 @@ SCRIPT = r"""'use strict';
   };
   window.addEventListener('hashchange', updateNavigation);
   updateNavigation();
-  $('reload').addEventListener('click', () => refresh().catch(error => feedback(error.message, true)));
+  $('reload').addEventListener('click', () => {
+    loadMoodle(); refresh().catch(error => feedback(error.message, true));
+  });
+  if (moodleEnabled) {
+    $('moodle-refresh').addEventListener('click', loadMoodle);
+    $('moodle-tasks').addEventListener('click', async event => {
+      const button = event.target.closest('button[data-task-id]');
+      if (!button || button.disabled) return;
+      button.disabled = true;
+      try {
+        const state = await (await api('/api/moodle/task-status', {
+          task_id: button.dataset.taskId, done: button.dataset.done === 'true'
+        })).json();
+        showMoodle(state);
+      } catch {
+        button.disabled = false;
+        $('moodle-status').textContent = 'Не удалось сохранить вашу отметку. Повторите действие.';
+      }
+    });
+  }
   $('panel').addEventListener('click', event => {
     const button = event.target.closest('button[data-action]');
     if (button && !button.disabled) act(button.dataset.action);
@@ -272,6 +449,9 @@ SCRIPT = r"""'use strict';
   $('signout').addEventListener('click', async () => {
     if (busy || chatBusy) return;
     try { await api('/auth/signout', {}); ++generation; scope = null; activeRun = null;
+      ++moodleRevision; moodleBusy = false;
+      clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
+      if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
       $('chat-history').replaceChildren(); $('chat-history').hidden = true;
       $('workspace').classList.remove('has-chat'); $('recovery-message').value = '';
@@ -279,9 +459,11 @@ SCRIPT = r"""'use strict';
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
       history.replaceState(null, '', '/'); feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
+      if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
     } catch (error) { feedback(error.message, true); }
   });
 
+  loadMoodle();
   refresh().catch(error => feedback(error.message, true));
 })();
 """

@@ -133,6 +133,21 @@ tbody tr:last-child > * { border: 0; }
 .operation-details summary { min-height: 32px; padding-block: 4px; }
 .section-heading { justify-content: space-between; }
 .section-heading h2 { margin: 0; }
+.moodle { margin-top: 24px; scroll-margin-top: 24px; }
+.moodle h3 { font-size: 16px; margin: 24px 0 12px; }
+.moodle h4 { font-size: 16px; margin: 4px 0 12px; overflow-wrap: anywhere; }
+.moodle ul { list-style: none; padding: 0; margin: 0; }
+.moodle-course-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 12px; }
+.moodle-course-list li { display: flex; flex-direction: column; gap: 6px; background: var(--subtle); border-radius: 10px; padding: 16px; overflow-wrap: anywhere; }
+.moodle-course-list span { color: var(--muted); }
+.moodle-task-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
+.moodle-task-list li { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.moodle-task-list .moodle-subject { margin: 0; font-size: 12px; }
+.moodle-description { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.moodle-task-list dl { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
+.moodle-task-list a { font-size: 13px; }
+body[data-moodle-enabled=true] .recovery-home { min-height: auto; }
+body[data-moodle-enabled=true] .intro { display: none; }
 .journal > p { font-size: 12px; }
 #trace-records { list-style: none; padding: 0; margin: 16px 0; }
 #trace-records li { border-top: 1px solid var(--line); }

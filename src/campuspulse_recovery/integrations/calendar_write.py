@@ -193,6 +193,10 @@ class CalendarWriter:
 
         failure = None
         try:
+            managed = getattr(self.clients, 'calendar_async_request', None)
+            if managed is not None:
+                return await managed(context, calendar_id=trusted.calendar_id,
+                                     request_factory=factory, mutation=mutation)
             return await asyncio.to_thread(self.clients.calendar_request, context,
                 calendar_id=trusted.calendar_id, request_factory=factory, mutation=mutation)
         except WorkspaceAccessError as error:

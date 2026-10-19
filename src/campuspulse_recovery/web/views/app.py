@@ -48,12 +48,16 @@ class SafeProjection(Protocol):
 def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   clock=lambda: datetime.now(UTC), runs_factory=None,
                   projection: SafeProjection | None = None, demo_mode: bool = False,
-                  chat_agent=None):
+                  chat_agent=None, signin_url=None, moodle_enabled: bool = False,
+                  chat_mode: str = 'recovery', owner_chat_history: bool = False,
+                  account_url: str | None = None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
     Original identity/approval handlers keep their original implementations.
     """
+    if chat_mode not in ('recovery', 'calendar_advice'):
+        raise ValueError('unsupported_chat_mode')
     if demo_mode:
         from ...demo import require_demo
         require_demo(environment == "local")
@@ -63,10 +67,11 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                              origin=origin, environment=environment, clock=clock)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
                    environment=environment, clock=clock)
+    app.state.web_auth = auth
     plans = FirestorePlanStore(documents, policy)
     approvals = FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
-        agent=chat_agent, projection=projection))
+        agent=chat_agent, projection=projection, owner_history=owner_chat_history))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:
@@ -79,7 +84,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     async def page(request: Request):
         auth.check_request(request)
         return render_shell(policy.config.student.timezone, demo_mode=demo_mode,
-                            live_chat=chat_agent is not None)
+                            live_chat=chat_agent is not None, signin_url=signin_url,
+                            moodle_enabled=moodle_enabled, chat_mode=chat_mode, account_url=account_url)
 
     @app.get("/assets/campuspulse.css")
     async def css():
@@ -136,7 +142,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             policy.require_context(context)
             return render_panel(run=run, plan=plan, approval=approval, current=current,
                 sources=sources, timezone=policy.config.student.timezone,
-                now=clock(), runtime_available=runs is not None)
+                now=clock(), runtime_available=runs is not None,
+                moodle_enabled=moodle_enabled)
 
 
 

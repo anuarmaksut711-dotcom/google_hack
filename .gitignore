@@ -23,6 +23,7 @@ secrets/
 .tools/
 .uv-cache/
 .validation/
+.campuspulse-local/
 private-evidence/
 evidence/private/
 __pycache__/

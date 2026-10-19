@@ -71,7 +71,7 @@ def main():
     parser.add_argument('--demo',action='store_true',help='Explicitly select test adapters')
     parser.add_argument('--port',type=int,default=8947)
     parser.add_argument('--chat-target',type=Path,
-        help='Explicit Vertex chat config JSON: project_id, location, model. Enables external Gemini IO; Workspace stays synthetic.')
+        help='Explicit Gemini chat settings (provider/model and Vertex project/location). Keys come from the environment; Workspace stays synthetic.')
     args=parser.parse_args()
     require_demo(args.demo)
     if not 1024<=args.port<=65535: parser.error('port must be 1024..65535')
@@ -79,8 +79,12 @@ def main():
     if args.chat_target is None:
         isolate_network()
     else:
-        from ..agent.conversation import AdkConversationAgent, ConversationTarget
-        target = ConversationTarget.model_validate_json(args.chat_target.read_text(encoding='utf-8'))
+        from ..agent.conversation import AdkConversationAgent, load_conversation_target, require_chat_credentials
+        try:
+            target = load_conversation_target(args.chat_target)
+            require_chat_credentials(target)
+        except ValueError as error:
+            parser.error(str(error))
         chat_agent = AdkConversationAgent(target)
     root=Path.cwd()
     if not (root/'pyproject.toml').is_file(): parser.error('run from the recovery_app directory')
@@ -91,7 +95,7 @@ def main():
     from .app import create_demo_app
     origin='https://127.0.0.1:'+str(args.port)
     app,_=create_demo_app(demo=True,origin=origin,chat_agent=chat_agent)
-    print(NOTICE if chat_agent is None else 'Vertex AI chat enabled explicitly. Workspace/sign-in are synthetic; history resets on restart. Not an Agent Engine deployment.')
+    print(NOTICE if chat_agent is None else 'Gemini chat configured explicitly; connection has not been verified at startup. Workspace/sign-in are synthetic; history resets on restart. Not an Agent Engine deployment.')
     print('Open '+origin+'/demo (manual local certificate warning; never enter Google credentials).',flush=True)
     import asyncio
     config=uvicorn.Config(app,host='127.0.0.1',port=args.port,ssl_certfile=str(cert),ssl_keyfile=str(key),

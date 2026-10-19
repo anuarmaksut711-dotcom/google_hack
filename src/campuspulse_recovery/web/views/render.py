@@ -56,38 +56,48 @@ def interval(value, timezone):
     return f"{stamp(value.start, timezone)} → {stamp(value.end, timezone)}"
 
 
-def render_shell(timezone, *, demo_mode=False, live_chat=False):
+def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None):
     notice = ''
     if demo_mode:
         from ...demo import NOTICE
         notice = '<details class="demo-notice"><summary>Тестовый режим · без подключения к Google</summary><p>' + e(NOTICE) + ' <a href="/demo">Тестовый вход</a></p></details>'
         if live_chat:
-            notice = '<details class="demo-notice"><summary>Тестовые источники · чат Gemini</summary><p>Чат обращается к Gemini через Vertex AI. Задания и календарь тестовые; история хранится до перезапуска сервера. Восстановление работает на тестовых данных. <a href="/demo">Тестовый вход</a></p></details>'
+            notice = '<details class="demo-notice"><summary>Тестовые источники · чат Gemini</summary><p>Чат настроен на Gemini. Задания и календарь тестовые; история хранится до перезапуска сервера. Восстановление работает на тестовых данных. <a href="/demo">Тестовый вход</a></p></details>'
+    moodle = '''<section id="moodle" class="moodle" aria-labelledby="moodle-heading" aria-busy="true">
+<div class="section-heading"><h2 id="moodle-heading">Мои задания и баллы</h2>
+<button id="moodle-refresh" type="button" disabled>Обновить задания</button></div>
+<p id="moodle-status" role="status" aria-live="polite">Загружаем задания из Moodle…</p>
+<div id="moodle-courses"></div><div id="moodle-tasks"></div></section>''' if moodle_enabled else ''
+    if moodle_enabled and account_url:
+        moodle = moodle.replace('<div id="moodle-courses">',
+            f'<p><a href="{e(account_url)}">Моё подключение Moodle</a></p><div id="moodle-courses">')
+    sources_target = '#moodle' if moodle_enabled else '#sources'
+    sources_title = 'Задания и баллы' if moodle_enabled else 'Задания и календарь'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>
 <link rel="stylesheet" href="/assets/campuspulse.css"><script src="/assets/campuspulse.js" defer></script>
 <script src="/assets/logo/vendor/gsap.min.js" defer></script>
 <script type="module" src="/assets/logo/welcome.js"></script></head>
-<body><a class="skip" href="#workspace">К плану</a>
+<body data-chat-mode="{e(chat_mode)}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К плану</a>
 <aside class="sidebar" aria-label="Навигация CampusPulse">
 <a class="brand" href="#workspace" aria-label="CampusPulse — к плану" title="CampusPulse"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 17h6l4-9 5 17 4-8h5"/></svg></a>
 <nav aria-label="Разделы плана">
 <a class="nav-link current" href="#workspace" aria-label="Восстановление плана" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/></svg><span class="nav-label">Восстановление плана</span><span class="nav-short" aria-hidden="true">План</span></a>
-<a class="nav-link" href="#sources" aria-label="Задания и календарь"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H6a2 2 0 0 0-2 2v12h16V7a2 2 0 0 0-2-2h-3"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M8 11h8M8 15h5"/></svg><span class="nav-label">Задания и календарь</span><span class="nav-short" aria-hidden="true">Источники</span></a>
+<a class="nav-link" href="{sources_target}" aria-label="{sources_title}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H6a2 2 0 0 0-2 2v12h16V7a2 2 0 0 0-2-2h-3"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M8 11h8M8 15h5"/></svg><span class="nav-label">{sources_title}</span><span class="nav-short" aria-hidden="true">Источники</span></a>
 <a class="nav-link" href="#diff-heading" aria-label="Изменения"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-4-4 4 4-4 4M19 17H5m4-4-4 4 4 4"/></svg><span class="nav-label">Изменения</span><span class="nav-short" aria-hidden="true">Изменения</span></a>
 <a class="nav-link" href="#journal-heading" aria-label="Журнал запуска"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="nav-label">Журнал запуска</span><span class="nav-short" aria-hidden="true">Журнал</span></a>
 </nav>
 <div class="sidebar-bottom"><button id="signout" type="button" hidden aria-label="Выйти" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H5v14h4M10 12h10m-4-4 4 4-4 4"/></svg></button></div>
 </aside>
 <div class="app-content"><header class="topbar"><a class="wordmark" href="#workspace">CampusPulse</a><span class="topbar-divider" aria-hidden="true">/</span><span>Учебное расписание</span><a class="topbar-results" href="#panel">К плану <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></header>
-<main id="workspace"><section class="recovery-home" aria-labelledby="home-heading">{notice}<div class="intro">
+<main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading">{notice}<div class="intro">
 <h1 id="home-heading" class="sr-only">Восстановление учебного плана</h1>
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <img id="welcome-fallback" src="/assets/logo/assets/g-reference.png" alt="" width="409" height="413" hidden>
 <canvas id="welcome-canvas"></canvas></div></div>
 <div id="chat-history" class="chat-history" role="log" aria-label="Диалог с CampusPulse" aria-live="polite" aria-relevant="additions" hidden></div>
 <div class="command-bar">
-<div class="context-strip"><a href="#sources"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Задания и календарь</a><span>{e(timezone)}</span></div>
+<div class="context-strip"><a href="{sources_target}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>{sources_title}</a><span>{e(timezone)}</span></div>
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение CampusPulse</label>
 <textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Что изменилось в расписании?" aria-describedby="message-hint"></textarea>
 <div class="chat-submit"><p id="message-hint">Enter — отправить · Shift+Enter — новая строка</p><button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
@@ -116,7 +126,11 @@ def verified_evidence(run, plan, sources, now):
         and evidence.checked_operations == tuple(op.operation_id for op in plan.payload.operations))
 
 
-def render_panel(*, run, plan, approval, current, sources, timezone, now, runtime_available):
+def render_panel(*, run, plan, approval, current, sources, timezone, now, runtime_available, moodle_enabled=False):
+    if moodle_enabled and not runtime_available:
+        return ('<section class="outcome" data-status="needs_input" data-runtime="false">'
+            '<h2>Планирование заданий</h2><p>Данные из Moodle доступны выше. '
+            'Для составления плана ещё нужны оценки времени на задания.</p></section>')
     status = "needs_input" if not runtime_available else "ready"
     if run is not None:
         status = "insufficient_capacity" if run.status == "infeasible" else run.status

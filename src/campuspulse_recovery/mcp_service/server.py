@@ -55,11 +55,14 @@ class ReadMCP(FastMCP):
 
     async def call_tool(self, name, arguments):
         request = self.get_context().request_context.request
-        if self.complete and name in write_tools.WRITE_CONTRACTS:
-            return await write_tools.dispatch(name, arguments, request=request, contexts=self.contexts,
-                                             apply=self.apply, verification=self.verification)
-        return await dispatch(name, arguments, request=request, contexts=self.contexts,
-                              assignments=self.assignments, calendar=self.calendar)
+        async def invoke():
+            if self.complete and name in write_tools.WRITE_CONTRACTS:
+                return await write_tools.dispatch(name, arguments, request=request, contexts=self.contexts,
+                                                 apply=self.apply, verification=self.verification)
+            return await dispatch(name, arguments, request=request, contexts=self.contexts,
+                                  assignments=self.assignments, calendar=self.calendar)
+        guard = getattr(self.contexts, 'dispatch_guard', None)
+        return await guard(name, arguments, request, invoke) if guard is not None else await invoke()
 
 
 def create_app(*, contexts: RequestContextFactory, assignments, calendar,

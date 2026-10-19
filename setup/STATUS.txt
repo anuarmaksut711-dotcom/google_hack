@@ -1,0 +1,183 @@
+CampusPulse AI — настройка окружения, 19.10.2026 (Asia/Qyzylorda)
+
+Репозиторий: https://github.com/anuarmaksut711-dotcom/google_hack
+Исходная ревизия: 0b95603cb959338e1d417699e06b5aa8b9521069
+Локальная ветка: codex/connect-services
+Рабочая копия этой настройки — корень папки «хакатон Aitu».
+Появившаяся во время работы отдельная копия google_hack/ не изменялась.
+
+Локальное окружение установлено и проверено. Реальное облачное подключение
+приложения ещё не выполнено: после успешного входа Google Cloud API вернул
+пустой список доступных активных проектов. Project ID и ресурсы студента
+не предоставлены. Отдельно обнаружены незавершённые production entrypoint
+в самом репозитории, перечисленные ниже.
+
+Установлено и проверено:
+
+  Git 2.51.1.windows.1; Node.js 24.19.0; npm 11.17.0 уже были установлены.
+  uv 0.13.1: .tools/uv/bin/uv.exe.
+  Python 3.12.13 x64: .python/cpython-3.12.13-windows-x86_64-none/python.exe.
+  Отдельные .venv-build, .venv-agent, .venv-mcp, .venv-web, .venv-voice.
+  Google Cloud CLI 589.0.0 с собственным bundled Python:
+    %LOCALAPPDATA%/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.cmd
+  Каталог gcloud добавлен в пользовательский PATH. Уже запущенные приложения
+  могут сохранять прежний PATH; абсолютный путь работает сразу.
+
+Зависимости установлены из существующих Windows lock-файлов с проверкой
+hashes. Locks не пересобирались. Agent/MCP/web разделены, поскольку версии
+FastAPI, protobuf и других транзитивных пакетов в них различаются.
+
+Собран и установлен wheel:
+  dist/campuspulse_recovery-0.1.0-py3-none-any.whl
+
+uv pip check прошёл для agent, MCP, web и voice. Credential-free smoke
+проверил настоящие установленные импорты:
+  google-adk 2.6.3, google-cloud-aiplatform 1.165.1,
+  google-genai 2.31.0, mcp 1.30.0, google-cloud-firestore 2.34.1.
+Изменять major-версии SDK для этого подключения не потребовалось.
+
+Проверка авторизации:
+
+  gcloud auth login --update-adc --brief завершился успешно.
+  Активная запись CLI и локальный файл ADC обнаружены.
+  Настоящий refresh ADC через google-auth завершился успешно (valid=true).
+  Project ID и quota project в ADC не заданы.
+  gcloud projects list --filter=lifecycleState:ACTIVE вернул [] с exit 0.
+  Это результат для выбранного аккаунта, а не доказательство отсутствия
+  проекта у команды. Нужны явный Project ID и соответствующий доступ.
+  Токены и содержимое credentials в отчёт не выводились.
+
+Скрипты настройки:
+
+  pwsh -File .\setup\Install-Local.ps1 -IncludeVoice
+
+  Воспроизводит локальную установку из существующих locks, собирает wheel,
+  проверяет зависимости и импорты. Не выполняет вход в Google, деплой,
+  тесты или операции с аудиоустройствами. Глобальные PATH/registry не меняет.
+  Проверен синтаксис и выполнен полный повторный запуск с -IncludeVoice:
+  exit 0, все окружения, dependency checks и SDK smoke прошли.
+  Журналы этого запуска: .validation/setup/20261019T102540645-4fed4779-*.log.
+
+  pwsh -File .\setup\Check-Environment.ps1
+  pwsh -File .\setup\Check-Environment.ps1 -ProjectId REAL_PROJECT_ID -Location REAL_REGION
+
+  Только чтение: интерпретаторы, инструменты, авторизация, project access,
+  billing status и API из deploy/prepare-gcp.ps1. Наличие credentials
+  не выдаётся за работоспособную интеграцию. Без Project ID результат
+  после авторизации: exit 4. Регион здесь не проверяет доступность модели.
+
+Локальный запуск:
+
+  .\run-demo.ps1 -Port 8948
+  https://127.0.0.1:8948/demo
+
+  После повторной установки сервер запущен в текущей сессии Codex на 8948;
+  8947 занят другой копией из google_hack/, её процесс оставлен без изменений.
+  GET /demo и
+  GET /auth/challenge вернули HTTP 200; CSRF token присутствует.
+  TLS проверен по созданному локальному сертификату, без отключения проверки.
+  Браузер может показать предупреждение о локальном самоподписанном сертификате.
+  Это существующее синтетическое демо: Gemini, Sheets, Calendar и Firestore
+  в этом режиме не вызываются. Состояние в памяти сбрасывается при перезапуске.
+
+Проверки существующего кода:
+
+  703 passed, 10 skipped — integrations/MCP/storage/faults/security (.venv-mcp).
+  464 passed, 3 skipped — domain/application/scenarios (.venv-mcp).
+  572 passed — voice/web (.venv-agent, source import mode).
+  14 passed — проверки установленного wheel (.venv-agent, isolated mode).
+  2 passed — отдельно исполнены ADK-тесты, пропущенные в MCP-окружении.
+  Итого уникальных проверок: 1755 passed, 11 skipped.
+  Все оставшиеся skips требуют явно настроенного Firestore Emulator.
+  Они не подтверждают реальные распределённые операции Firestore.
+
+  Для source-тестов voice/web нужен временный PYTHONPATH=repo/src:
+    $taskSavedPythonPath = $env:PYTHONPATH
+    try {
+      $env:PYTHONPATH = Join-Path $PWD 'src'
+      & .\.venv-agent\Scripts\python.exe -B -X utf8 -m pytest tests/voice tests/web -q
+      & .\.venv-agent\Scripts\python.exe -B -X utf8 -m pytest tests/application/test_proposals.py -k adk -q
+    } finally { $env:PYTHONPATH = $taskSavedPythonPath }
+
+  Проверки wheel запускаются отдельно; -I исключает влияние PYTHONPATH:
+    & .\.venv-agent\Scripts\python.exe -B -I -X utf8 -m pytest requirements/test_environment.py -q
+
+  Остальные выполненные группы:
+    & .\.venv-mcp\Scripts\python.exe -B -I -X utf8 -m pytest tests/integrations tests/mcp tests/storage tests/faults tests/security -q
+    & .\.venv-mcp\Scripts\python.exe -B -I -X utf8 -m pytest tests/domain tests/application tests/scenarios -q
+
+  Первые попытки использовали неверный режим импорта для части тестов.
+  Ошибки путей src/site-packages устранены настройкой запуска; проверка
+  лицензии wheel успешно выполнена отдельно в isolated mode.
+  .gitattributes фиксирует LF для JSON протокола и binary для его .bin.
+  golden.json приведён к LF; его Git blob идентичен исходной ревизии.
+  Бизнес-код, дизайн и lock-файлы не изменялись.
+
+  Локальные журналы и JUnit XML: .validation/setup-20261019/ (Git ignored).
+  agent-tests.xml содержит совмещённый source/package запуск и одну ошибку
+  тестового режима metadata; успешный isolated повтор — package-tests.xml.
+  Итог выше учитывает отдельный успешный запуск packaging и двух ADK-тестов.
+
+Существующий Windows voice-клиент:
+
+  & .\.venv-voice\Scripts\python.exe -B -X utf8 -m tools.voice_windows self-check
+  & .\.venv-voice\Scripts\python.exe -B -X utf8 -m tools.voice_windows local-e2e
+
+  Обе проверки прошли. local-e2e использовал настоящий локальный TLS/WSS
+  transport и синтетические пользователя/Google/provider: 12800 входных
+  и 4800 выходных байт, потерь нет, итог stopped.
+  sounddevice/PortAudio обнаружили Realtek Microphone Array (системный MME
+  input device 1). Проверка формата 16 kHz / mono / int16 прошла.
+  Запись микрофона и воспроизведение не выполнялись.
+
+  После появления работающего HTTPS backend существующая команда:
+    & .\.venv-voice\Scripts\python.exe -B -X utf8 -m tools.voice_windows connect --backend https://REAL_BACKEND_ORIGIN --microphone --playback
+  Клиент использует browser pairing, затем команды start, end, stop.
+  Подключение к реальному voice backend пока не проверено.
+
+Для продолжения реального облачного подключения нужны:
+
+  GCP Project ID с доступом выбранного аккаунта и включённым billing.
+  Google-таблица заданий и ограниченный A1 range, отдельный Calendar ID.
+  После чтения проекта: существующие регионы, Firestore, service accounts,
+  OAuth client ID/allowed Google subject и права к Sheets/Calendar.
+  Значения не подставлялись из тестовых fixtures или примеров.
+
+  Workspace-адаптер уже использует user ADC -> impersonation MCP service
+  account локально и metadata credentials этого аккаунта в облаке.
+  Нужны iam.serviceAccounts.getAccessToken на MCP identity и явный sharing
+  таблицы/календаря. Google Sign-in сам по себе эти права не предоставляет.
+  Refresh token/JSON key присылать в чат не требуется.
+
+  После получения настоящих inputs можно выполнить существующие read-only:
+    pwsh -File deploy/prepare-gcp.ps1 -InputsPath REAL_INPUTS.json -Mode Inspect
+    pwsh -File deploy/iam.ps1 -InputsPath REAL_INPUTS.json -Mode Inspect
+
+Ограничения существующей облачной сборки, не устранённые настройкой:
+
+  deploy/deploy-agent.py и deploy/query-agent.py всегда блокируют --execute
+  с LOCAL_ONLY и cloud_calls=0.
+  deploy/deploy-mcp.ps1 и deploy/check-mcp.ps1 блокируют Deploy/Check:
+    production_adapters_unimplemented:authenticator,run_binding,stopped_evidence
+  mcp_service/server.py:create_google_app требует production authenticator,
+  bindings/recovery_guard и доверенные hosts/origins; готовой композиции нет.
+  web/agent_client.py:ManagedRuntimeProtocol обозначен как недостающий
+  production-протокол run/session. Один config.json этого не реализует.
+  Блокировки не удалялись: перед настоящим деплоем нужно подключить эти
+  существующие границы к реальным cloud identity/session ресурсам и проверить.
+  Запросы Gemini, облачные MCP tools, Sheets/Calendar и Agent Engine API
+  приложения не выполнялись; развёрнутого endpoint в ходе настройки не создано.
+
+Проверенные официальные источники:
+  https://docs.cloud.google.com/sdk/docs/downloads-versioned-archives
+  https://docs.cloud.google.com/sdk/gcloud/reference/auth/login
+  https://docs.cloud.google.com/docs/authentication/provide-credentials-adc
+  https://docs.astral.sh/uv/getting-started/installation/
+  https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/setup
+  https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent
+
+Google Cloud archive 589.0.0 (Windows x64, bundled Python):
+  SHA256 b9c2f4f296154f55e8a31a6979106573bc1ad8691041d4a32ea90c1834fdf995
+uv archive 0.13.1 (Windows x64):
+  SHA256 3b2661a463a5baea7f5076ea2b25ab71d77f36a6c0d809e5350651792f80a672
+Оба архива загружены из официальных release URL, hashes проверены до запуска.
