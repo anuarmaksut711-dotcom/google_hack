@@ -46,7 +46,7 @@ def prepare_bundle(settings, *, wheel, requirements, output):
     config = {
         'display_name': 'campuspulse-recovery',
         'service_account': parsed.application.identities.agent_service_account,
-        'requirements': 'requirements.lock',
+        'requirements': 'deployment-requirements.txt',
         'extra_packages': [artifacts.wheel_name],
         # The method arguments include backend credentials. Keep default
         # platform telemetry off; journal events remain typed and redacted.
@@ -55,6 +55,10 @@ def prepare_bundle(settings, *, wheel, requirements, output):
     files = {
         artifacts.wheel_name: artifacts.wheel,
         'requirements.lock': artifacts.requirements,
+        # extra_packages uploads a wheel; requirements must also install it.
+        # Keep hash mode active for the local product as well as its dependencies.
+        'deployment-requirements.txt': artifacts.requirements + b'\n' +
+            (artifacts.wheel_name + ' --hash=sha256:' + hashlib.sha256(artifacts.wheel).hexdigest() + '\n').encode(),
         'settings.json': _json(parsed.model_dump(mode='json')),
         'create-config.json': _json(config),
         'operations.json': _json([MessageToDict(schema) for schema in schemas]),

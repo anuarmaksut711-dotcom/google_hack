@@ -33,7 +33,7 @@ def test_cli_prepares_offline_from_another_working_directory(tmp_path):
     assert result.returncode == 0, result.stderr
     output = json.loads(result.stdout)
     assert output['status'] == 'prepared_not_deployed' and output['cloud_calls'] == 0
-    assert output['artifact_count'] == 5
+    assert output['artifact_count'] == 6
     assert (tmp_path / 'prepared/manifest.json').is_file()
     assert 'campus-test-42' not in result.stdout and 'student-1' not in result.stdout
 
