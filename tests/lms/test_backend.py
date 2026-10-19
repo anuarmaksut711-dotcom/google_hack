@@ -85,9 +85,12 @@ def test_production_backend_uses_durable_moodle_without_worker_secret_sheets_or_
                 assert cached.status_code == 200
                 assert cached.json()['snapshot']['tasks'][0]['grade_value'] == 0
                 assert (await browser.get('/ui/state')).status_code == 200
-                # Production create_backend disables the old Sheets plan path
-                # when Moodle is configured; the real Moodle routes are wired.
-                assert (await browser.post('/api/runs', headers=headers, json={})).status_code == 404
+                # Moodle now exposes the same authenticated planning flow; an
+                # invalid run body must be rejected before any remote IO.
+                assert (await browser.post('/api/runs', headers=headers, json={})).status_code == 400
+                planning = await browser.get('/api/moodle/planning')
+                assert planning.status_code == 200, planning.text
+                assert planning.json()['revision'] == 0
                 result = await browser.post('/api/moodle/sync', headers=headers, json={})
                 assert result.status_code == (200 if worker_available else 503), result.text
                 assert refreshed == [True]

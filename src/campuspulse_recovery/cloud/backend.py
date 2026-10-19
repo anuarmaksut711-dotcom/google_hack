@@ -25,6 +25,7 @@ from ..web.views.app import SafeSources, create_ui_app
 from .agent import basis_path
 from .authority import Grants, utcnow
 from .transport import CloudTransport, MoodleRefreshTransport
+from .planning import current_constraints, planning_inputs
 
 
 class CloudConversation:
@@ -45,15 +46,13 @@ class CloudBackend:
         self.snapshots = FirestoreSnapshotStore(documents, policy)
         self.approvals = FirestoreApprovalStore(documents, policy, clock=utcnow)
         self.journal = FirestoreRunEventStore(documents, policy, clock=utcnow)
-        self.grants = Grants(documents, policy)
+        self.grants = Grants(documents, policy, clock=utcnow)
         self.worker = CloudTransport(settings.agent_origin)
+        self.planning = planning_inputs(settings, policy, documents, clock=utcnow)
         self.moodle = None
         if settings.moodle is not None:
-            from ..lms.sync import MoodleSync
             cfg = settings.moodle
-            self.moodle = MoodleSync(documents, owner_id=policy.config.student.trusted_user_id,
-                site_url=cfg.site_url, expected_user_id=cfg.expected_user_id,
-                interval_minutes=cfg.interval_minutes, stale_after_minutes=cfg.stale_after_minutes)
+            self.moodle = self.planning.connection
             self.moodle_worker = MoodleRefreshTransport(cfg.sync_origin)
 
     def _moodle_owner(self, context):
@@ -72,13 +71,9 @@ class CloudBackend:
         await self.moodle_worker.refresh()
 
     async def read(self, context, *, constraints=None):
-        # Moodle's published tasks have no student effort estimates. They are
-        # displayed independently; never calculate a plan from unrelated Sheets.
-        if self.moodle is not None:
-            raise BindingConflict('moodle_planning_requires_effort_estimates')
         await self.journal.register(context)
         now = utcnow()
-        constraints = constraints or self.settings.constraints(now)
+        constraints = constraints or await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='read', constraints=constraints,
             proposal_id='read_' + uuid4().hex, planning_at=now)
         result = await self.worker.request(handle, seconds=50)
@@ -101,7 +96,7 @@ class CloudBackend:
         basis = _decode(await self.documents.get(basis_path(context.trusted.run_id)), 'cloud_basis', ProposalBasis)
         self.policy.require_source(context, basis.assignments)
         self.policy.require_source(context, basis.calendar)
-        if basis.constraints != self.settings.constraints(basis.now):
+        if basis.constraints != await current_constraints(self.settings, self.planning, context, basis.now):
             raise BindingConflict('cloud_planning_policy_changed')
         return basis
 
@@ -109,7 +104,8 @@ class CloudBackend:
         plan = await self.plans.get(context, reference.plan_id, reference.version)
         if plan_reference(plan) != reference:
             raise BindingConflict('exact_plan_changed')
-        if plan.payload.constraints != self.settings.constraints(plan.payload.constraints.horizon.start):
+        if plan.payload.constraints != await current_constraints(
+                self.settings, self.planning, context, plan.payload.constraints.horizon.start):
             raise BindingConflict('planning_policy_changed')
         old, old_calendar = await self.snapshots.get_for_plan(context, reference)
         assignments, calendar = await self.read(context, constraints=plan.payload.constraints)
@@ -122,8 +118,9 @@ class CloudBackend:
 
     async def stream(self, context, intent):
         now = utcnow()
+        constraints = await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='recover', intent=intent,
-            constraints=self.settings.constraints(now), planning_at=now,
+            constraints=constraints, planning_at=now,
             proposal_id='plan_' + uuid4().hex, expected_current=await self.plans.get_current(context))
         result = await self.worker.request(handle, seconds=110)
         self.policy.require_context(context)
@@ -134,8 +131,9 @@ class CloudBackend:
         if plan_reference(saved) != reference:
             raise BindingConflict('exact_plan_changed')
         now = utcnow()
+        constraints = await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='evidence', reference=reference,
-            constraints=self.settings.constraints(now), planning_at=now, proposal_id=reference.plan_id)
+            constraints=constraints, planning_at=now, proposal_id=reference.plan_id)
         result = VerificationResult.model_validate(await self.worker.request(handle, seconds=25))
         if result.plan != reference:
             raise BindingConflict('evidence_plan_mismatch')
@@ -163,7 +161,12 @@ class CloudBackend:
             for course in state.snapshot.courses:
                 if course.grade_display is not None:
                     lines.append(f'{course.title}: итог по курсу {course.grade_display}'[:500])
-            return SafeSources(assignments=tuple(lines[:100]))
+            evidence = None
+            if run is not None and plan is not None and run.verification_status is not None:
+                latest = await self.stored_evidence(context, plan_reference(plan))
+                if latest.run_id == run.run_id:
+                    evidence = latest
+            return SafeSources(assignments=tuple(lines[:100]), verification=evidence)
         assignments, calendar = await self.read(context)
         zone = ZoneInfo(self.policy.config.student.timezone)
         def fmt(value):
@@ -202,7 +205,7 @@ def create_backend(settings, policy, documents, *, close):
     chat_available = settings.chat.provider == 'vertex' or bool(os.environ.get('GEMINI_API_KEY', '').strip())
     app = create_ui_app(policy=policy, documents=documents,
         verifier=GoogleSignInVerifier(settings.google_signin_client_id), origin=settings.backend_origin,
-        environment='cloud', clock=utcnow, runs_factory=None if moodle_enabled else system.runs, projection=system,
+        environment='cloud', clock=utcnow, runs_factory=system.runs, projection=system,
         chat_agent=CloudConversation(settings.chat) if chat_available else None,
         signin_url='/login', moodle_enabled=moodle_enabled)
     system.auth = app.state.web_auth
@@ -210,6 +213,8 @@ def create_backend(settings, policy, documents, *, close):
         from ..web.moodle import install_moodle_routes
         install_moodle_routes(app, auth=system.auth, reader=system.moodle_read,
                               refresh=system.moodle_refresh)
+        from ..web.moodle_planning import install_planning_routes
+        install_planning_routes(app, auth=system.auth, inputs=system.planning)
 
     @asynccontextmanager
     async def lifespan(app):

@@ -174,6 +174,20 @@ def instrument_assignments(reader, emitter):
     return result
 
 
+def instrument_moodle_assignments(reader, emitter):
+    from ..lms.planning import MoodleAssignmentsReader
+    if type(reader) is not MoodleAssignmentsReader:
+        raise TypeError('original_moodle_reader_required')
+    class InstrumentedMoodle(MoodleAssignmentsReader):
+        async def read(self, context, horizon):
+            return await _domain_call(self, context, 'read_assignments',
+                lambda: super(InstrumentedMoodle, self).read(context, horizon), horizon=horizon)
+    result = InstrumentedMoodle(reader.clients, reader.snapshots, inputs=reader.inputs,
+        clock=reader.clock, request_context=reader._request_context)
+    result.trace = emitter
+    return result
+
+
 def instrument_calendar(reader, emitter):
     from ..integrations.calendar_read import CalendarReader
     if type(reader) is not CalendarReader:

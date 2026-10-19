@@ -14,6 +14,7 @@ from ..storage.plans import _decode, _encode, _key
 from ..web.agent_client import RemoteFrame
 from .authority import BoundAuthority, Grants, ServiceIdentity, utcnow
 from .transport import CloudTransport, McpTransport
+from .planning import current_constraints, planning_inputs
 
 
 def basis_path(run_id):
@@ -31,6 +32,8 @@ async def recover(settings, documents, policy, context, grants, handle, grant, m
     from ..agent.conversation import AdkConversationAgent
     from ..agent.instructions import RECOVERY_INSTRUCTIONS
     from ..agent.solve_tool import solve_repair_tool
+    inputs = planning_inputs(settings, policy, documents, clock=utcnow)
+    input_state = None if inputs is None else await inputs.get(context)
 
     async def forward(name, arguments):
         state = rules.current()
@@ -46,7 +49,7 @@ async def recover(settings, documents, policy, context, grants, handle, grant, m
             return {'isError': True, 'code': 'transport_outcome_unconfirmed'}
 
     async def read_assignments(horizon: dict, schema_version: str = '1.0') -> dict:
-        """Read the configured assignment sheet for the server planning horizon."""
+        """Read the configured assignment source for the server planning horizon."""
         return await forward('read_assignments', {'horizon': horizon})
 
     async def read_calendar(horizon: dict, schema_version: str = '1.0') -> dict:
@@ -67,7 +70,8 @@ async def recover(settings, documents, policy, context, grants, handle, grant, m
             now = utcnow()
             # Proposal time follows both actual reads. Crossing a quarter-hour
             # requires a new horizon/read instead of publishing stale coverage.
-            if settings.constraints(now) != state.constraints:
+            expected = settings.constraints(now) if inputs is None else inputs.constraints(input_state, now=now)
+            if expected != state.constraints:
                 state.status = 'stale'
                 return rules.safe_error('planning_horizon_changed')
             state.now = now
@@ -141,7 +145,8 @@ async def recover(settings, documents, policy, context, grants, handle, grant, m
 
 
 def create_agent(settings, policy, documents, *, close):
-    grants = Grants(documents, policy)
+    grants = Grants(documents, policy, clock=utcnow)
+    inputs = planning_inputs(settings, policy, documents, clock=utcnow)
     identity = ServiceIdentity(settings.agent_origin, policy.config.identities.backend_service_account)
     authority = BoundAuthority(policy, 'agent', policy.config.identities.backend_service_account)
     mcp = McpTransport(settings.mcp_origin)
@@ -175,11 +180,12 @@ def create_agent(settings, policy, documents, *, close):
             grant = await grants.load(handle, status='ready')
             if grant.parent is not None or grant.operation not in {'read', 'recover', 'evidence'}:
                 raise AccessDenied('worker_grant_required')
-            if grant.operation == 'recover' and grant.constraints != settings.constraints(grant.planning_at):
-                raise AccessDenied('planning_policy_changed')
             grant = await grants.claim(handle)
             claimed = True
             with authority.bind(request, grant, verified), authority.contexts.request(request) as context:
+                if grant.operation == 'recover' and grant.constraints != await current_constraints(
+                        settings, inputs, context, grant.planning_at):
+                    raise AccessDenied('planning_policy_changed')
                 if grant.operation == 'read':
                     output = {}
                     for name in ('read_assignments', 'read_calendar'):

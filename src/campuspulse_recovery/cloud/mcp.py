@@ -15,7 +15,7 @@ from ..integrations.calendar_read import CalendarReader
 from ..integrations.calendar_write import CalendarWriter
 from ..mcp_service.server import create_complete_app
 from ..observability.adapters import (JournalEmitter, ObservationHealth,
-    instrument_assignments, instrument_calendar, instrument_verification)
+    instrument_assignments, instrument_calendar, instrument_verification, instrument_moodle_assignments)
 from ..security.context import AccessDenied
 from ..storage.operations import FirestoreExecutionStore
 from ..storage.owned_blocks import FirestoreOwnedBlockRegistry
@@ -25,10 +25,12 @@ from ..storage.snapshots import FirestoreSnapshotStore
 from ..web.approval import FirestoreApprovalStore
 from .authority import BoundAuthority, Grants, ServiceIdentity, utcnow
 from .writers import CloudWorkspaceClients, DurableRecoveryGuard, TrackedApplyService, TrackedCoordination
+from .planning import current_constraints, planning_inputs
 
 
 def create_mcp(settings, policy, documents, *, port, close):
-    grants = Grants(documents, policy)
+    grants = Grants(documents, policy, clock=utcnow)
+    inputs = planning_inputs(settings, policy, documents, clock=utcnow)
     authority = BoundAuthority(policy, 'mcp', policy.config.identities.agent_service_account)
     identity = ServiceIdentity(settings.mcp_origin, policy.config.identities.agent_service_account)
     active_reference = ContextVar('mcp_cloud_reference', default=None)
@@ -36,7 +38,11 @@ def create_mcp(settings, policy, documents, *, port, close):
     snapshots = FirestoreSnapshotStore(documents, policy)
     registry = FirestoreOwnedBlockRegistry(documents, policy)
     plans = FirestorePlanStore(documents, policy)
-    approvals = FirestoreApprovalStore(documents, policy, clock=utcnow)
+    if inputs is None:
+        approvals = FirestoreApprovalStore(documents, policy, clock=utcnow)
+    else:
+        from ..lms.planning_guard import MoodleApprovalStore
+        approvals = MoodleApprovalStore(documents, policy, inputs=inputs, snapshots=snapshots, clock=utcnow)
     guard = DurableRecoveryGuard(documents, policy)
     coordination = TrackedCoordination(documents, policy, clock=utcnow, recovery_guard=guard)
     executions = FirestoreExecutionStore(documents, policy, coordination=coordination,
@@ -55,7 +61,12 @@ def create_mcp(settings, policy, documents, *, port, close):
                 raise BindingConflict('trace_scope_required')
             return value
     emitter = ScopedEmitter()
-    assignments = instrument_assignments(AssignmentsReader(clients, snapshots, clock=utcnow), emitter)
+    if inputs is None:
+        assignments = instrument_assignments(AssignmentsReader(clients, snapshots, clock=utcnow), emitter)
+    else:
+        from ..lms.planning import MoodleAssignmentsReader
+        assignments = instrument_moodle_assignments(
+            MoodleAssignmentsReader(clients, snapshots, inputs=inputs, clock=utcnow), emitter)
     calendar = instrument_calendar(CalendarReader(clients, snapshots, registry, clock=utcnow), emitter)
     preflight = PreflightService(plans, snapshots, approvals, executions, coordination,
         registry, assignments, calendar, policy, clock=utcnow)
@@ -72,7 +83,8 @@ def create_mcp(settings, policy, documents, *, port, close):
         if name == 'apply_plan':
             with authority.contexts.request(request) as context:
                 saved = await plans.get(context, arguments['plan_id'], arguments['version'])
-                if saved.payload.constraints != settings.constraints(saved.payload.constraints.horizon.start):
+                if saved.payload.constraints != await current_constraints(
+                        settings, inputs, context, saved.payload.constraints.horizon.start):
                     raise AccessDenied('planning_policy_changed')
         await grants.claim(reference, tool=name, arguments=arguments)
         health = ObservationHealth()

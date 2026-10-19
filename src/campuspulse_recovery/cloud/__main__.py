@@ -23,7 +23,9 @@ def main():
         from google.cloud.firestore import AsyncClient
         from ..security.resources import ResourcePolicy
         from ..storage.plans import FirestoreDocuments
-        policy = ResourcePolicy(settings.application, environment='cloud')
+        from .planning import assignments_resource
+        policy = ResourcePolicy(settings.application, environment='cloud',
+                                assignments_resource_id=assignments_resource(settings))
         client = AsyncClient(project=policy.config.project_id, database=policy.config.firestore_database)
         documents = FirestoreDocuments(client, project_id=policy.config.project_id,
                                       database_id=policy.config.firestore_database)
