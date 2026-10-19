@@ -3,6 +3,7 @@
 import itertools
 import subprocess
 import sys
+import sysconfig
 from datetime import timedelta
 from pathlib import Path
 
@@ -508,9 +509,10 @@ def test_tiny_models_against_independent_exhaustive_slot_oracle():
 
 def test_domain_import_and_execution_with_sdk_and_network_imports_blocked():
     src = str(Path(__file__).resolve().parents[2] / "src")
+    dependencies = list(dict.fromkeys(sysconfig.get_path(name) for name in ("purelib", "platlib")))
     code = f"""
 import sys
-sys.path.insert(0, {src!r})
+sys.path[:0] = {[src, *dependencies]!r}
 class NoIntegrations:
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split('.')[0] in {{'google', 'vertexai', 'mcp', 'httpx', 'requests'}} or '.integrations' in fullname:
@@ -527,6 +529,9 @@ assert solve_repair(data).status == 'feasible'
 assert not any(name.startswith(('google', 'vertexai', 'mcp')) for name in sys.modules)
 print('pure import and solve PASS')
 """
-    completed = subprocess.run([sys.executable, "-I", "-B", "-c", code], text=True, capture_output=True)
+    # -S prevents installed namespace .pth files from preloading Google before
+    # the import guard exists. Dependency directories above are added as data;
+    # their startup hooks are never executed.
+    completed = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", code], text=True, capture_output=True)
     assert completed.returncode == 0, completed.stderr
     assert "pure import and solve PASS" in completed.stdout
