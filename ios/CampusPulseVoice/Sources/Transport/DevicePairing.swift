@@ -13,8 +13,8 @@ struct DeviceCredential: Sendable, CustomStringConvertible, CustomReflectable {
     var customMirror: Mirror { Mirror(self, children: ["status": "redacted"]) }
 }
 
-// Local immutable connection identity, NOT server resource authorization. W11
-// creates a NEW VoiceSession on credential adoption. The digest is never logged.
+
+
 struct VoiceClaim: Equatable, Sendable, CustomStringConvertible, CustomReflectable {
     let origin: BackendOrigin
     let expiresAt: Date
@@ -72,7 +72,7 @@ struct KeychainCredentialStore: CredentialStore {
 
 struct PairingPresentation: Sendable {
     enum Status: String, Sendable { case awaitingBrowserReview, exchanging, paired, cancelled, deniedOrExpired }
-    let code: String  // Deliberate on-screen code; never diagnostic data or URL input.
+    let code: String
     let expiresAt: Date
     let verificationPage: URL
     let status: Status
@@ -86,7 +86,7 @@ struct PairingProof: Sendable, CustomStringConvertible, CustomReflectable {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw VoiceFailure.pairingDenied }
         self.init(verifier: Self.base64url(Data(bytes)))
     }
-    // Injectable RFC7636 vector for XCTest, not a caller-selected device identity.
+
     init(verifier: String) {
         self.verifier = verifier
         challenge = Self.base64url(Data(SHA256.hash(data: Data(verifier.utf8))))
@@ -141,8 +141,8 @@ actor DevicePairing {
             throw VoiceFailure.pairingDenied
         }
     }
-    // Called only by the foreground Continue action after the browser review.
-    // This does not itself approve; the server must find real browser approval.
+
+
     func continueAfterBrowserApproval(now: Date = Date()) async throws {
         guard !busy, let value = attempt, value.expires > now else { attempt = nil; throw VoiceFailure.pairingDenied }
         busy = true; attempt = nil; status = .exchanging; let ticket = epoch
@@ -160,7 +160,7 @@ actor DevicePairing {
             try store.save(credential, for: origin); status = .paired
         } catch {
             if ticket == epoch { status = .deniedOrExpired }
-            // Unknown exchange outcome is never retried; start a new pairing.
+
             throw VoiceFailure.pairingDenied
         }
     }

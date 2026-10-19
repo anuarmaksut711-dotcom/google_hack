@@ -1,5 +1,5 @@
 -r voice-client.in
-# Loopback TLS/ASGI + targeted tests only. No Google SDK or model network.
+
 fastapi==0.141.1
 starlette==1.8.0
 uvicorn==0.54.0

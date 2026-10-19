@@ -113,7 +113,7 @@ class VoiceCoordinator:
         self.input = _Buffer(p.MAX_QUEUED_INPUT_PCM)
         self.output = _Buffer(p.MAX_QUEUED_OUTPUT_PCM)
         self.tasks = set()
-        self.authority_lock = asyncio.Lock()  # local sequencing, NOT durable ownership
+        self.authority_lock = asyncio.Lock()
         self.interrupted = asyncio.Event()
         self.invalidated_through = 0
         self.generation, self.output_open, self.turn_started = 0, False, None
@@ -151,8 +151,8 @@ class VoiceCoordinator:
         """W05 adapter hook for SDK-internal tools; do not cache its result."""
         self._require_local_lifetime()
         async with self.authority_lock:
-            # Waiting for a renewal/check lock or store response does not keep
-            # this request alive. Re-fence both sides of each awaited boundary.
+
+
             self._require_local_lifetime()
             access = await self.sessions.check(self.lease, tool=name)
             self._require_local_lifetime()
@@ -193,7 +193,7 @@ class VoiceCoordinator:
                 if not isinstance(start, p.Start):
                     raise p.ProtocolError("invalid_state")
                 self.state.accept_client(start, now=self.clock.monotonic())
-                # open is owned by this request, bounded, cancelled on disconnect/stop.
+
                 self._spawn(self._receive_client())
                 self._spawn(self._watch())
                 self._spawn(self._open())
@@ -210,7 +210,7 @@ class VoiceCoordinator:
             reason = "upstream_error"
         finally:
             self._end(reason)
-            # Retain and JOIN cleanup even if HTTP/request cancellation repeats.
+
             cleanup = asyncio.create_task(self._cleanup(reason), name="voice-cleanup")
             while not cleanup.done():
                 try:
@@ -231,7 +231,7 @@ class VoiceCoordinator:
             self.upstream = await self.provider.open(self.lease, self.resume)
         if self.terminal.done():
             return
-        # No packet is admitted until ready has actually been written.
+
         ready = self._message("ready", session_id=self.lease.session_id, run_id=self.lease.run_id,
             expires_in_ms=max(1, min(p.MAX_SESSION_MS, int((self.lease.deadline - self.sessions.now()).total_seconds() * 1000))),
             input_format=p.INPUT_FORMAT, output_format=p.OUTPUT_FORMAT)
@@ -280,7 +280,7 @@ class VoiceCoordinator:
             packet, size = await self.input.get()
             try:
                 async with asyncio.timeout(self.limits.send_seconds):
-                    # Ingress authorization does not cover time in this queue.
+
                     self._require_local_lifetime()
                     await self.upstream.send(packet)
             except TimeoutError:
@@ -314,7 +314,7 @@ class VoiceCoordinator:
                 elif event.phase in ("completed", "interrupted"):
                     if event.generation != self.generation or not self.output_open:
                         if event.generation <= self.invalidated_through:
-                            continue  # late old completion after interruption
+                            continue
                         raise p.ProtocolError("stale_generation")
                     self.output_open, self.turn_started = False, None
                     if event.phase == "interrupted":
@@ -333,7 +333,7 @@ class VoiceCoordinator:
                     p.encode_audio(p.AudioFrame("output", self.lease.connection_generation,
                                                event.generation, 0, event.pcm))
                 else:
-                    # Validate before queue admission; wire sequencing is writer-owned.
+
                     self._message("transcript", **vars(event))
                 self.output.put(event, len(event.pcm) if isinstance(event, OutputAudio) else 0)
             elif isinstance(event, ResumeUpdate):
@@ -342,14 +342,14 @@ class VoiceCoordinator:
                 if (event.call_id in self.calls or len(self.calls) >= 64 or self.active_tools >= 4
                         or len(json.dumps(event.arguments, allow_nan=False).encode("utf-8")) > 16384):
                     raise p.ProtocolError("limit_exceeded")
-                # Validate name/ID and emit observability; no public tool is added.
+
                 self._message("tool_started", call_id=event.call_id, tool=event.tool)
                 await self.authorize_tool(event.tool)
                 self.calls.add(event.call_id)
                 self.call_started[event.call_id] = self.clock.monotonic()
                 self.resume = self.resume.changed(seen_call_ids=tuple(sorted(self.calls)))
-                # Retire this call durably BEFORE dispatch. A crash/lost ack may
-                # conservatively discard a read, but never replays it on resume.
+
+
                 await self._checkpoint()
                 self._require_local_lifetime()
                 self.active_tools += 1
@@ -366,7 +366,7 @@ class VoiceCoordinator:
                 self._require_local_lifetime()
                 result = (ToolResult("unavailable") if self.tools is None
                           else await self.tools.execute(access, request))
-            # Access can expire/revoke while the external read is pending.
+
             await self.authorize_tool(request.tool)
             async with asyncio.timeout(self.limits.send_seconds):
                 self._require_local_lifetime()
@@ -387,8 +387,8 @@ class VoiceCoordinator:
             await self.client.send(packet)
 
     def _require_local_lifetime(self):
-        # Cheap local deadline/fence check even if a transaction is stalled or
-        # an instance resumes after its lease has expired. Not a revocation cache.
+
+
         if self.terminal.done():
             raise AccessDenied("voice_stream_stopped")
         now = self.sessions.now()
@@ -400,8 +400,8 @@ class VoiceCoordinator:
             raise AccessDenied("voice_stream_stale")
 
     async def _send_audio(self, packet):
-        # Stop/interruption cannot queue behind a stalled audio writer. Keep
-        # binary's original generation even if interruption wins the race.
+
+
         sending = asyncio.create_task(self._send(packet), name="voice-audio-send")
         wake = asyncio.create_task(self.interrupted.wait(), name="voice-interruption")
         try:
@@ -419,7 +419,7 @@ class VoiceCoordinator:
     def _history(self, event):
         if not event.final:
             return
-        # Persist only bounded final text, never partial transcripts/raw audio.
+
         text = event.text[:512]
         notes = list(self.resume.history) + [HistoryNote(speaker=event.speaker, text=text)]
         notes = notes[-HISTORY_ENTRIES:]
@@ -487,15 +487,15 @@ class VoiceCoordinator:
                 self.cleanup_failed = True
                 for task in pending:
                     task.cancel()
-            # Never discard pending children and claim no orphans. Port contract
-            # requires cancellation acknowledgement, including during cleanup.
+
+
             await asyncio.gather(*self.tasks, return_exceptions=True)
         self.input.discard(lambda _: True)
         self.output.discard(lambda _: True)
 
         async def attempt(action):
             try:
-                # Share one close budget across all actions, including joins.
+
                 remaining = max(0, deadline - asyncio.get_running_loop().time())
                 async with asyncio.timeout(min(self.limits.close_seconds / 8, remaining)):
                     await action()
@@ -506,14 +506,14 @@ class VoiceCoordinator:
             await attempt(self.upstream.cancel)
             await attempt(self.upstream.close)
         if self.lease is not None:
-            # Best effort checkpoint; revoked state cannot be used for resume.
+
             if reason in ("stopped", "disconnected"):
                 await attempt(self._checkpoint)
             await attempt(lambda: self.sessions.release(self.lease))
         if self.state is not None and self.state.phase not in (p.Phase.NEW, p.Phase.CLOSED):
-            # Stop has already moved W02 to CLOSING: only error/closed may
-            # follow. Work is cancelled/joined above; do not turn its expected
-            # terminal state into a forbidden trace or a false cleanup failure.
+
+
+
             if self.state.phase == p.Phase.ACTIVE:
                 for call_id, (tool, done) in self.state.tools.items():
                     if not done:

@@ -37,7 +37,7 @@ def control(kind, generation=1, **fields):
 
 
 async def settle(predicate=lambda: True):
-    # Only schedule ready tasks. No real-time sleeps, model or I/O.
+
     for _ in range(100):
         await asyncio.sleep(0)
         if predicate():
@@ -203,7 +203,7 @@ def test_full_duplex_and_interruption_flushes_queued_and_late_old_audio():
         await settle(lambda: bool(provider.stream.received))
         assert not any(isinstance(x, p.AudioFrame) for x in client.sent)
         provider.stream.emit(ResponseBoundary(1, "interrupted"))
-        provider.stream.emit(OutputAudio(1, b"\0"*960))  # provider late data retains old generation
+        provider.stream.emit(OutputAudio(1, b"\0"*960))
         provider.stream.emit(ResponseBoundary(2, "started"))
         provider.stream.emit(OutputAudio(2, b"\0"*960))
         provider.stream.emit(OutputTranscript(2, "final_new", "assistant", 0, True, "Новый ответ"))
@@ -213,7 +213,7 @@ def test_full_duplex_and_interruption_flushes_queued_and_late_old_audio():
         assert [x.generation for x in client.sent if isinstance(x, p.AudioFrame)] == [2]
         assert not any(isinstance(x, p.Transcript) and x.transcript_id == "partial_old" for x in client.sent)
         assert any(isinstance(x, p.Interrupted) and x.generation == 1 for x in client.sent)
-        # Feed the actual sent stream into the independent shared protocol checker.
+
         check = p.ProtocolState(1)
         check.accept_client(p.parse_json(control("start"), client=True), now=0)
         for item in client.sent:
@@ -224,7 +224,7 @@ def test_full_duplex_and_interruption_flushes_queued_and_late_old_audio():
         assert not result.cleanup_failed
         assert provider.stream.closed and provider.stream.cancelled
         assert len(worker.resume.history) == 1
-        # New connection never replays packets/tools; counters and run are fresh.
+
         fresh = h.repository()
         lease, resume = await fresh.acquire(TOKEN)
         assert lease.connection_generation == 2 and resume.history == worker.resume.history
@@ -316,7 +316,7 @@ def test_queue_byte_count_and_rate_budgets_are_bounded(direction):
             await client.audio_blocked.wait()
             for _ in range(5): provider.stream.emit(OutputAudio(1, b"\0"*1920))
         elif direction == "events":
-            # The count budget is also enforced without any PCM allocation.
+
             buffer = c._Buffer(9600)
             for _ in range(32): buffer.put(("synthetic", {}))
             with pytest.raises(p.ProtocolError, match="backpressure"): buffer.put(("synthetic", {}))
@@ -367,7 +367,7 @@ def test_own_deadlines_do_not_get_extended_by_heartbeat(timeout):
             if timeout != "heartbeat":
                 client.put(control("heartbeat"))
                 if timeout == "session":
-                    # Keep activity alive while proving the hard total cap.
+
                     client.put(control("mute", muted=bool((elapsed//10) % 2)))
                 await settle(lambda: worker.last_packet == h.clock.monotonic())
             h.clock.advance(10)
@@ -401,7 +401,7 @@ def test_cancellation_during_cleanup_is_joined_and_bounded_close_failure_visible
         client.put(control("stop"))
         await entered.wait()
         task.cancel()
-        # close is cancelled by its bounded cleanup budget; no detached worker.
+
         with pytest.raises(asyncio.CancelledError): await asyncio.wait_for(task, 1)
         assert worker.cleanup_failed and all(t.done() for t in worker.tasks)
         assert client.closed
@@ -422,12 +422,12 @@ def test_child_suppressing_first_cancellation_is_recancelled_and_joined():
                 try: await asyncio.Event().wait()
                 finally: second_cancel.set()
         provider.stream.receive = resistant_read
-        # Release the already pending old receive so the next read uses this method.
+
         provider.stream.emit(ResumeUpdate("synthetic-transport", worker.lease.deadline))
         await waiting.wait()
         client.put(control("stop"))
         result = await asyncio.wait_for(task, 1)
-        assert result.cleanup_failed  # cancellation contract violation is visible
+        assert result.cleanup_failed
         assert first_cancel.is_set() and second_cancel.is_set()
         assert all(t.done() for t in worker.tasks) and client.closed
         assert [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()] == []
@@ -437,8 +437,8 @@ def test_child_suppressing_first_cancellation_is_recancelled_and_joined():
 def test_metadata_flood_and_past_lease_cannot_continue_streaming():
     async def scenario():
         h, provider, client, worker, task = await launch()
-        # An expired process-local lease cannot emit packets after another holder
-        # could take over, even before its delayed heartbeat is scheduled.
+
+
         h.clock.advance(16)
         provider.stream.emit(ResponseBoundary(1, "started"))
         provider.stream.emit(OutputAudio(1, b"\0"*960))
@@ -479,7 +479,7 @@ def test_reconnect_opens_fresh_transport_and_rejects_old_connection_packets():
 def test_revoked_context_cannot_reopen_and_delayed_start_rechecks_authority():
     async def scenario():
         h, provider, client = SessionSetup(), FakeProvider(), FakeClient()
-        client.incoming.get_nowait()  # delay user start after durable acquisition
+        client.incoming.get_nowait()
         worker = coordinator(h, provider)
         task = asyncio.create_task(worker.run(TOKEN, client))
         await settle(lambda: worker.lease is not None)
@@ -488,7 +488,7 @@ def test_revoked_context_cannot_reopen_and_delayed_start_rechecks_authority():
         await settle(task.done)
         await finish(client, worker, task, "revoked")
         assert not provider.opened.is_set()
-        # Even a stored resumption token is not permission to reopen.
+
         next_client = FakeClient()
         next_provider = FakeProvider()
         next_worker = coordinator(h, next_provider)
@@ -505,7 +505,7 @@ def test_resume_does_not_reexecute_retired_tool_call_after_crash():
         h, provider, client, worker, task = await launch(tools=tool)
         provider.stream.emit(ToolRequest("read_before_crash", "read_calendar", {}))
         await tool.started.wait()
-        # The durable record already retires the ID before the read is started.
+
         from campuspulse_recovery.storage.plans import _decode
         from campuspulse_recovery.voice.sessions import _Claim, _path
         claim = _decode(h.documents.data[_path(worker.lease.device_id)], "voice_stream", _Claim)
@@ -551,8 +551,8 @@ class ControlledDocuments(FakeDocuments):
             if self.check_count == self.pause_check:
                 self.check_started.set()
                 await self.check_gate.wait()
-                # Deliver the terminal/expiry signal at the awaited ack boundary,
-                # before the caller can dispatch using this earlier snapshot.
+
+
                 self.on_check_ack()
         return result
 
@@ -590,7 +590,7 @@ def test_queued_duplex_is_fenced_during_stalled_renewal_and_successor_takeover(e
         h.documents.pause_renew = True
         h.clock.advance(10)
         await h.documents.renew_started.wait()
-        # Tool authorization is also queued behind the old renewal's local lock.
+
         provider.stream.emit(ToolRequest("queued_read", "read_calendar", {}))
         await settle(lambda: provider.stream.events.empty())
         h.clock.advance(elapsed - 10)
@@ -600,8 +600,8 @@ def test_queued_duplex_is_fenced_during_stalled_renewal_and_successor_takeover(e
         assert successor.holder_id != worker.lease.holder_id
         assert not task.done() and not worker.terminal.done()
 
-        # Finish the sends ALREADY dispatched at t=0, releasing their successors
-        # from the real input/output queues at t=16/541. New sends must be fenced.
+
+
         provider.stream.send_gate.set()
         client.audio_gate.set()
         await settle(task.done)
@@ -625,12 +625,12 @@ def test_authorization_waiting_on_lock_cannot_return_access_or_dispatch_after_te
         async def adapter_call():
             entered.set()
             access = await worker.authorize_tool("read_calendar")
-            # Simulate an SDK hook consumer. Returned access must never restart
-            # a read after the boundary; this task is explicitly joined below.
+
+
             dispatched.append(access.device_id)
 
         authorization = asyncio.create_task(adapter_call())
-        await entered.wait()  # caller is suspended on the held authority lock
+        await entered.wait()
         if boundary == "stop": worker._end("stopped")
         else: h.clock.advance(16 if boundary == "lease" else 541)
         worker.authority_lock.release()
@@ -657,8 +657,8 @@ def test_awaited_durable_check_cannot_restart_tool_or_result_dispatch(dispatch_c
 
         h, provider, client, worker, task = await launch(h, tools=ImmediateRead())
         h.documents.check_count = 0
-        # 1: incoming ToolRequest guard; 2: immediately before actual handler;
-        # 3: immediately before returning the read result to upstream.
+
+
         h.documents.pause_check = dispatch_check
         if boundary == "stop": h.documents.on_check_ack = lambda: worker._end("stopped")
         else: h.documents.on_check_ack = lambda: h.clock.advance(16 if boundary == "lease" else 541)
@@ -692,8 +692,8 @@ def test_stop_after_delivered_tool_starts_obeys_closing_protocol(pending_count, 
         call_ids = {"pending_read_" + str(i) for i in range(pending_count)}
         for call_id in sorted(call_ids):
             provider.stream.emit(ToolRequest(call_id, "read_calendar", {}))
-        # Admission/handler entry alone did not expose this bug. The starts must
-        # actually be delivered before the client Stop changes phase to CLOSING.
+
+
         await settle(lambda: len([x for x in client.sent if isinstance(x, p.ToolStarted)]) == pending_count
                      and len(tools.executions) == pending_count)
         assert worker.state.phase == p.Phase.ACTIVE
@@ -712,8 +712,8 @@ def test_stop_after_delivered_tool_starts_obeys_closing_protocol(pending_count, 
         assert client.sent[-1].reason == "stopped"
         assert worker.state.phase == p.Phase.CLOSED
 
-        # Independent W02 checker accepts the actual delivered terminal trace;
-        # no forbidden ToolFinished, fabricated success or late output is sent.
+
+
         state = p.ProtocolState(worker.lease.connection_generation)
         state.accept_client(p.parse_json(control("start"), client=True), now=0)
         for packet in client.sent:
@@ -731,9 +731,9 @@ def test_stop_after_delivered_tool_starts_obeys_closing_protocol(pending_count, 
 
 
 def test_actual_sdk_stop_after_delivered_start_keeps_protocol_and_retired_id(monkeypatch):
-    # This W04 companion uses W05's existing SDK/network doubles unchanged. It
-    # does not replace/modify the separately executed W05 regression, whose old
-    # hard assertions currently require the defect itself to remain present.
+
+
+
     pytest.importorskip("google.adk")
     from tests.voice import test_live_agent as sdk
     import google.adk.runners as sdk_runner
@@ -789,6 +789,6 @@ def test_actual_sdk_stop_after_delivered_start_keeps_protocol_and_retired_id(mon
         assert len(mcp.calls) == 1
         mcp.gate = None
         await connection_run(replay=True)
-        assert len(mcp.calls) == 1  # retired cancelled read cannot execute twice
+        assert len(mcp.calls) == 1
         assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
     run(scenario())

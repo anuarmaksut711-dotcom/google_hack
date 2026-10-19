@@ -31,7 +31,7 @@ def instant(value: datetime | str) -> datetime:
     try:
         if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("naive/invalid datetime is not an instant")
-        # Also reject manufactured nonexistent ZoneInfo local times.
+
         normalized = value.astimezone(UTC)
         if normalized.astimezone(value.tzinfo).replace(tzinfo=None) != value.replace(tzinfo=None):
             raise ValueError("nonexistent local time")

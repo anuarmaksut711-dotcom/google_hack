@@ -140,7 +140,7 @@ def test_normalization_dates_unicode_order_and_explicit_work():
     assert assignments[0].deadline.at == datetime(2026, 10, 20, 13, tzinfo=UTC)
     assert assignments[1].deadline.at == datetime(2026, 10, 20, 19, tzinfo=UTC)
     assert assignments[1].deadline.precision == "date"
-    assert assignments[1].remaining_minutes == 120  # No calendar-based subtraction.
+    assert assignments[1].remaining_minutes == 120
 
 
 @pytest.mark.parametrize("field,value,code", [
@@ -199,13 +199,13 @@ def test_authoritative_snapshot_roundtrip_backend_reload_and_binding():
         h = Harness()
         with h.request() as context:
             snapshot = await h.reader.read_assignments(context, REQUEST)
-            assert h.documents.data  # Already persisted before return.
+            assert h.documents.data
             assert snapshot.source.complete
             assert AssignmentReadResult(snapshot=snapshot).status == "complete"
             assert snapshot.source.reference.read_at == NOW
-            assert snapshot.source.source_version is None  # No invented provider revision.
+            assert snapshot.source.source_version is None
             assert snapshot.source.reference.snapshot_id.startswith("as_")
-        # Real backend repository path, no model row payload required.
+
         with h.request("backend") as backend:
             loaded = await h.store.get_assignments(backend, snapshot.source.reference)
             rows = normalized_assignments(loaded)
@@ -342,7 +342,7 @@ def test_port_authority_rejected_before_any_api_or_storage(variant):
             elif variant == "raw_dict":
                 candidate = candidate.model_dump()
             elif variant == "copied_capability":
-                # The capability type itself prevents ordinary copying.
+
                 with pytest.raises(TypeError, match="server request scope"):
                     copy(ctx)
                 assert not h.calls and not h.documents.data
@@ -363,7 +363,7 @@ def test_port_authority_rejected_before_any_api_or_storage(variant):
                 return
             elif variant == "wrong_current_scope":
                 with h.request() as current:
-                    assert candidate == current.as_port_context()  # Equal is insufficient.
+                    assert candidate == current.as_port_context()
                     with pytest.raises(AccessDenied):
                         await reader.read(candidate, REQUEST.horizon)
                 assert not h.calls and not h.documents.data
@@ -372,7 +372,7 @@ def test_port_authority_rejected_before_any_api_or_storage(variant):
                 with pytest.raises(AccessDenied):
                     await reader.read(candidate, REQUEST.horizon)
         if variant == "closed":
-            # Even a resolver retaining the old capability cannot revive it.
+
             h.current.set(ctx)
             with pytest.raises(AccessDenied):
                 await reader.read(candidate, REQUEST.horizon)

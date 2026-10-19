@@ -169,20 +169,20 @@ def _evaluate(plan, ledger, old_a, old_c, fresh_a, fresh_c, records, attempted, 
             blocks = [b for b in plan.payload.blocks if b.assignment_id == aid]
             check("verify_deadline_mismatch", all(b.interval.end <= a.deadline.at for b in blocks),
                   assignment=aid, deadline=a.deadline.at)
-            # Only entire still-future matching blocks are promised capacity.
+
             minutes = sum(int(b.interval.minutes) for b in blocks if matches[b.block_id]
                           and b.interval.start > at and b.interval.end <= a.deadline.at)
             deficit = max(0, a.required_minutes - minutes)
             check("verify_remaining_capacity_deficit", deferred or deficit == 0,
                   assignment=aid, deficit=deficit, deadline=a.deadline.at)
-        # Deadline-prefix capacity, including overlapping external all-day and
-        # recurring busy instances, never just the horizon-wide total.
+
+
         for deadline in sorted({a.deadline.at for a in assignments.values() if a.deadline.at <= horizon.end}):
             required = sum(a.required_minutes for a in assignments.values() if a.deadline.at <= deadline)
             slots = 0
             from datetime import timedelta
-            # Same horizon-anchored grid as T14. Offset window boundaries do
-            # not shift slots; any-window containment counts each slot once.
+
+
             start = horizon.start
             while start + timedelta(minutes=15) <= min(horizon.end, deadline):
                 end = start + timedelta(minutes=15)
@@ -331,8 +331,8 @@ class VerificationService(_Repository):
         for name, reader in (("assignments", self.assignments), ("calendar", self.calendar)):
             try:
                 fresh = await reader.read(context, plan.payload.constraints.horizon)
-                # Reader output only supplies a reference; authoritative bytes
-                # are independently reloaded below, never accepted from a DTO.
+
+
                 self.policy.require_source(context, fresh.source.reference)
                 _require(fresh.source.reference.kind == name, "verification_source_kind_mismatch")
                 if name == "assignments":
@@ -351,7 +351,7 @@ class VerificationService(_Repository):
             self._ledger(ledger)
             inputs = await self._inputs(context, tx, saved, a_ref, c_ref, current=True)
             self._mcp(context)
-            at = instant(self.clock())  # after ALL relevant awaited source/registry reads
+            at = instant(self.clock())
             for source in inputs[2:4]:
                 if source is not None:
                     ref = source.source.reference
@@ -372,8 +372,8 @@ class VerificationService(_Repository):
             except PortError as error:
                 if isinstance(error, BindingConflict):
                     raise
-                # Re-read/replay THIS proof after an ambiguous commit. Neither
-                # a fresh UUID nor another Calendar observation is substituted.
+
+
                 await self.executions.accept_verification(context, reference=plan_reference(plan), proof_id=proof_id)
         self._mcp(context)
         return evidence.result
@@ -405,9 +405,9 @@ class VerificationService(_Repository):
             self._mcp(context)
             if existing is None:
                 tx.create(root + "/observations/" + proof_id, document)
-            # A transaction serializes ties at the same server-clock instant.
-            # Duplicate/restarted proof cannot rewind a newer pointer. Older
-            # delayed observations retain their history without replacing latest.
+
+
+
             if latest is None or (existing is None and value.observed_at >= latest.observed_at):
                 tx.set(root + "/index/latest", _encode("verification_latest", value))
             return proof_id
@@ -416,7 +416,7 @@ class VerificationService(_Repository):
         except PortError as error:
             if isinstance(error, BindingConflict):
                 raise
-            # SAME identity only: commit timeout may have saved the observation.
+
             _require(await self.documents.get(root + "/observations/" + proof_id) == document,
                      "verification_append_outcome_unknown")
             self._mcp(context)
@@ -506,8 +506,8 @@ class _VerificationGuard:
                          "verification_latest", _Latest)
         _require(latest.proof_id == proof_id and latest.observed_at == evidence.observed_at,
                  "verification_newer_observation_exists")
-        # Restart may authenticate a new run; preserve and validate the actual
-        # saved read run, not the current recovery run as manufactured evidence.
+
+
         return await self.store._validate(context, tx, evidence, plan, ledger, current=False)
 
     async def require_consumed(self, context, tx, proof_id, ledger, plan, link):

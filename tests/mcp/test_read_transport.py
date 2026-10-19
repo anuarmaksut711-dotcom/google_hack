@@ -35,7 +35,7 @@ from tests.integrations.test_calendar_read import Harness, HORIZON, NOW
 
 
 def run(coro):
-    # Unlike the storage unit runner, this suite deliberately allows localhost I/O.
+
     with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
         return runner.run(coro)
 
@@ -80,7 +80,7 @@ class TransportHarness(Harness):
 
 @asynccontextmanager
 async def serving(h, *, close=None):
-    # Pass a prebound socket to avoid free-port races; production stays 0.0.0.0.
+
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen()
@@ -299,7 +299,7 @@ def test_root_sdk_malformed_metadata_redaction_preserves_application_logs(level,
                     hostile = {**headers, key: SECRET if key == "Host" else "https://" + SECRET}
                     rejected = await http.post(url + "/mcp", headers=hostile, json={})
                     assert rejected.status_code in (421, 403) and SECRET not in rejected.text
-                # Raw adapter errors also remain safe with DEBUG enabled.
+
                 h.sheet_failure = RuntimeError(SECRET)
                 async with session(url) as client:
                     result = await client.call_tool("read_assignments", ReadAssignmentsInput(horizon=HORIZON).model_dump(mode="json"))
@@ -319,7 +319,7 @@ def test_lifespan_closes_sync_and_async_client_exactly_once(asynchronous):
     async def scenario():
         closed = []
         class SynchronousClient:
-            # Production AsyncClient.close is a synchronous method returning None.
+
             def close(self):
                 closed.append("closed")
         async def async_close():
@@ -346,7 +346,7 @@ def test_entrypoint_injected_port_and_fail_closed():
     env = os.environ.copy()
     env.pop("CAMPUSPULSE_MCP_APP_FACTORY", None)
     script = product / "deploy" / "mcp-entrypoint.py"
-    # Include test dependencies only in this child, including when testing wheel.
+
     package_root = Path(sys.modules["campuspulse_recovery"].__file__).parents[1]
     env["PYTHONPATH"] = os.pathsep.join([str(package_root), str(product), str(Path(pytest.__file__).parents[1])])
     failed = subprocess.run([sys.executable, "-B", str(script)], env=env, capture_output=True, text=True, timeout=15)

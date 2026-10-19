@@ -62,7 +62,7 @@ import XCTest
     }
     private func prepare(driver: TestAudioSessionDriver) throws -> (AudioController, VoiceSession, FakeVoiceSocket, TestAudioGraph) {
         let graph = TestAudioGraph(events: AudioEventMailbox())
-        // Notification tests below use their own factory with the real mailbox.
+
         let audio = AudioController(driver: driver) { _ in graph }
         let socket = FakeVoiceSocket(), voice = VoiceSession(claim: socket.claim, audio: audio, observer: FakeObserver())
         try audio.bind(voice)
@@ -170,7 +170,7 @@ import XCTest
         try await waitFor { await voice.state == .listening }
         let next = try await audio.userBeginUtterance()
         try await waitFor { made[1].starts == 1 }
-        audio.close(epoch: ticket.epoch) // Late close cannot shut down fresh graph.
+        audio.close(epoch: ticket.epoch)
         XCTAssertEqual(made[1].shutdowns, 0); XCTAssertNotEqual(next.ticket.epoch, ticket.epoch)
         await audio.userStop()
     }

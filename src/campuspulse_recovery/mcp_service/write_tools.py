@@ -41,7 +41,7 @@ async def dispatch(name, arguments, *, request, contexts, apply, verification):
                      else await verification.verify(context, payload))
             result = outputs.model_validate(value)
             contexts.policy.require_context(context)
-            # Non-success domain outcomes retain all typed findings/progress.
+
             failed = (result.execution.status not in ("applied_unverified", "verified")
                       if name == "apply_plan" else result.status != "verified")
             return CallToolResult(isError=failed, structuredContent=result.model_dump(mode="json"),
@@ -59,5 +59,5 @@ async def dispatch(name, arguments, *, request, contexts, apply, verification):
     except PortError:
         return error_result("domain_unavailable_reload_request_before_retry")
     except Exception:
-        # Never imply no effect after an interrupted dispatch, or expose repr.
+
         return error_result("domain_failed_reload_request_before_retry")

@@ -80,14 +80,14 @@ def test_fixed_bytes_independent_decode_and_encode(vector):
     assert raw.hex() == vector["hex"]
     assert hashlib.sha256(raw).hexdigest() == vector["sha256"]
     assert raw[:8] == bytes.fromhex("4350564101" + ("01" if vector["kind"] == "input" else "02") + "0018")
-    # Independent decoder: no product codec/HEADER/struct to derive expected fields.
+
     fields = [int.from_bytes(raw[o:o+4], "big") for o in (8, 12, 16, 20)]
     assert fields == [vector["connection_generation"], vector["generation"], vector["sequence"], 16]
     assert [int.from_bytes(raw[o:o+2], "little", signed=True) for o in range(24, 40, 2)] == GOLDEN["samples"]
     frame = p.decode_audio(raw)
     assert (frame.kind, frame.connection_generation, frame.generation, frame.sequence, frame.pcm.hex()) == (
         vector["kind"], *fields[:3], GOLDEN["pcm_hex"])
-    # Construct values from the independent manifest, not decode output.
+
     fresh = p.AudioFrame(vector["kind"], vector["connection_generation"], vector["generation"],
                          vector["sequence"], bytes.fromhex(GOLDEN["pcm_hex"]))
     assert p.encode_audio(fresh) == raw
@@ -100,7 +100,7 @@ def test_fixed_bytes_independent_decode_and_encode(vector):
 
 def test_fixture_generator_is_reproducible():
     before = {n: (FIXTURES / n).read_bytes() for n in ("input-v1.bin", "output-v1.bin", "golden.json")}
-    # Execute definitions without __main__; writing only in pytest tmp is tested below.
+
     namespace = runpy.run_path(str(FIXTURES / "generate.py"))
     for vector in namespace["VECTORS"]:
         assert bytes.fromhex(vector["hex"]) == before[vector["file"]]
@@ -255,10 +255,10 @@ def test_generation_and_sequence_interruption_order():
     state.accept_audio(audio("output",generation=1),now=0)
     error("invalid_sequence",lambda: state.accept_audio(audio("output",generation=1),now=0))
     state.accept_server(server(state,"interrupted",generation=1))
-    # No audio or late transcript from interrupted output, even before next start.
+
     error("stale_generation",lambda: state.accept_audio(audio("output",generation=1,sequence=1),now=0))
     error("stale_generation",lambda: state.accept_server(server(state,"transcript",generation=1,transcript_id="t",speaker="assistant",revision=0,final=True,text="late")))
-    state.accept_audio(audio(), now=0)  # mic independent of playback generation
+    state.accept_audio(audio(), now=0)
     error("stale_generation",lambda: state.accept_server(server(state,"generation",generation=1,phase="started")))
     generation(state)
     state.accept_audio(audio("output",generation=2),now=0)
@@ -360,7 +360,7 @@ def test_bitrate_burst_and_replenishment(kind,size):
     error("rate_limited",lambda: budget.consume(frame,now=0))
     budget.consume(frame,now=0.04)
     error("rate_limited",lambda: budget.consume(frame,now=0.04))
-    budget.consume(frame,now=10)  # idle cannot accumulate beyond 80 ms
+    budget.consume(frame,now=10)
     budget.consume(frame,now=10)
     error("rate_limited",lambda: budget.consume(frame,now=10))
 
@@ -373,7 +373,7 @@ def test_tiny_frame_and_control_floods_and_invalid_clocks():
     budget.consume(audio(),now=0.01)
     for invalid in (-1, float("inf"), float("nan"), True, 0):
         error("invalid_state",lambda: budget.consume(audio(),now=invalid))
-    state = active()  # start consumed one control token
+    state = active()
     for _ in range(19):
         state.accept_client(client(),now=0)
     error("rate_limited",lambda: state.accept_client(client(),now=0))
@@ -384,7 +384,7 @@ def test_heartbeat_cannot_grant_or_extend_authority():
     state = active()
     state.accept_client(client(),now=0)
     assert state.phase == p.Phase.ACTIVE
-    assert not hasattr(state,"expires_at")  # lifecycle authority remains external
+    assert not hasattr(state,"expires_at")
     error("invalid_message",lambda: client(expires_in_ms=540000))
     state.accept_server(server(state,"error",code="access_expired",fatal=True))
     error("invalid_state",lambda: state.accept_client(client(),now=1))

@@ -147,8 +147,8 @@ def _create_transport(*, contexts, assignments, calendar, allowed_hosts, allowed
     server.contexts, server.assignments, server.calendar = contexts, assignments, calendar
     server.complete = apply is not None and verification is not None
     server.apply, server.verification = apply, verification
-    # Pinned FastMCP registers this override with validate_input=False itself;
-    # validate exact DTOs in dispatch to keep invalid input out of error text.
+
+
 
     @server.custom_route("/healthz", methods=["GET"])
     async def health(request):

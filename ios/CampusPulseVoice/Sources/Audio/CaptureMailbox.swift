@@ -1,8 +1,8 @@
 import AVFoundation
 import Foundation
 
-// CampusPulse original. Lock protects converter, queue, partial and the one
-// admitted delivery. @unchecked Sendable is confined to this synchronized seam.
+
+
 final class CaptureMailbox: @unchecked Sendable {
     struct Delivery: Sendable {
         let id: UUID
@@ -44,8 +44,8 @@ final class CaptureMailbox: @unchecked Sendable {
         catch { failLocked((error as? AudioFailure) ?? .conversion) }
         lock.unlock(); wakeup.signal()
     }
-    // Explicit end drains converter and the final 2...638-byte partial before
-    // VoiceSession.endUtterance closes admission. Stop/mute instead discard it.
+
+
     func finish(ticket: CaptureTicket, revision: UUID) throws {
         lock.lock(); defer { lock.unlock(); wakeup.signal() }
         guard self.ticket == ticket, self.revision == revision, failure == nil, let converter else {
@@ -72,7 +72,7 @@ final class CaptureMailbox: @unchecked Sendable {
     func discard() {
         lock.lock(); accepting = false; ticket = nil; revision = UUID(); converter = nil
         queue.removeAll(); chunker = PCMChunker(); lock.unlock()
-        // inFlight remains charged until its owner acknowledges it.
+
         wakeup.signal()
     }
     var drained: Bool {

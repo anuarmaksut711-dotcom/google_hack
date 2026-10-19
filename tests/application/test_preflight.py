@@ -78,7 +78,7 @@ class Setup(CalendarHarness):
         if two:
             self.rows[0][4] = 120
         if update:
-            # Explicit synthetic successful bootstrap create, never Calendar I/O.
+
             initial = await self.seed()
             record, observation = reservation(initial), observed(initial)
             with self.request() as ctx:
@@ -105,7 +105,7 @@ class Setup(CalendarHarness):
             await self.plans.create(ctx, self.plan)
             await self.plans.set_current(ctx, plan_reference(self.plan), expected=None)
             if approve:
-                # This test-only direct backend action is NOT actual UI consent.
+
                 await self.approvals.approve(ctx, plan_reference(self.plan), "synthetic-ui-click")
         self.request_input = ApplyPlanInput(plan_id="t18-plan", version=1, request_key="apply-key")
         self.calls.clear()
@@ -240,8 +240,8 @@ def test_rejects_consent_integrity_and_key_before_source_io(case):
             path = _plan_path(h.plan.payload.owner_id, h.plan.payload.calendar_id, "t18-plan", 1)
             h.documents.data[path]["body"] += b" "
         elif case == "modified_payload":
-            # Even a resealed, internally consistent replacement cannot inherit
-            # the old current pointer/hash/actual backend consent.
+
+
             replacement = PlanVersion.seal(changed(h.plan.payload, created_at=NOW + timedelta(microseconds=1)))
             path = _plan_path(h.plan.payload.owner_id, h.plan.payload.calendar_id, "t18-plan", 1)
             h.documents.data[path] = _encode("plan", replacement)
@@ -253,7 +253,7 @@ def test_rejects_consent_integrity_and_key_before_source_io(case):
                     with h.approvals.ui_action(ctx, plan_reference(h.plan), "synthetic-revoke") as action:
                         await h.approvals.invalidate(ctx, plan_reference(h.plan), reason="revoked", at=action.at)
                 else:
-                    # Actual current pointer change, not a forged approval DTO.
+
                     other = await h.seed(version=2)
                     await h.plans.set_current(ctx, plan_reference(other), expected=plan_reference(h.plan))
         elif case == "new_key":
@@ -319,7 +319,7 @@ def test_lease_and_consent_rechecked_across_awaits(when):
             elif when == "after_calendar":
                 h.calendar_hook = lambda: setattr(h, "now", h.now + timedelta(seconds=121))
             elif when == "consent_expiry":
-                # Keep lease alive, expire approval at the first awaited read.
+
                 await h.coordination.release(ctx, lease)
                 h.now = NOW + timedelta(minutes=9, seconds=59)
                 lease = await h.claim(ctx)
@@ -460,7 +460,7 @@ def test_inflight_actual_target_observation_is_reconciliation_not_succeeded():
             assert result.status == "reconciliation_required"
             assert result.observations[0].comparison == "matched"
             assert await h.executions.get(ctx, "apply-key") == state
-            assert "preflight_availability_changed" in codes(result)  # Not projected as completed.
+            assert "preflight_availability_changed" in codes(result)
     run(scenario())
 
 
@@ -488,7 +488,7 @@ def test_elapsed_completed_calendar_write_is_not_completed_assignment_work():
         with h.request() as ctx:
             lease = await h.claim(ctx)
             state = await h.begin(ctx, lease)
-            # Complete the earliest write, not the student's workload.
+
             index = min(range(len(h.plan.payload.operations)),
                         key=lambda i: h.plan.payload.operations[i].target.interval.start)
             state = await h.dispatch(ctx, lease, state, index)
@@ -512,7 +512,7 @@ def test_untrusted_or_racing_evidence_fails_closed(case):
             lease = await h.claim(ctx)
             expected = BindingConflict
             if case == "read_failure":
-                h.pages = [{}]  # No actual native timezone, not an empty calendar.
+                h.pages = [{}]
                 expected = IncompleteRead
             elif case == "old_reference":
                 async def old_source(context, horizon):
@@ -551,14 +551,14 @@ def test_harmless_calendar_metadata_order_and_half_open_adjacency():
         h = Setup()
         h.pages = [page(event("external", start=NOW + timedelta(hours=7)))]
         await h.prepare()
-        # New link/etag and nonbusy event are not scheduling changes.
+
         h.pages[0]["items"][0].update(etag='"new-meta"', htmlLink="https://calendar.google.com/new-link")
         target = h.plan.payload.blocks[0].interval
         h.pages[0]["items"].append(event("transparent", start=target.start, transparency="transparent"))
         result = await h.check()
         assert result.status == "ready"
         from campuspulse_recovery.application.preflight import _busy
-        # Equal boundary has no conflict; union permits adjoining spans.
+
         from campuspulse_recovery.domain.models import CalendarEvent
         assert _busy((CalendarEvent(event_id="one", interval=target),
             CalendarEvent(event_id="two", interval=Interval(start=target.end, end=target.end + timedelta(hours=1)))),
@@ -634,7 +634,7 @@ def test_final_delivery_uses_one_current_time_after_last_actual_document_read(bo
         elif boundary == "target":
             h.now = first_target - timedelta(seconds=1)
             with shared_clock_request(h, boundary="backend") as backend:
-                # First actual T16 save, synthetic UI action, no renewal.
+
                 await h.approvals.approve(backend, plan_reference(h.plan), "synthetic-late-first-consent")
         lifetime = timedelta(seconds=1) if boundary == "context" else timedelta(minutes=5)
         with shared_clock_request(h, lifetime=lifetime) as context:
@@ -661,7 +661,7 @@ def test_final_delivery_uses_one_current_time_after_last_actual_document_read(bo
                         await asyncio.sleep(0)
                         h.now = delivered_at
                         deliveries.append(("delivered", h.clock()))
-                        assert before == document  # Same actual document.
+                        assert before == document
                 return document
 
             h.documents.get = delayed_get
@@ -685,8 +685,8 @@ def test_final_delivery_uses_one_current_time_after_last_actual_document_read(bo
             assert ledger_reads == 3 and len(deliveries) == 2
             assert deliveries[0][1] < deliveries[1][1] == delivered_at
             assert h.sheet_calls == 1 and len(h.calls) == 1
-            # Inspect the test document directly even when context has expired;
-            # expired authority is never used for a new repository/API call.
+
+
             state = _decode(h.documents.data[ledger_path], "execution", _Ledger).execution
             assert state.plan == plan_reference(h.plan) and state.revision == 0
             assert all(s.status == "pending" and s.attempts == 0 for s in state.operations)

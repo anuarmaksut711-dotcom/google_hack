@@ -32,7 +32,7 @@ final class AudioStateTests: XCTestCase {
         XCTAssertThrowsError(try fences.begin(first))
         let next = CaptureTicket(epoch: first.epoch, connection: 1, utterance: UUID())
         try fences.begin(next)
-        fences.retire(first) // Late stop must not remove the new turn.
+        fences.retire(first)
         XCTAssertEqual(fences.capture, next)
     }
     func testCloseBeforeAnyDataRetiresEpoch() throws {
@@ -41,7 +41,7 @@ final class AudioStateTests: XCTestCase {
         try fences.authorize()
         XCTAssertThrowsError(try fences.begin(CaptureTicket(epoch: old, connection: 1, utterance: UUID())))
         let pending = UUID()
-        XCTAssertTrue(fences.close(pending)) // Authorized pre-Ready close stops audio too.
+        XCTAssertTrue(fences.close(pending))
         XCTAssertFalse(fences.authorized)
         try fences.authorize()
         XCTAssertThrowsError(try fences.begin(CaptureTicket(epoch: pending, connection: 2, utterance: UUID())))
@@ -77,7 +77,7 @@ final class AudioStateTests: XCTestCase {
         events.close(); events.offer(.mediaReset)
         XCTAssertNil(events.take())
         var iterator = events.wakeup.stream.makeAsyncIterator()
-        // There may be one previously buffered wakeup, followed by termination.
+
         _ = await iterator.next()
         let next = await iterator.next(); XCTAssertNil(next)
     }

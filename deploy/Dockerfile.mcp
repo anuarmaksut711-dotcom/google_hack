@@ -1,5 +1,3 @@
-# Build from recovery_app: docker build -f deploy/Dockerfile.mcp -t campuspulse-mcp:t10 .
-# T12 must configure private Cloud Run IAM plus the trusted composition factory.
 FROM python:3.12.13-slim-bookworm AS build
 WORKDIR /build
 COPY requirements/dev.lock /locks/dev.lock

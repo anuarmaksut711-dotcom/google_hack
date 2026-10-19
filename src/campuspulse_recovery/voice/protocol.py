@@ -30,15 +30,15 @@ CLOSE_TIMEOUT_MS = 2000
 HEARTBEAT_INTERVAL_MS = 10000
 HEARTBEAT_TIMEOUT_MS = 30000
 IDLE_TIMEOUT_MS = 120000
-MAX_QUEUED_INPUT_PCM = 6400  # 200 ms; consumer must enforce, never store in Firestore
-MAX_QUEUED_OUTPUT_PCM = 9600  # 200 ms
+MAX_QUEUED_INPUT_PCM = 6400
+MAX_QUEUED_OUTPUT_PCM = 9600
 MAX_QUEUED_EVENTS = 32
 INPUT_RATE = 16000
 OUTPUT_RATE = 24000
 INPUT_FORMAT = "pcm_s16le_16000_mono"
 OUTPUT_FORMAT = "pcm_s16le_24000_mono"
-MAX_INPUT_PCM = 1280  # 40 ms, 640 mono samples
-MAX_OUTPUT_PCM = 1920  # 40 ms, 960 mono samples
+MAX_INPUT_PCM = 1280
+MAX_OUTPUT_PCM = 1920
 
 U32 = Annotated[StrictInt, Field(ge=0, le=UINT32_MAX)]
 PositiveU32 = Annotated[StrictInt, Field(ge=1, le=UINT32_MAX)]
@@ -65,7 +65,7 @@ class ProtocolError(ValueError):
         super().__init__(code)
 
 
-# A runtime allowlist also guards accidental exception-text forwarding.
+
 ERROR_CODES = frozenset(ErrorCode.__args__)
 
 
@@ -75,7 +75,7 @@ class Message(BaseModel):
 
 
 class ClientMessage(Message):
-    request_id: WireId  # correlation only; repeats never grant/replay authority
+    request_id: WireId
 
 
 class Start(ClientMessage):
@@ -111,9 +111,9 @@ ClientEvent = Annotated[Start | Input | Mute | Stop | Heartbeat, Field(discrimin
 
 class ServerMessage(Message):
     event_id: WireId
-    event_sequence: U32  # JSON-only counter, starts at zero with ready
+    event_sequence: U32
     connection_generation: PositiveU32
-    elapsed_ms: Millis  # monotonic since accepted start, not wall-clock proof
+    elapsed_ms: Millis
 
 
 class Ready(ServerMessage):
@@ -133,17 +133,17 @@ class Generation(ServerMessage):
 
 class Interrupted(ServerMessage):
     type: Literal["interrupted"]
-    generation: PositiveU32  # invalidated output generation, not the next one
+    generation: PositiveU32
 
 
 class Transcript(ServerMessage):
     type: Literal["transcript"]
-    generation: U32  # user = 0, assistant = active output generation
+    generation: U32
     transcript_id: WireId
     speaker: Literal["user", "assistant"]
     revision: U32
     final: StrictBool
-    text: Text  # untrusted display data; full replacement, never a delta
+    text: Text
 
 
 class ToolStarted(ServerMessage):
@@ -219,7 +219,7 @@ def _validate(data: object, *, client: bool) -> ClientEvent | ServerEvent:
     except ValidationError:
         failed = True
     if failed:
-        # Outside except: the public error has no ValidationError context/input.
+
         raise ProtocolError("invalid_message")
     return value
 
@@ -240,7 +240,7 @@ def parse_json(payload: str | bytes, *, client: bool) -> ClientEvent | ServerEve
     try:
         decoded = payload.decode("utf-8") if isinstance(payload, bytes) else payload
         data = json.loads(decoded, object_pairs_hook=_object, parse_constant=_constant)
-        # Reject escaped unpaired surrogates, including in unknown fields.
+
         json.dumps(data, ensure_ascii=False).encode("utf-8")
     except (ValueError, UnicodeError, RecursionError):
         failed = True
@@ -254,7 +254,7 @@ def encode_json(event: ClientMessage | ServerMessage, *, client: bool) -> str:
         raise ProtocolError("invalid_message")
     validated = _validate(event.model_dump(mode="python", warnings=False), client=client)
     result = json.dumps(validated.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    parse_json(result, client=client)  # same size/UTF-8 rules in either direction
+    parse_json(result, client=client)
     return result
 
 
@@ -335,8 +335,8 @@ class AudioBudget:
             raise ProtocolError("invalid_frame")
         self.kind = kind
         rate = (INPUT_RATE if kind == "input" else OUTPUT_RATE) * 2
-        self.bytes = _Bucket(rate, rate * 0.08)  # 80 ms burst
-        self.frames = _Bucket(100, 10)  # also bound tiny-frame flooding
+        self.bytes = _Bucket(rate, rate * 0.08)
+        self.frames = _Bucket(100, 10)
 
     def consume(self, frame: AudioFrame, *, now: float) -> None:
         _frame(frame)

@@ -13,10 +13,10 @@ struct PlaybackAdmission: Equatable, Sendable {
 
 enum PlaybackOutcome: Equatable, Sendable { case consumed, cancelled, failed }
 
-// Physical completion is distinct from cancellation of a Swift waiter. Native
-// callbacks resolve once; cancelling wait() only wakes that waiter and MUST NOT
-// claim the native buffer was consumed/cancelled. W09 retains its charge until
-// real consumption or native flush acknowledgement plus waiter retirement.
+
+
+
+
 final class PlaybackConsumption: @unchecked Sendable {
     private let lock = NSLock()
     private var outcome: PlaybackOutcome?
@@ -63,8 +63,8 @@ struct PlaybackReceipt: Sendable {
     let consumption: PlaybackConsumption
 }
 
-// Pure bounded accounting used by the actor. Entries remain charged while
-// queued, awaiting MainActor admission, natively scheduled or being cancelled.
+
+
 struct PlaybackLedger: Sendable {
     struct Work: Sendable { let frame: AudioEnvelope; let admission: PlaybackAdmission }
     private enum Phase: Equatable, Sendable { case queued, admitting, scheduled }
@@ -97,9 +97,9 @@ struct PlaybackLedger: Sendable {
         guard var entry = entries[id] else { return nil }
         entry.phase = .admitting; entries[id] = entry; return entry.work
     }
-    // A receipt must describe the exact admission handed to the synchronous
-    // native scheduler. A cancelled admission may return after flush: no waiter
-    // needs starting, and the already acknowledged native cancellation retires it.
+
+
+
     mutating func scheduled(_ receipt: PlaybackReceipt, expected: PlaybackAdmission) throws -> Bool {
         guard receipt.admission == expected, var entry = entries[expected.id], entry.phase == .admitting else {
             throw VoiceFailure.invalidState
@@ -107,8 +107,8 @@ struct PlaybackLedger: Sendable {
         if entry.nativeCancelled { release(expected.id); return false }
         entry.phase = .scheduled; entries[expected.id] = entry; return true
     }
-    // Keep uncertain scheduling charged until flush. Returns true only if this
-    // failure still belongs to the current output serial and must end the stream.
+
+
     mutating func schedulingFailed(_ admission: PlaybackAdmission) throws -> Bool {
         guard var entry = entries[admission.id], entry.phase == .admitting else { throw VoiceFailure.invalidState }
         entry.consumerFinished = true; entries[admission.id] = entry
@@ -122,12 +122,12 @@ struct PlaybackLedger: Sendable {
         if case .consumed = outcome { release(admission.id); return }
         if entry.nativeCancelled { release(admission.id); return }
         if admission.ticket.serial == serial { throw VoiceFailure.transport }
-        // Cancellation/failure from an interrupted serial is not success; its
-        // bytes stay charged until the native flush actually returns.
+
+
     }
     mutating func beginFlush() -> UInt64 {
         serial += 1
-        // Unscheduled queue entries have no native owner; discard immediately.
+
         for id in queue { release(id) }; queue.removeAll()
         return serial
     }
@@ -138,30 +138,30 @@ struct PlaybackLedger: Sendable {
             if entry.consumerFinished { release(id) }
         }
     }
-    // Lifecycle owner calls this ONLY after synchronous native flush/close AND
-    // every scheduling/consumption child has joined. Restart cannot precede it.
+
+
     mutating func cleanupAfterJoin() { entries.removeAll(); queue.removeAll(); bytes = 0 }
     private mutating func release(_ id: UUID) {
         if let entry = entries.removeValue(forKey: id) { bytes -= entry.work.admission.pcmBytes }
     }
 }
 
-// W10 implements this port. All calls carry fences; an invalidated ticket MUST
-// remain invalid even if an older start/play callback arrives after a flush.
-// No AVFoundation, microphone activation or synthetic keep-alive lives in W09.
+
+
+
 @MainActor protocol VoiceAudioPort: Sendable {
     func startCapture(ticket: CaptureTicket) throws
     func stopCapture(ticket: CaptureTicket)
     func muteCapture(_ muted: Bool, ticket: CaptureTicket)
-    // ORDERED, SYNCHRONOUS MainActor native enqueue, never wait for consumption
-    // here or hide scheduling in another Task. Validate every admission field.
-    // Return only after native schedule succeeds, with a matching receipt. Only
-    // actual played-back completion may resolve its consumption as .consumed.
+
+
+
+
     func scheduleOutput(_ frame: AudioEnvelope, admission: PlaybackAdmission) throws -> PlaybackReceipt
-    // Invalidate serials below nextSerial, cancel scheduled buffers/continuations,
-    // discard native queues and prevent late callbacks from restoring playback.
-    // Before returning: native stop/unschedule is complete, and every older
-    // receipt is resolved .cancelled (or was already physically consumed/failed).
+
+
+
+
     func flushOutput(epoch: UUID, nextSerial: UInt64)
     func close(epoch: UUID)
 }
@@ -177,16 +177,16 @@ struct VoiceObservation: Sendable {
     let durationMS: UInt64?
     let elapsedMS: UInt64?
     let reason: String?
-    // Voice has no write operation ID or plan-approval capability.
+
 }
 
 @MainActor protocol VoiceObserver: Sendable {
-    // Observation/transcript hooks are display-only, synchronous, and must not log
-    // raw transcripts. UI retains at most 32 observations; IDs remain untrusted.
+
+
     func begin(epoch: UUID)
     func observe(_ observation: VoiceObservation, epoch: UUID)
     func replaceTranscript(id: String, value: WireState.Transcript, epoch: UUID)
-    // Fence data callbacks immediately; final lifecycle observation is still allowed.
+
     func suspendData(epoch: UUID)
     func close(epoch: UUID)
 }

@@ -124,7 +124,7 @@ def test_actual_composition_success_duplicate_saved_intent(monkeypatch, update, 
         assert not result.findings and result.verification is None
         assert ApplyResult.model_validate_json(result.model_dump_json()) == result
         before = deepcopy(h.api.calls)
-        h.now += timedelta(minutes=16)  # Replay does not require renewed consent.
+        h.now += timedelta(minutes=16)
         replay = await h.apply()
         assert replay.execution == result.execution and h.api.calls == before
         assert len(h.api.mutations) == len(h.plan.payload.operations)
@@ -315,9 +315,9 @@ def test_normal_t15_unfinished_update_original_start_still_blocks(monkeypatch, s
     async def scenario():
         h = Harness(monkeypatch)
         approval = await normal_t15_recovery(h, two_updates=which_update == "other_pending")
-        # Keep lease/consent/context/ALL targets valid while only an unfinished
-        # original-start boundary crosses. The other-pending variant dispatches
-        # a later-original UPDATE first; filtering to current op would be unsafe.
+
+
+
         h.executor = ApplyService(h.service, h.writer, clock=h.clock, deadline_seconds=240)
         current = h.plan.payload.operations[0]
         guarded = h.plan.payload.operations[1] if which_update == "other_pending" else current
@@ -457,8 +457,8 @@ def test_final_io_guard_rechecks_actual_consent_after_execution_document_deliver
                 if execution.operations[0].status == "in_flight":
                     in_flight_deliveries += 1
                     if in_flight_deliveries == 2:
-                        # First delivery is post-CAS guard; second is the real
-                        # final _DispatchWriter hook after T17 registry awaits.
+
+
                         stack = {frame.function for frame in inspect.stack()}
                         assert {"_send_guard", "_call", "_write"} <= stack
                         injected = True
@@ -473,9 +473,9 @@ def test_final_io_guard_rechecks_actual_consent_after_execution_document_deliver
                                     await h.approvals.invalidate(backend, plan_reference(h.plan),
                                         reason="revoked", at=action.at)
                             observed_approval = await h.approvals.get(backend, plan_reference(h.plan))
-                        # The actual execution document does not change during
-                        # consent mutation. Releasing this stale progress value
-                        # must be followed by a fresh real approval check.
+
+
+
                         assert document == unchanged == await original_get(read_path)
             return document
 
@@ -561,7 +561,7 @@ def test_unproven_effect_stays_unknown_and_never_blindly_resends(monkeypatch, fa
         if failure == "stale412":
             h.api.before_patch = lambda raw: raw.update(etag='"user-edit"')
         elif failure == "collision":
-            # Insert races with an external event AFTER accepted full preflight.
+
             original = h.executor._write
             async def collision(ctx, plan, op, record, lease, request_key):
                 h.api.events[op.event_id] = event(op.event_id, start=op.target.interval.start)
@@ -579,7 +579,7 @@ def test_unproven_effect_stays_unknown_and_never_blindly_resends(monkeypatch, fa
         assert first.execution.operations[0].attempts == 1
         before = len(h.api.mutations)
         assert (await h.apply()).execution == first.execution
-        assert len(h.api.mutations) == before  # Live lease cannot be stolen.
+        assert len(h.api.mutations) == before
         h.expire_lease()
         again = await h.apply()
         assert len(h.api.mutations) == before and again.execution.status in ("unknown", "applied_unverified")
@@ -622,8 +622,8 @@ def test_partial_restart_preserves_completed_and_checks_new_availability(monkeyp
     async def scenario():
         h = Harness(monkeypatch)
         await h.prepare(two=True)
-        # Crash between operations instead: second preflight read fails, no
-        # second intent/effect. Completed state must survive real file reload.
+
+
         original_check = h.service.check
         checks = 0
         async def fail_preflight(*args):
@@ -647,8 +647,8 @@ def test_partial_restart_preserves_completed_and_checks_new_availability(monkeyp
                 with h.approvals.ui_action(ctx, plan_reference(h.plan), "synthetic-revoke") as action:
                     await h.approvals.invalidate(ctx, plan_reference(h.plan), reason="revoked", at=action.at)
         elif case == "missing_stop":
-            # A clean lease can expire only when unreleased. Simulate process
-            # death before finally release on the next acquired claim.
+
+
             with h.scope() as ctx:
                 await h.coordination.acquire(ctx, holder_id="synthetic-crash", now=h.now,
                     expires_at=h.now + timedelta(seconds=1))
@@ -719,7 +719,7 @@ def test_concurrent_callers_and_same_token_cas_only_one_permit(monkeypatch):
         assert h.ledger().execution.status == "applied_unverified"
         assert all(s.attempts == 1 for s in h.ledger().execution.operations)
         assert any("apply_interrupted_recovery_required" in codes(r) for r in (a, b))
-        # T06 deliberately same-token dispatch rejection through actual store.
+
         h2 = Harness(monkeypatch)
         await h2.prepare()
         with h2.scope() as ctx:
@@ -766,7 +766,7 @@ def test_recovery_after_consent_expiry_uses_fresh_scope_no_new_write(monkeypatch
         original_run = first.execution.run_id
         h.now += timedelta(minutes=16)
         h.api.after_write = None
-        # No consent-required T18 check may precede read-only reconciliation.
+
         async def forbidden(*args):
             raise AssertionError("consent preflight during read-only recovery")
         h.service.check = forbidden
@@ -788,7 +788,7 @@ def test_invalid_capabilities_never_read_or_write(monkeypatch, bad):
         with h.scope(boundary="backend" if bad == "backend" else "mcp") as ctx:
             if bad == "copied":
                 with pytest.raises(TypeError):
-                    copy(ctx)  # T04 also prohibits constructing a capability copy.
+                    copy(ctx)
                 candidate = copy(ctx.as_port_context())
             else:
                 candidate = ctx.as_port_context() if bad == "dto" else ctx
@@ -934,7 +934,7 @@ def test_cancelled_await_is_not_writer_stop_proof(monkeypatch, mode):
         entered = asyncio.Event()
         original = h.executor._write
         async def delayed(*args):
-            # Model a remote call that has completed but await delivery stalls.
+
             result = await original(*args)
             entered.set()
             await asyncio.Event().wait()
@@ -968,7 +968,7 @@ def test_matching_read_does_not_clear_uncertainty_without_new_generation_stop(mo
         blocked = await h.apply()
         assert blocked.execution == first.execution and len(h.api.mutations) == 1
         assert h.claim_value().previous == original_holder
-        # A repeated recovery crash retains ORIGINAL writer, not recovery worker.
+
         await h.stop()
         h.expire_lease()
         h.api.after_write = None
@@ -988,12 +988,12 @@ def test_no_effect_observation_before_stop_requires_later_read(monkeypatch):
         await h.apply()
         stop_at = h.claim_value().lease.expires_at + timedelta(seconds=1)
         await h.stop(at=stop_at)
-        h.expire_lease()  # Current actual read will still precede stopped_at.
+        h.expire_lease()
         first = await h.apply()
         assert first.execution.status == "unknown" and len(h.api.mutations) == 1
         count = len(h.api.calls)
         h.now = stop_at + timedelta(seconds=1)
-        # Use the actual current recovery lease, not an invented activation.
+
         with h.scope() as ctx:
             execution, findings = await h.executor.reconciler.reconcile(ctx, h.plan,
                 first.execution, h.claim_value().lease)
@@ -1093,7 +1093,7 @@ def test_cancelled_to_thread_keeps_actual_original_writer_uncertain(monkeypatch)
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
-                assert not finished.is_set()  # The actual HTTP thread is STILL running.
+                assert not finished.is_set()
                 assert h.claim_value().writer_uncertain and not h.claim_value().released
                 assert h.ledger().execution.operations[0].status == "unknown"
             finally:

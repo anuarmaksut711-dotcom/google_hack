@@ -154,8 +154,8 @@ def _validate_executable(request: SolveRepairInput, result: RepairResult) -> Non
                         actual.scheduled_minutes, actual.deferred) == (
                             assignment.remaining_minutes, required, required - assignment.remaining_minutes,
                             volume, deferred) and volume == demand, "proposal_work_mismatch")
-    # Reconstruct the exact create/update-only diff, rather than accepting one
-    # which merely points at structurally valid projected targets.
+
+
     expected = []
     ref = request.calendar.source.reference
     for target in sorted(result.blocks, key=lambda b: b.block_id):
@@ -227,7 +227,7 @@ class ProposalService:
         reference = await self.plans.create(context, plan)
         expected = PlanReference(plan_id=basis.plan_id, version=basis.version, payload_hash=plan.payload_hash)
         _reject_unless(reference == expected, "proposal_persisted_reference_mismatch")
-        # Return the verified stored version (also for exact duplicate calls).
+
         saved = PlanVersion.model_validate(await self.plans.get(context, basis.plan_id, basis.version))
         _reject_unless(saved == plan, "proposal_persisted_version_mismatch")
         self._backend(context)

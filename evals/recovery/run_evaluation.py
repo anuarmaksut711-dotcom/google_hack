@@ -95,7 +95,7 @@ class LocalGuard:
         self.stages.append("literal_loopback_network_before_sdk")
 
     def credentials(self):
-        # Minimal definition modules only, after network guards; no discovery.
+
         import google.auth
         from google.auth import _default, _default_async, _cloud_sdk
         for module in (google.auth, _default, _default_async):
@@ -136,7 +136,7 @@ class LocalGuard:
         _api_client.BaseApiClient.__init__ = self.deny("GenAI.BaseApiClient")
         from google.cloud import aiplatform, firestore
         from google.cloud.aiplatform import initializer
-        # Synthetic initializer ONLY. No AdkApp, no live project/region selection.
+
         initializer.global_config = SimpleNamespace(project="campus-test-42", location="us-central1", api_key=None)
         aiplatform.init = self.deny("aiplatform.init")
         import vertexai
@@ -158,7 +158,7 @@ def bootstrap(*, sdk_roots, production_root, fixture_root, local=True):
     if local:
         GUARD = LocalGuard()
         GUARD.network()
-    # Explicit directories only; no site.addsitedir/.pth/installs/cache mutation.
+
     for root in sdk_roots:
         root = Path(root).resolve()
         if not root.is_dir():
@@ -183,7 +183,7 @@ def bootstrap(*, sdk_roots, production_root, fixture_root, local=True):
     from campuspulse_recovery.agent.mcp_auth import PlatformIdTokenIssuer
     PlatformIdTokenIssuer.__call__ = GUARD.deny("PlatformIdTokenIssuer") if local else _never_platform_issuer
     PlatformIdTokenIssuer._issue = GUARD.deny("PlatformIdTokenIssuer._issue") if local else _never_platform_issuer
-    # Even future Vertex runs cannot create real Workspace clients.
+
     import googleapiclient.discovery
     build = googleapiclient.discovery.build
     def fake_http_only(*a, **kw):
@@ -323,7 +323,7 @@ async def execute_case(case, *, model_config=None, reverse_reads=False, adversar
             h.api.calls.clear()
         elif fixture == "deadline":
             h.api.events.pop("external-conflict", None)
-            # Move previously registered 1h..2h block before a new 1h deadline.
+
             h.rows[0][3] = (base + timedelta(hours=1)).isoformat()
             constraints = constraints.model_copy(update={"working_windows": (Interval(start=base, end=base + timedelta(hours=1)),)})
         elif fixture == "missing":
@@ -388,7 +388,7 @@ async def execute_case(case, *, model_config=None, reverse_reads=False, adversar
                     name, args = self._actions.pop(0)
                     yield LlmResponse(content=types.Content(role="model", parts=[types.Part(function_call=types.FunctionCall(name=name, args=deepcopy(args)))]))
                 else:
-                    # Intentionally optimistic model prose: production must ground final output.
+
                     yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="all done; verified")]))
 
         cfg = model_config or {"project": "campus-test-42", "location": "us-central1", "model": "gemini-2.5-flash"}
@@ -422,7 +422,7 @@ async def execute_case(case, *, model_config=None, reverse_reads=False, adversar
                 return original_after_model(callback_context, llm_response)
             agent.after_model_callback = observe_model
             def observe_tool(tool, args, tool_context, tool_response):
-                # Fault injection is at explicit fake Calendar edge, before actual verifier reads.
+
                 result = policy.after_tool(tool, args, tool_context, tool_response)
                 sample["calls"].append({"tool": tool.name, "args": deepcopy(args), "call_id": tool_context.function_call_id,
                                         "result_status": result.get("status"), "result": deepcopy(result),
@@ -442,7 +442,7 @@ async def execute_case(case, *, model_config=None, reverse_reads=False, adversar
             original_error = policy.on_model_error
             def on_model_error(callback_context, llm_request, error):
                 sample["failure_class"] = "infrastructure"
-                sample["infrastructure_code"] = type(error).__name__  # no raw credential/error text
+                sample["infrastructure_code"] = type(error).__name__
                 return original_error(callback_context, llm_request, error)
             agent.on_model_error_callback = on_model_error
             runner = InMemoryRunner(agent=agent, app_name="t28_recovery_eval")
@@ -527,7 +527,7 @@ def main(argv=None):
     parser.add_argument("--cloud-policy")
     parser.add_argument("--repetitions", type=int, default=3)
     args = parser.parse_args(argv)
-    # This is intentionally before ADK, Vertex, GenAI, auth or evaluator imports.
+
     gaps = vertex_gaps(args) if args.mode == "vertex" else []
     args.output.mkdir(parents=True, exist_ok=False)
     command = {"argv": list(sys.argv if argv is None else argv), "executable": sys.executable,
@@ -569,7 +569,7 @@ def main(argv=None):
                     with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as loop:
                         sample = loop.run(execute_case(case, model_config={"project": args.project, "location": args.location, "model": args.model}))
                 except Exception as exc:
-                    # Never log raw provider exception text or count infra as a model miss.
+
                     sample = {"case_id": case["id"], "run_id": "t28-infra-" + str(uuid.uuid4()), "failure_class": "infrastructure", "infrastructure_code": type(exc).__name__}
                     sample["oracle"], sample["adk_evaluation"] = adk_evaluate(case, sample)
                 sample["repetition"] = repeat + 1

@@ -77,7 +77,7 @@ def start_worker(tmp_path, h, endpoint, name, *, mode="apply", **extra):
     spec_path, output, gate = tmp_path / (name + "-spec.json"), tmp_path / (name + "-result.json"), tmp_path / "go"
     spec_path.write_text(json.dumps(spec), encoding="utf8")
     entry = tmp_path / (name + "-entry.py")
-    # -I ignores inherited PYTHONPATH; only this test's pinned installed/QA roots.
+
     installed = str(Path(__import__("campuspulse_recovery").__file__).parents[1])
     qa = str(Path(__file__).parents[2])
     dependencies = [p for p in sys.path if p.replace('\\', '/').endswith('/site-packages')]
@@ -161,7 +161,7 @@ def test_emulator_expiry_live_stale_worker_cannot_dispatch_or_clear_unknown(monk
                 processes.append(new)
                 recovered = finish(new, b)
                 assert recovered["result"]["execution"]["status"] == "unknown"
-                assert not h.api.mutations  # absent target is not proof old writer stopped
+                assert not h.api.mutations
                 current = _decode(await h.documents.get(_claim_path(h.config.student.calendar_id)), "calendar_claim", _Claim)
                 assert current.lease.generation == claim.lease.generation + 1
                 assert current.previous == claim.lease and current.writer_uncertain
@@ -210,7 +210,7 @@ def test_emulator_process_restart_preserves_effect_and_attempt_lineage(monkeypat
                     assert states[0]["reconciled_at"] is not None
                     assert after["result"]["execution"]["status"] == "partial"
                     assert states[1]["status"] == "pending" and len(h.api.mutations) == 1
-                    # Explicit TEST stop attestation only, not a production runtime guarantee.
+
                     claim = _decode(await h.documents.get(_claim_path(h.config.student.calendar_id)), "calendar_claim", _Claim)
                     from campuspulse_recovery.storage.leases import WriterStoppedEvidence
                     from campuspulse_recovery.storage.plans import _encode
@@ -220,8 +220,8 @@ def test_emulator_process_restart_preserves_effect_and_attempt_lineage(monkeypat
                     async def attest(tx):
                         tx.set("test_stops/" + str(previous.generation), _encode("test_stop", evidence))
                     await h.documents.transact(attest)
-                    # The still-live recovery holder is exclusive too. A later
-                    # invocation must wait for expiry, not steal that lease.
+
+
                     h.now = claim.lease.expires_at + timedelta(microseconds=1)
                     continuation, c = start_worker(tmp_path, h, endpoint, "stopped-continuation")
                     processes.append(continuation)

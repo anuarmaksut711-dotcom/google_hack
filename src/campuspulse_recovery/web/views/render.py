@@ -56,29 +56,54 @@ def interval(value, timezone):
     return f"{stamp(value.start, timezone)} → {stamp(value.end, timezone)}"
 
 
-def render_shell(timezone, *, demo_mode=False):
+def render_shell(timezone, *, demo_mode=False, live_chat=False):
     notice = ''
     if demo_mode:
         from ...demo import NOTICE
-        notice = '<aside class="outcome" aria-label="Тестовый режим"><strong>' + e(NOTICE) + '</strong> <a href="/demo">Тестовый вход</a></aside>'
+        notice = '<details class="demo-notice"><summary>Тестовый режим · без подключения к Google</summary><p>' + e(NOTICE) + ' <a href="/demo">Тестовый вход</a></p></details>'
+        if live_chat:
+            notice = '<details class="demo-notice"><summary>Тестовые источники · чат Gemini</summary><p>Чат обращается к Gemini через Vertex AI. Задания и календарь тестовые; история хранится до перезапуска сервера. Восстановление работает на тестовых данных. <a href="/demo">Тестовый вход</a></p></details>'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>
-<link rel="stylesheet" href="/assets/campuspulse.css"><script src="/assets/campuspulse.js" defer></script></head>
-<body><a class="skip" href="#workspace">К плану</a><header><a class="brand" href="/">CampusPulse</a>
-<span>Учебное расписание</span><button id="signout" type="button" hidden>Выйти</button></header>
-<main id="workspace">{notice}<div class="intro"><p class="eyebrow">Восстановление плана</p>
-<h1>Восстановление<br>учебного плана</h1><p>Посмотрите, что изменится. Согласуйте точную версию. Проверьте результат.</p></div>
-<div class="toolbar"><button id="start" type="button" disabled>Проверить изменения и восстановить план</button>
-<button id="reload" type="button">Обновить состояние</button></div>
+<link rel="stylesheet" href="/assets/campuspulse.css"><script src="/assets/campuspulse.js" defer></script>
+<script src="/assets/logo/vendor/gsap.min.js" defer></script>
+<script type="module" src="/assets/logo/welcome.js"></script></head>
+<body><a class="skip" href="#workspace">К плану</a>
+<aside class="sidebar" aria-label="Навигация CampusPulse">
+<a class="brand" href="#workspace" aria-label="CampusPulse — к плану" title="CampusPulse"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 17h6l4-9 5 17 4-8h5"/></svg></a>
+<nav aria-label="Разделы плана">
+<a class="nav-link current" href="#workspace" aria-label="Восстановление плана" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/></svg><span class="nav-label">Восстановление плана</span><span class="nav-short" aria-hidden="true">План</span></a>
+<a class="nav-link" href="#sources" aria-label="Задания и календарь"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H6a2 2 0 0 0-2 2v12h16V7a2 2 0 0 0-2-2h-3"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M8 11h8M8 15h5"/></svg><span class="nav-label">Задания и календарь</span><span class="nav-short" aria-hidden="true">Источники</span></a>
+<a class="nav-link" href="#diff-heading" aria-label="Изменения"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-4-4 4 4-4 4M19 17H5m4-4-4 4 4 4"/></svg><span class="nav-label">Изменения</span><span class="nav-short" aria-hidden="true">Изменения</span></a>
+<a class="nav-link" href="#journal-heading" aria-label="Журнал запуска"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="nav-label">Журнал запуска</span><span class="nav-short" aria-hidden="true">Журнал</span></a>
+</nav>
+<div class="sidebar-bottom"><button id="signout" type="button" hidden aria-label="Выйти" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H5v14h4M10 12h10m-4-4 4 4-4 4"/></svg></button></div>
+</aside>
+<div class="app-content"><header class="topbar"><a class="wordmark" href="#workspace">CampusPulse</a><span class="topbar-divider" aria-hidden="true">/</span><span>Учебное расписание</span><a class="topbar-results" href="#panel">К плану <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a></header>
+<main id="workspace"><section class="recovery-home" aria-labelledby="home-heading">{notice}<div class="intro">
+<h1 id="home-heading" class="sr-only">Восстановление учебного плана</h1>
+<div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
+<img id="welcome-fallback" src="/assets/logo/assets/g-reference.png" alt="" width="409" height="413" hidden>
+<canvas id="welcome-canvas"></canvas></div></div>
+<div id="chat-history" class="chat-history" role="log" aria-label="Диалог с CampusPulse" aria-live="polite" aria-relevant="additions" hidden></div>
+<div class="command-bar">
+<div class="context-strip"><a href="#sources"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Задания и календарь</a><span>{e(timezone)}</span></div>
+<form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение CampusPulse</label>
+<textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Что изменилось в расписании?" aria-describedby="message-hint"></textarea>
+<div class="chat-submit"><p id="message-hint">Enter — отправить · Shift+Enter — новая строка</p><button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
+<p id="chat-status" role="status">Проверяем подключение чата…</p>
+<div class="toolbar"><button id="reload" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg>Обновить состояние</button>
+<button id="start" type="button" disabled><span>Проверить изменения и восстановить план</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div></form>
 <p id="feedback" role="status" aria-live="polite">Загружаем сохранённое состояние…</p>
+</div></section>
 <noscript>Для действий включите JavaScript. Загрузка страницы не согласует и не применяет план.</noscript>
-<div id="panel" aria-busy="true"><p>Загрузка…</p></div>
+<div id="panel" tabindex="-1" aria-busy="true"><p>Загрузка…</p></div>
 <section class="journal" aria-labelledby="journal-heading"><div class="section-heading"><h2 id="journal-heading">Журнал запуска</h2>
 <button id="trace" type="button" disabled>Загрузить журнал</button></div>
 <p id="trace-health" role="status">Выберите сохранённый запуск, чтобы прочитать журнал.</p>
 <ol id="trace-records"></ol><button id="trace-more" type="button" hidden>Следующая страница</button></section>
 <footer>Часовой пояс: {e(timezone)}. Интервалы [начало, конец): конец не включён.
-Запланированное время не означает, что задание выполнено.</footer></main></body></html>'''
+Запланированное время не означает, что задание выполнено.</footer></main></div></body></html>'''
 
 
 def verified_evidence(run, plan, sources, now):
@@ -117,7 +142,7 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
             status = "approved" if active else "waiting_approval"
     title, description = STATUS.get(status, STATUS["unknown"])
     html = [f'<section class="outcome" data-status="{e(status)}" data-runtime="{str(runtime_available).lower()}">',
-        f'<p class="eyebrow">Состояние плана</p><h2>{title}</h2><p>{description}</p>']
+        f'<h2>{title}</h2><p>{description}</p>']
     if not runtime_available:
         html.append('<p>Облачный исполнитель не настроен. Запуск восстановления недоступен.</p>')
     if needs_new_version:
@@ -134,7 +159,7 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         html.extend(f'<p><a href="{e(link)}" target="_blank" rel="noopener noreferrer">Событие в Google Calendar</a></p>' for link in links)
         if not links:
             html.append('<p>Ссылки на события не предоставлены.</p>')
-    html.append('</section><div class="sources">')
+    html.append('</section><div class="sources" id="sources">')
     for heading, items in (("Задания", sources.assignments), ("Календарь", sources.calendar)):
         html.append(f'<section><h2>{heading}</h2>')
         if items is None:
@@ -164,9 +189,10 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         html.append('<div class="table-scroll" tabindex="0" role="region" aria-label="Изменения до и после"><table><caption>Точные сохранённые операции</caption>'
             '<thead><tr><th scope="col">Операция / блок</th><th scope="col">До</th><th scope="col">После</th></tr></thead><tbody>')
         for op in payload.operations:
-            html.append(f'<tr><th scope="row">{"Создать" if op.kind == "create" else "Перенести"}<br><code>{e(op.operation_id)}</code>'
-                f'<br>Блок: {e(op.target.block_id)}<br>Задание: {e(op.target.assignment_id)}'
-                f'<br>Событие: <code>{e(op.event_id)}</code><br>Версия события: {e(op.expected_etag or "—")}</th>'
+            html.append(f'<tr><th scope="row"><strong>{"Создать" if op.kind == "create" else "Перенести"}</strong><br>Задание: {e(op.target.assignment_id)}'
+                f'<details class="operation-details"><summary>Сведения об операции</summary><code>{e(op.operation_id)}</code>'
+                f'<br>Блок: {e(op.target.block_id)}<br>Событие: <code>{e(op.event_id)}</code>'
+                f'<br>Версия события: {e(op.expected_etag or "—")}</details></th>'
                 f'<td>{interval(op.before, timezone)}</td><td>{interval(op.target.interval, timezone)}</td></tr>')
         html.append('</tbody></table></div>')
     html.append('<p>Согласование относится только к показанной версии, хешу и операциям. Изменённый план требует нового согласования.</p>')

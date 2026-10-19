@@ -41,7 +41,7 @@ final class SessionMachineTests: XCTestCase {
         try ledger.finished(second.admission, outcome: .consumed)
         XCTAssertEqual(ledger.bytes, 8640); XCTAssertEqual(ledger.packets, 9)
         try ledger.enqueue(outputFrame(10))
-        XCTAssertEqual(ledger.bytes, 9600) // buffer0 still pending and charged
+        XCTAssertEqual(ledger.bytes, 9600)
     }
     func testPlaybackPacketCapIncludesAllPendingConsumptionJobs() throws {
         var ledger = PlaybackLedger(epoch: UUID())
@@ -54,7 +54,7 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(ledger.bytes, 64); XCTAssertEqual(ledger.packets, 32)
         XCTAssertThrowsError(try ledger.enqueue(outputFrame(32, bytes: 2)))
         let serial = ledger.beginFlush(); ledger.confirmFlush(nextSerial: serial)
-        XCTAssertEqual(ledger.packets, 32) // actual flush alone doesn't retire running children
+        XCTAssertEqual(ledger.packets, 32)
         for admission in admissions { try ledger.finished(admission, outcome: .cancelled) }
         XCTAssertEqual(ledger.bytes, 0); XCTAssertEqual(ledger.packets, 0)
     }
@@ -63,16 +63,16 @@ final class SessionMachineTests: XCTestCase {
         try ledger.enqueue(outputFrame(0)); try ledger.enqueue(outputFrame(1))
         let admitting = ledger.takeNext()!
         let serial = ledger.beginFlush()
-        XCTAssertEqual(ledger.bytes, 960) // only never-scheduled queued data discarded
+        XCTAssertEqual(ledger.bytes, 960)
         XCTAssertFalse(try ledger.schedulingFailed(admitting.admission))
-        XCTAssertEqual(ledger.bytes, 960) // unknown native scheduling outcome still charged
+        XCTAssertEqual(ledger.bytes, 960)
         ledger.confirmFlush(nextSerial: serial)
         XCTAssertEqual(ledger.bytes, 0)
         try ledger.enqueue(outputFrame(0, generation: 2)); let old = ledger.takeNext()!
         XCTAssertTrue(try ledger.scheduled(schedule(old), expected: old.admission))
         let next = ledger.beginFlush()
         try ledger.finished(old.admission, outcome: .cancelled)
-        XCTAssertEqual(ledger.bytes, 960) // waiter ended, native cancellation not yet acknowledged
+        XCTAssertEqual(ledger.bytes, 960)
         ledger.confirmFlush(nextSerial: next)
         XCTAssertEqual(ledger.bytes, 0)
     }
@@ -90,9 +90,9 @@ final class SessionMachineTests: XCTestCase {
         try ledger.enqueue(outputFrame(0)); let old = ledger.takeNext()!
         let receipt = schedule(old)
         let serial = ledger.beginFlush()
-        receipt.consumption.resolve(.cancelled) // fake native clear completed
+        receipt.consumption.resolve(.cancelled)
         ledger.confirmFlush(nextSerial: serial)
-        XCTAssertEqual(ledger.bytes, 960) // MainActor admission has not returned
+        XCTAssertEqual(ledger.bytes, 960)
         try ledger.enqueue(outputFrame(0, generation: 2))
         XCTAssertFalse(try ledger.scheduled(receipt, expected: old.admission))
         XCTAssertEqual(ledger.bytes, 960); XCTAssertEqual(ledger.packets, 1)
@@ -127,8 +127,8 @@ final class SessionMachineTests: XCTestCase {
         waiter.cancel()
         do { try await waiter.value; XCTFail("cancelled waiter succeeded") } catch {}
         XCTAssertNil(consumption.resolvedOutcome)
-        consumption.resolve(.cancelled) // only after fake native clear acknowledgment
-        consumption.resolve(.consumed) // stale native callback
+        consumption.resolve(.cancelled)
+        consumption.resolve(.consumed)
         XCTAssertEqual(consumption.resolvedOutcome, .cancelled)
     }
     func testStopBeforeReadyRequiresJoinedCleanupBeforeRestart() throws {
@@ -245,7 +245,7 @@ final class SessionMachineTests: XCTestCase {
         XCTAssertEqual(m.state, .interrupted)
         let stale = try AudioEnvelope(kind: .output, connection: 1, generation: 1, sequence: 0, pcm: Data([0, 0])).encode()
         XCTAssertThrowsError(try m.receive(.binary(stale), now: 0.04))
-        // Input is still independent of interrupted UI/output state.
+
         _ = try m.admitPCM(Data([0, 0]), now: 0.04)
         m.resetForReconnect(); _ = try m.begin(now: 1, reconnect: true)
         XCTAssertNil(m.wire)

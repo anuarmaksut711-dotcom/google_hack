@@ -105,7 +105,7 @@ class Assignment(Contract):
     title: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=512)]
     source_row: Identifier
     deadline: Deadline | None
-    remaining_minutes: Minutes | None  # None => needs_input, never inferred from blocks.
+    remaining_minutes: Minutes | None
 
     @property
     def required_minutes(self) -> int:
@@ -131,7 +131,7 @@ class SourceReference(Contract):
 class SourceIssue(Contract):
     code: SafeCode
     item_ref: Identifier | None = None
-    # Codes/refs only: do not persist raw source descriptions or tokens here.
+
 
 
 class SourceSnapshot(Contract):
@@ -140,7 +140,7 @@ class SourceSnapshot(Contract):
     complete: StrictBool
     issues: tuple[SourceIssue, ...] = ()
     covered_interval: Interval | None = None
-    source_version: Identifier | None = None  # not a substitute for per-event etags
+    source_version: Identifier | None = None
 
     @model_validator(mode="after")
     def completeness(self) -> Self:
@@ -195,7 +195,7 @@ class OwnershipMarker(Contract):
 
 
 class CalendarEvent(Contract):
-    event_id: ResourceId  # external/recurrence IDs need not obey create-ID syntax
+    event_id: ResourceId
     etag: Identifier | None = None
     interval: Interval | None
     status: Literal["confirmed", "tentative", "cancelled"] = "confirmed"
@@ -266,7 +266,7 @@ class CalendarSnapshot(Contract):
                 block.owner_id, block.calendar_id, block.block_id, block.assignment_id
             ):
                 raise ValueError("owned block requires matching external corroboration, plus registry join")
-        # All-day raw boundaries are normalized before horizon clipping.
+
         from .time_rules import all_day_bounds
         for event in self.events:
             if event.all_day_start is not None and event.interval is not None:
@@ -290,7 +290,7 @@ class PlanningConstraints(Contract):
     config_revision: Identifier
     timezone: IanaZone
     horizon: Interval
-    working_windows: tuple[Interval, ...] | None  # None => needs_input; () => known no availability
+    working_windows: tuple[Interval, ...] | None
     grid_minutes: Literal[15] = 15
     min_block_minutes: Literal[15] = 15
     max_block_minutes: Literal[60] = 60
@@ -375,7 +375,7 @@ class Finding(Contract):
 class SearchEvidence(Contract):
     explored_nodes: Minutes
     node_budget: PositiveInt
-    exhausted: StrictBool = False  # full search exhausted, not just budget exhausted
+    exhausted: StrictBool = False
     interrupted: StrictBool = False
     proof: Literal["none", "capacity_certificate", "exhaustive_search"] = "none"
     certificate: tuple[Finding, ...] = ()
@@ -444,7 +444,7 @@ class RepairResult(Contract):
     status: RepairStatus
     constraints: PlanningConstraints
     source_references: tuple[SourceReference, ...]
-    blocks: tuple[BlockTarget, ...] = ()  # entire projected future schedule, not only diff
+    blocks: tuple[BlockTarget, ...] = ()
     operations: tuple[Operation, ...] = ()
     allocations: tuple[WorkAllocation, ...] = ()
     findings: tuple[Finding, ...] = ()
@@ -536,7 +536,7 @@ class Approval(Contract):
     owner_id: Identifier
     calendar_id: ResourceId
     plan: PlanReference
-    approved_by: Identifier  # verified backend UI principal, never model-provided
+    approved_by: Identifier
     approved_at: Instant
     expires_at: Instant
     status: Literal["active", "revoked", "superseded", "expired"] = "active"
@@ -603,7 +603,7 @@ EXECUTION_TRANSITIONS = {
 
 def validate_operation_transition(before: OperationStatus, after: OperationStatus, *, reconciled: bool = False) -> None:
     if before == after:
-        return  # idempotent durable replay
+        return
     if after not in OPERATION_TRANSITIONS[before]:
         raise ValueError("forbidden operation transition")
     if before == OperationStatus.UNKNOWN and not reconciled:
@@ -645,7 +645,7 @@ class ExecutionState(Contract):
     run_id: Identifier
     status: ExecutionStatus
     operations: tuple[OperationState, ...] = ()
-    revision: Minutes = 0  # compare-and-set revision, independent from immutable plan.version
+    revision: Minutes = 0
     updated_at: Instant
 
     @model_validator(mode="after")
@@ -758,11 +758,11 @@ class RunEvent(Contract):
     code: SafeCode | None = None
     result_reference: Identifier | None = None
     arguments_reference: Identifier | None = None
-    # Normalized argument/result refs and codes; no arbitrary raw payload/log dict.
+
     source_references: tuple[SourceReference, ...] = ()
 
 
-# Public model-controlled input DTOs intentionally omit identity/resource/approval.
+
 class ReadWindowInput(Contract):
     horizon: Interval
 
@@ -786,7 +786,7 @@ class SolveRepairInput(Contract):
     calendar: CalendarSnapshot
     constraints: PlanningConstraints
     now: Instant
-    plan_id: Identifier  # proposed stable identity, backend binds/revalidates
+    plan_id: Identifier
     version: PositiveInt
 
     @model_validator(mode="after")
@@ -803,8 +803,8 @@ class SolveRepairInput(Contract):
             raise ValueError("solver config differs from sources")
         if self.constraints.timezone != self.assignments.source.timezone:
             raise ValueError("solver student zone differs from assignment source")
-        # Calendar has its own native zone for all-day dates; its timed bounds
-        # are already UTC instants and need not share the student's zone.
+
+
         start, end = planning_horizon(self.now)
         if (self.constraints.horizon.start, self.constraints.horizon.end) != (start, end):
             raise ValueError("solver horizon must derive from explicit now")

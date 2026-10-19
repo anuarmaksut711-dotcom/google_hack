@@ -15,7 +15,7 @@ from .client import ClientError, VoiceClient, browser_pair, microphone_turns, or
 
 class Parser(argparse.ArgumentParser):
     def error(self, message):
-        # Never reflect accidentally pasted credentials/unknown argument values.
+
         self.exit(2, "invalid_cli_arguments; use --help\n")
 
 
@@ -62,7 +62,7 @@ async def console_command():
 async def execute(args):
     if args.mode == "self-check":
         return self_check()
-    # Validate input before pairing/network/hardware. Default fixture stays memory only.
+
     pcm = None
     if not args.microphone:
         if args.wav and args.wav.stat().st_size > 64 * 1024 * 1024:
@@ -78,7 +78,7 @@ async def execute(args):
         if args.mode == "connect":
             origin = origin_checked(args.backend)
             credential = await browser_pair(origin)
-            # A single minimal optional audio distribution, imported after opt-in.
+
             if args.microphone or args.playback:
                 device = AudioDevice()
             if args.playback:
@@ -128,7 +128,7 @@ def main(argv=None):
         print('{"status":"stopped_by_operator"}')
         return 130
     except Exception:
-        # Never print exceptions, tracebacks, raw transcripts, URLs or credentials.
+
         print('{"status":"failed","code":"voice_client_failed","evidence_class":"windows_local"}')
         return 1
 

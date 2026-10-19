@@ -1,33 +1,33 @@
-// Copyright 2025 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Modified for CampusPulse, 2026-10-19: bounded scheduled/in-flight accounting,
-// played-back completion, cancellation/flush fences, mixer conversion; UPSTREAM.json.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import AVFoundation
 import Foundation
 
 @MainActor protocol PlaybackScheduling: AnyObject {
-    // Callback reports physical native completion, never enqueue or waiter cancel.
+
     func schedule(_ pcm: Data, completion: @escaping @Sendable (PlaybackOutcome) -> Void) throws
     func clear()
     func shutdown()
 }
 
-// All native bookkeeping, including retiring buffers, is lock-protected. The
-// AV callback retires its exact entry BEFORE publishing actual consumption.
-// There is no actor-hop Task per completion and no credit for waiter cancellation.
+
+
+
 final class NativePlaybackBook: @unchecked Sendable {
     private struct Pending {
         let receipt: PlaybackReceipt
@@ -66,8 +66,8 @@ final class NativePlaybackBook: @unchecked Sendable {
         if frame.generation == generation {
             guard !generationMustAdvance, UInt64(frame.sequence) == nextSequence else { throw AudioFailure.retiredTicket }
         } else {
-            // W09 validates every generation event. This port observes PCM
-            // only: valid intervening generations can contain no audio at all.
+
+
             guard frame.generation > generation, frame.sequence == 0 else { throw AudioFailure.retiredTicket }
         }
         epoch = ticket.epoch; connection = frame.connection; generation = frame.generation
@@ -82,8 +82,8 @@ final class NativePlaybackBook: @unchecked Sendable {
         guard var entry = pending[id], !entry.retiring else { lock.unlock(); return }
         let receipt = entry.receipt
         if outcome == .failed {
-            // Failure may leave unknown native ownership. Keep its charge until
-            // the synchronous clear/flush confirms unscheduling.
+
+
             entry.retiring = true; pending[id] = entry; poisoned = true
         } else {
             pending.removeValue(forKey: id)
@@ -112,8 +112,8 @@ final class NativePlaybackBook: @unchecked Sendable {
         for id in Array(pending.keys) { pending[id]?.retiring = true }
         return true
     }
-    // Call ONLY after native clear/shutdown returns. Callbacks during clear see
-    // retiring=true and cannot publish a fictitious played-back result.
+
+
     func confirmClear(failedID: UUID? = nil) {
         lock.lock()
         let receipts = pending.values.map { $0.receipt }
@@ -136,20 +136,20 @@ final class NativePlaybackBook: @unchecked Sendable {
         let receipt = try book.reserve(frame, admission: admission)
         let bookkeeping = book, id = admission.id
         do {
-            // SYNCHRONOUS native enqueue in MainActor caller order. No Task,
-            // waiter, dataConsumed/dataRendered or early success here.
+
+
             try scheduler.schedule(frame.pcm) { bookkeeping.complete(id, outcome: $0) }
             return receipt
         } catch {
-            // A scheduler can throw after an uncertain enqueue. Charge remains
-            // through physical clear, then fail; never return a success receipt.
+
+
             book.beginAbort(); scheduler.clear(); book.confirmClear(failedID: id)
             throw error
         }
     }
     func flush(epoch: UUID, nextSerial: UInt64) {
         guard book.beginFlush(epoch: epoch, nextSerial: nextSerial) else { return }
-        scheduler.clear() // Synchronous stop unschedules even currently rendering PCM.
+        scheduler.clear()
         book.confirmClear()
     }
     func shutdown(beforeNativeClear: @MainActor () -> Void = {}) {
@@ -171,8 +171,8 @@ final class NativePlaybackBook: @unchecked Sendable {
         guard AudioBufferHelpers.validHardware(hardware),
               let format = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1) else { throw AudioFailure.graph }
         engine.attach(node)
-        // Continuous mono24k -> actual route sample-rate/channel conversion.
-        // Leave mixer->output automatic; never relabel hardware as 24k.
+
+
         engine.connect(node, to: engine.mainMixerNode, format: format)
     }
     func schedule(_ pcm: Data, completion: @escaping @Sendable (PlaybackOutcome) -> Void) throws {

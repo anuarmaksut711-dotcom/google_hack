@@ -168,8 +168,8 @@ class CalendarWriter:
         if kind == "update" and block.state != "confirmed":
             raise BindingConflict("calendar_confirmed_ownership_required")
         if kind == "create":
-            # The registry records the original immutable create plan/hash/op.
-            # Check the ENTIRE saved operation, not just its marker/ID/target.
+
+
             saved = PlanVersion.model_validate(await self.plans.get(context,
                 block.intent_plan.plan_id, block.intent_plan.version))
             self.clients.policy.require_plan(context, saved)
@@ -190,7 +190,7 @@ class CalendarWriter:
 
     async def _call(self, context, factory, *, mutation=False):
         trusted = self.clients.policy.require_context(context)
-        # T07 strips provider contents and classifies timeout/5xx/parse ambiguity.
+
         failure = None
         try:
             return await asyncio.to_thread(self.clients.calendar_request, context,
@@ -203,15 +203,15 @@ class CalendarWriter:
             elif not mutation:
                 failure = IncompleteRead(error.code)
             else:
-                raise  # Safe, known no-effect response for the T19 ledger.
+                raise
         raise failure from None
 
     async def _normalize(self, context, raw) -> CalendarEvent:
         try:
             if not isinstance(raw, dict) or raw.get("eventType", "default") != "default":
                 raise ValueError()
-            # Timed offsets are authoritative. UTC is used ONLY for timed data;
-            # all-day observations require actual native Calendar timezone.
+
+
             zone = "UTC"
             if any(isinstance(raw.get(key), dict) and "date" in raw[key] for key in ("start", "end")):
                 now = instant(self.clock()).replace(microsecond=0)
@@ -288,13 +288,13 @@ class CalendarWriter:
                 raise BindingConflict("calendar_create_collision")
         else:
             observed = await self._response(context, operation, record, raw)
-        # Initial creation evidence is permanent. NEVER reconfirm later updates.
+
         failure = None
         try:
             await self.registry.confirm(context, record, observed=observed, at=instant(self.clock()))
         except (PortError, AccessDenied):
-            # Calendar may already contain the event even when durable
-            # confirmation failed. Never expose this as a no-effect failure.
+
+
             failure = UnknownWriteOutcome("calendar_creation_confirmation_unresolved")
         if failure is not None:
             raise failure from None

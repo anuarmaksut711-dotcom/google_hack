@@ -134,7 +134,7 @@ def assert_hard_constraints(data, result):
             assert op.before.start > data.now
         else:
             assert op.before is None and op.expected_etag is None
-    # Consumer compatibility: this exact result must form a valid frozen plan.
+
     PlanPayload(owner_id="student", calendar_id="calendar", plan_id=data.plan_id, version=data.version,
                 created_at=data.now, constraints=data.constraints, source_references=result.source_references,
                 blocks=result.blocks, operations=result.operations, allocations=result.allocations)
@@ -487,7 +487,7 @@ def test_past_generated_identity_is_not_reused():
 
 
 def test_tiny_models_against_independent_exhaustive_slot_oracle():
-    # 192 models: two deadlines, differing work, each external slot mask.
+
     for mask, work_a, work_b, due_a in itertools.product(range(8), (0, 15, 30, 45), (0, 15, 30), (15, 45)):
         events = tuple(external(i * 15, (i + 1) * 15, eid=f"busy-{i}") for i in range(3) if mask & (1 << i))
         data = request(items=(assignment("a", work_a, due_a), assignment("b", work_b, 45)),

@@ -28,7 +28,7 @@ from .google_clients import GoogleWorkspaceClients
 from .google_credentials import WorkspaceAccessError
 
 HEADERS = ("assignment_id", "course", "title", "deadline", "remaining_minutes", "status")
-MAX_ROWS = 500  # Includes header and mandatory empty overflow guard row.
+MAX_ROWS = 500
 Text = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=256)]
 _IDENTIFIER = TypeAdapter(Identifier)
 
@@ -157,8 +157,8 @@ def normalize_values(data: dict, *, first: int, last: int, timezone: str
     assignments: dict[str, Assignment] = {}
     for offset, raw in enumerate(rows[1:], 1):
         row_ref = f"row-{first + offset}"
-        # Register a valid stable ID before any other row rejection, including
-        # formulas, extra cells and overflow. Never evaluate the other cells.
+
+
         if isinstance(raw, list) and raw:
             try:
                 stable_id = _IDENTIFIER.validate_python(raw[0])
@@ -195,7 +195,7 @@ def normalize_values(data: dict, *, first: int, last: int, timezone: str
         try:
             normalized = NormalizedAssignment(assignment_id=identity, course=course, title=title,
                 deadline=due, remaining_minutes=remaining, status=status, source_row=row_ref)
-            projected = normalized.project()  # Includes T03 encoded-title size bound.
+            projected = normalized.project()
         except ValidationError:
             issues.append(SourceIssue(code="assignment_fields_invalid", item_ref=row_ref))
             continue
@@ -246,7 +246,7 @@ class AssignmentsReader:
             self.clients.policy.require_context(request)
             if context is not request.as_port_context():
                 raise AccessDenied("foreign_port_context")
-        # read_assignments independently checks the MCP boundary before I/O.
+
         return await self.read_assignments(request, ReadAssignmentsInput(horizon=horizon))
 
     async def read_assignments(self, context: TrustedRequestContext,
@@ -272,7 +272,7 @@ class AssignmentsReader:
                 content_hash=assignments_content_hash(assignments)),
             timezone=trusted.timezone, complete=not issues, issues=issues,
         ))
-        # Fail closed on expired authority or persistence failure; never return
-        # an apparently authoritative reference before create-only commit.
+
+
         await self.snapshots.put_assignments(context, snapshot)
         return snapshot

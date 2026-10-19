@@ -52,7 +52,7 @@ def test_joined_competing_route_uses_durable_claim_without_second_upstream(monke
     async def scenario():
         x = await joined(monkeypatch)
         try:
-            # Separate real route invocation and coordinator, identical durable store.
+
             second = ASGISocket(x.app_asgi).start()
             second.put(control("start"))
             await second.finished()

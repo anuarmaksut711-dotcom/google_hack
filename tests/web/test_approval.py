@@ -100,7 +100,7 @@ def test_authenticated_exact_approval_duplicate_reload_and_historical_lineage():
             h.clock.value += timedelta(seconds=1)
             duplicate = await client.post("/api/approval", headers=headers, json=action(plan))
             assert duplicate.json() == response.json()
-            # New app/store objects share only durable DB, not process memory.
+
             async with h.client(h.app()) as reload:
                 reload.cookies.update(client.cookies)
                 after = await read(reload, plan)
@@ -410,7 +410,7 @@ def test_google_adapter_calls_official_verifier_with_exact_audience_and_nonce(mo
         return claims
 
     monkeypatch.setattr(id_token, "verify_oauth2_token", verify)
-    # Inline the CPU-only fake callback; no network/thread/self-pipe in tests.
+
     async def inline(function):
         return function()
     monkeypatch.setattr("campuspulse_recovery.web.auth.asyncio.to_thread", inline)
@@ -533,15 +533,15 @@ class ScheduledDocuments(FakeDocuments):
 
                 await callback(SimpleNamespace(get=get, create=create, set=set_value))
                 self.discarded_attempts += 1
-                # Do not publish pending. No first-attempt grant/key/terminal
-                # write may leak into the retry's committed state.
+
+
             self.started.set()
             await self.resume.wait()
         return await super().transact(callback)
 
 
 async def invalidate_from_synthetic_ui(store, context, reference, key):
-    # These trusted test actions are not real HTTP clicks or human approvals.
+
     with store.ui_action(context, reference, key) as click:
         await store.invalidate(context, reference, reason="revoked", at=click.at)
 
@@ -580,7 +580,7 @@ def test_delayed_or_retried_callback_supersedes_later_grant_at_fresh_time(phase)
             assert terminal_a.invalidated_at >= terminal_a.approved_at == grant_a.approved_at
             assert (terminal_a.approved_at, terminal_a.expires_at) == (NOW + timedelta(seconds=1),
                 NOW + timedelta(seconds=1, minutes=10))
-            # Delayed/repeated callback does not manufacture a later lifetime.
+
             assert (grant_b.approved_at, grant_b.expires_at) == (NOW, NOW + timedelta(minutes=10))
             reloaded = FirestoreApprovalStore(documents, h.policy, clock=h.clock)
             assert await reloaded.get(ctx, a) == terminal_a
@@ -687,7 +687,7 @@ def test_revoke_callback_rechecks_exclusive_expiry_after_wait_or_retry(phase):
             documents.arm("revoke", phase)
             delayed = asyncio.create_task(invalidate_from_synthetic_ui(store, ctx, reference, "revoke"))
             await documents.started.wait()
-            h.clock.value = grant.expires_at  # equality is expired, never active
+            h.clock.value = grant.expires_at
             documents.resume.set()
             await delayed
             terminal = reconstructed_approval(h, reference, documents)
@@ -741,7 +741,7 @@ def test_supersession_samples_time_after_last_transaction_read():
                     async def get(path):
                         value = await tx.get(path)
                         if path == a_path:
-                            # The last read consumes time after callback entry.
+
                             h.clock.value = after_read
                         return value
                     return await callback(SimpleNamespace(get=get, create=tx.create, set=tx.set))

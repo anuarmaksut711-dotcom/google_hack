@@ -117,7 +117,7 @@ def test_update_timeout_event_existence_is_not_target_proof(monkeypatch, effect)
         h.expire_lease()
         recovered = await h.apply()
         assert recovered.execution.status == "unknown" and len(h.api.mutations) == 1
-        assert h.api.events[op.event_id] == saved  # no overwrite of old/manual state
+        assert h.api.events[op.event_id] == saved
     run(scenario())
 
 
@@ -138,7 +138,7 @@ def test_deterministic_id_collision_is_never_adopted(monkeypatch):
         assert h.api.events[op.event_id] == foreign
         with h.scope() as ctx:
             record = await h.registry.get_by_event(ctx, op.event_id)
-            assert record.state == "reserved"  # never confirmed foreign metadata
+            assert record.state == "reserved"
         h.expire_lease()
         assert (await h.apply()).execution.status == "unknown"
         assert len(h.api.mutations) == 1
@@ -227,10 +227,10 @@ def test_crash_gap_success_before_ledger_checkpoint_is_reconciled(monkeypatch, t
         assert second.execution.operations[0].status == "completed"
         assert second.execution.operations[0].reconciled_at is not None
         assert second.execution.operations[1].status == "pending"
-        assert len(h.api.mutations) == 1  # surviving writer not certified stopped
+        assert len(h.api.mutations) == 1
         assert second.execution.operations[0].attempts == 1
         await h.stop()
-        h.expire_lease()  # new recovery holder; live previous recovery cannot be stolen
+        h.expire_lease()
         third = await h.apply()
         assert third.execution.status == "applied_unverified", third
         assert len(h.api.mutations) == 2

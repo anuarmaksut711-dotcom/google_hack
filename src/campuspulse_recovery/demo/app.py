@@ -47,9 +47,10 @@ from .adapters import demo_config, MemoryDocuments, DemoWorkspace, NoUncertainTa
 
 
 class DemoSystem:
-    def __init__(self, *, demo, origin, clock=lambda:datetime.now(UTC)):
+    def __init__(self, *, demo, origin, clock=lambda:datetime.now(UTC), chat_agent=None):
         require_demo(demo)
         self.clock, self.origin = clock, origin
+        self.chat_agent = chat_agent
         self.config = demo_config()
         self.policy = ResourcePolicy(self.config,environment="local")
         self.documents = MemoryDocuments(self.config,demo=True)
@@ -171,7 +172,7 @@ class DemoSystem:
             status=str(applied.execution.status)
             if status in ("applied_unverified","verified"):
                 await self.call(context,"verify_plan",{"plan_id":intent.plan.plan_id,"version":intent.plan.version},VerificationResult)
-                status="applied_unverified" # Only the original backend evidence gate may promote.
+                status="applied_unverified"
             if status not in ("partial","unknown","applied_unverified","verification_failed","stale","unavailable"):
                 status="unknown"
             yield RemoteFrame(run_id=intent.run_id,intent_id=intent.intent_id,kind="terminal",status=status)
@@ -208,7 +209,8 @@ class DemoSystem:
             saved=await self.stored_evidence(context,plan_reference(plan))
             if saved.run_id==run.run_id:
                 evidence=saved
-        return SafeSources(assignments=(NOTICE,*assignments),calendar=("Тестовый календарь · свежее чтение адаптера",*calendar),verification=evidence)
+        source_notice = NOTICE if self.chat_agent is None else 'ДЕМО · тестовые задания и календарь. Чат использует настоящий Gemini; восстановление работает на тестовых данных.'
+        return SafeSources(assignments=(source_notice,*assignments),calendar=("Тестовый календарь · свежее чтение адаптера",*calendar),verification=evidence)
 
     def runs(self,auth):
         self.runtime=RecoveryRuns(auth=auth,registry=RunRegistry(self.documents,self.policy,clock=self.clock),remote=self,
@@ -225,7 +227,8 @@ class DemoSystem:
                 return VerifiedSignIn(principal_id=system.config.student.allowed_signin_principal,
                     authenticated_at=now,expires_at=now+timedelta(hours=1))
         app=create_ui_app(policy=self.policy,documents=self.documents,verifier=DemoSignIn(),origin=self.origin,
-            environment="local",clock=self.clock,runs_factory=self.runs,projection=self,demo_mode=True)
+            environment="local",clock=self.clock,runs_factory=self.runs,projection=self,demo_mode=True,
+            chat_agent=self.chat_agent)
         @asynccontextmanager
         async def lifespan(app):
             async with self.mcp.app.router.lifespan_context(self.mcp.app):
@@ -233,7 +236,8 @@ class DemoSystem:
         app.router.lifespan_context=lifespan
         @app.get('/demo',response_class=HTMLResponse)
         async def entry():
-            return '<!doctype html><html lang="ru"><meta charset="utf-8"><title>CampusPulse · ДЕМО</title><h1>CampusPulse · локальное ДЕМО</h1><p>'+NOTICE+'</p><p>Только тестовый вход. Не вводите Google-пароль или токены.</p><button id="demo-signin">Открыть тестовое расписание</button><p id="result" role="status"></p><script src="/demo-signin.js"></script></html>'
+            notice = NOTICE if self.chat_agent is None else 'Чат обращается к Gemini через Vertex AI. Источники и вход тестовые, история сбрасывается при перезапуске сервера.'
+            return '<!doctype html><html lang="ru"><meta charset="utf-8"><title>CampusPulse · ДЕМО</title><h1>CampusPulse · локальное ДЕМО</h1><p>'+notice+'</p><p>Только тестовый вход. Не вводите Google-пароль или токены.</p><button id="demo-signin">Открыть тестовое расписание</button><p id="result" role="status"></p><script src="/demo-signin.js"></script></html>'
         @app.get('/demo-signin.js')
         async def signin_js():
             return Response("document.getElementById('demo-signin').onclick=async()=>{try{const c=await(await fetch('/auth/challenge')).json();const r=await fetch('/auth/signin',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':c.csrf_token},body:JSON.stringify({credential:'local-demo-signin'})});if(!r.ok)throw Error();location.href='/';}catch{document.getElementById('result').textContent='Тестовый вход не выполнен. Обновите страницу.';}};",media_type='text/javascript')
@@ -246,10 +250,10 @@ class DemoSystem:
         return app
 
 
-def create_demo_app(*, demo=False,origin="https://127.0.0.1:8947"):
+def create_demo_app(*, demo=False,origin="https://127.0.0.1:8947", chat_agent=None):
     from urllib.parse import urlsplit
     parts=urlsplit(origin)
     if parts.scheme!="https" or parts.hostname!="127.0.0.1":
         raise ValueError("demo_literal_loopback_https_required")
-    system=DemoSystem(demo=demo,origin=origin)
+    system=DemoSystem(demo=demo,origin=origin,chat_agent=chat_agent)
     return system.app(),system

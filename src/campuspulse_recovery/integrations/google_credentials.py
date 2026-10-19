@@ -77,8 +77,8 @@ class _AuthRequest(auth_transport.Request):
         except Exception:
             failed = True
         if failed:
-            # Metadata SDK logs TransportError objects during its retries. Do
-            # not give it a raw requests exception or even a chained context.
+
+
             raise auth_errors.TransportError("workspace_auth_transport_failed")
 
 
@@ -119,7 +119,7 @@ class WorkspaceCredentials(auth_credentials.Credentials):
     def refresh(self, request) -> None:
         import requests
 
-        # Invalidate the wrapper first, so failure cannot leave a usable token.
+
         self.token = None
         self.expiry = None
         failure = None
@@ -133,14 +133,14 @@ class WorkspaceCredentials(auth_credentials.Credentials):
                 failure = "workspace_token_invalid"
             else:
                 self.token, self.expiry = self._raw.token, self._raw.expiry
-            # Scopes are fixed at construction. In google-auth 2.62 the local
-            # impersonated credential's public `scopes` property is None even
-            # when target_scopes were supplied; do not infer scopes from it.
+
+
+
         except Exception:
             failure = "workspace_credential_refresh_failed"
         if failure:
-            # Raise outside except so structured exception logging cannot walk
-            # an attached raw token response through __context__/__cause__.
+
+
             raise WorkspaceAccessError(failure) from None
 
 
@@ -178,6 +178,6 @@ def create_workspace_credentials(config: AppConfig, *, environment: Environment,
         raise
     except Exception:
         pass
-    # `from None` inside except still retains the raw error in __context__.
-    # Raise after leaving the handler so structured logs cannot traverse it.
+
+
     raise WorkspaceAccessError("workspace_credentials_unavailable") from None

@@ -5,10 +5,12 @@ same explicit dependencies and durable sessions; capabilities remain local.
 Production runtime and safe source projections must be supplied by the operator.
 """
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Protocol
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import Field, StringConstraints
 
 from ...domain.models import Contract, PlanVersion, VerificationResult
@@ -16,6 +18,7 @@ from ...storage.plans import FirestorePlanStore, plan_reference
 from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
+from ..chat import create_chat_router
 from ..runs import RecoveryRuns, RunView, create_runs_router
 from ..assets.client import SCRIPT
 from ..assets.styles import STYLES
@@ -44,7 +47,8 @@ class SafeProjection(Protocol):
 
 def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   clock=lambda: datetime.now(UTC), runs_factory=None,
-                  projection: SafeProjection | None = None, demo_mode: bool = False):
+                  projection: SafeProjection | None = None, demo_mode: bool = False,
+                  chat_agent=None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -53,22 +57,29 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     if demo_mode:
         from ...demo import require_demo
         require_demo(environment == "local")
+    if environment != 'local' and getattr(chat_agent, 'local_preview_only', False):
+        raise ValueError('agent_engine_chat_runtime_required')
     app = create_identity_app(policy=policy, documents=documents, verifier=verifier,
                              origin=origin, environment=environment, clock=clock)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
                    environment=environment, clock=clock)
     plans = FirestorePlanStore(documents, policy)
     approvals = FirestoreApprovalStore(documents, policy, clock=clock)
+    app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
+        agent=chat_agent, projection=projection))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:
             raise ValueError("matching_explicit_run_dependencies_required")
         app.include_router(create_runs_router(runs))
 
+    app.mount('/assets/logo', StaticFiles(directory=Path(__file__).resolve().parents[1] / 'assets' / 'logo'), name='welcome-logo')
+
     @app.get("/", response_class=HTMLResponse)
     async def page(request: Request):
         auth.check_request(request)
-        return render_shell(policy.config.student.timezone, demo_mode=demo_mode)
+        return render_shell(policy.config.student.timezone, demo_mode=demo_mode,
+                            live_chat=chat_agent is not None)
 
     @app.get("/assets/campuspulse.css")
     async def css():
@@ -113,11 +124,11 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             if projection is not None:
                 sources = SafeSources.model_validate(await projection.project(context, run=run, plan=plan))
                 if sources.verification is not None and sources.verification.calendar_source is not None:
-                    # Viewing stored evidence from a T24 run uses this sign-in's
-                    # context. Owner/resource/config still bind here; render's
-                    # evidence gate independently binds the exact selected run.
+
+
+
                     policy.require_source(context, sources.verification.calendar_source.reference, current_run=False)
-            # Recheck original durable revocation after every awaited projection.
+
             latest = await auth.load(request)
             if latest.session != credential.session:
                 from ...security.context import AccessDenied
@@ -127,14 +138,14 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                 sources=sources, timezone=policy.config.student.timezone,
                 now=clock(), runtime_available=runs is not None)
 
-    # Added LAST: Starlette runs it outside original T16 protections, which
-    # unconditionally overwrite CSP after the route. API/auth remain untouched.
+
+
     @app.middleware("http")
     async def ui_csp(request, call_next):
         response = await call_next(request)
-        if request.url.path in {"/", "/ui/state", "/assets/campuspulse.css", "/assets/campuspulse.js"}:
+        if request.url.path in {"/", "/ui/state", "/assets/campuspulse.css", "/assets/campuspulse.js"} or request.url.path.startswith('/assets/logo/'):
             response.headers["Content-Security-Policy"] = (
-                "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+                "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
                 "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
         return response
 

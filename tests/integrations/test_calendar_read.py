@@ -126,7 +126,7 @@ def test_pagination_empty_page_with_token_full_horizon_and_authoritative_backend
             assert snapshot.source.reference.read_at == NOW + timedelta(seconds=2)
             assert snapshot.source.reference.snapshot_id.startswith("cs_")
             assert snapshot.source.reference.content_hash == calendar_content_hash(snapshot.events, (), True)
-            assert h.documents.data  # Persistence has completed, not scheduled.
+            assert h.documents.data
         with h.request("backend") as backend:
             saved = await FirestoreSnapshotStore(h.documents, h.policy).get_calendar(backend, snapshot.source.reference)
             assert saved == snapshot
@@ -323,7 +323,7 @@ def test_confirmed_registry_exact_marker_and_fresh_etag_define_own_blocks():
             snapshot = await h.reader.read(ctx, HORIZON)
         assert snapshot.source.complete
         assert snapshot.owned_blocks[0].event_id == record.event_id
-        assert snapshot.owned_blocks[0].etag == '"fresh-etag"'  # Creation etag needn't match later read.
+        assert snapshot.owned_blocks[0].etag == '"fresh-etag"'
         assert CalendarReadResult(snapshot=snapshot).ownership == {record.event_id: "owned", "foreign": "external"}
         assert busy_intervals(snapshot, include_owned=False) == (Interval(start=NOW, end=NOW + timedelta(hours=1)),)
         with h.request("backend") as ctx:
@@ -357,7 +357,7 @@ def test_ownership_requires_registry_and_supported_single_event(variant):
         h = Harness()
         raw, record = await h.owned_event(confirmed=variant != "reserved")
         if variant == "unregistered":
-            h.documents.data = {}  # External marker alone, not production deletion.
+            h.documents.data = {}
         if variant == "missing_marker":
             raw.pop("extendedProperties")
         if variant == "missing_etag":
@@ -444,7 +444,7 @@ def test_snapshot_persistence_failure_does_not_return_authoritative_reference():
         h = Harness()
 
         async def fail(callback):
-            assert not h.in_google  # Google ran before/outside snapshot transaction.
+            assert not h.in_google
             raise RuntimeError("fake_storage_unavailable")
 
         h.documents.transact = fail
@@ -496,7 +496,7 @@ def test_pinned_calendar_sdk_builds_exact_read_request_without_network():
 def test_empty_complete_calendar_is_distinct_from_failed_read():
     async def scenario():
         h = Harness(max_pages=1)
-        h.pages = [{"timeZone": "UTC"}]  # API may omit items for an empty page.
+        h.pages = [{"timeZone": "UTC"}]
         with h.request() as ctx:
             snapshot = await h.reader.read(ctx, HORIZON)
             assert snapshot.source.complete and snapshot.recurrence_expanded

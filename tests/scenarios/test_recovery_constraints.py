@@ -64,7 +64,7 @@ def test_deadline_specific_deficit_later_capacity_does_not_count():
     inputs = request(items=(assignment("early", 90, 90), assignment("late", 60, 300)),
                      events=(external(0, 45),), windows=((0, 300),))
     result = solve_repair(inputs)
-    assert 300 - 45 >= 90 + 60  # Sufficient total, only 45 minutes before early due.
+    assert 300 - 45 >= 90 + 60
     assert result.status == "infeasible" and not result.operations and not result.blocks
     certificates = [c for c in result.search.certificate if c.deadline == NOW + timedelta(minutes=90)]
     assert len(certificates) == 1 and certificates[0].deficit_minutes == 45

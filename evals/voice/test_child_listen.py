@@ -77,7 +77,7 @@ def test_only_one_ipv4_tcp_socket_target_is_remapped():
     listener = Listener(select_child(**selection()))
     sock = SimpleNamespace(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
     assert listener.effective_address(sock, ("0.0.0.0", 12345)) == ("127.0.0.1", 12345)
-    # No second socket or repeat bind at the same tuple gets the adaptation.
+
     assert listener.effective_address(sock, ("0.0.0.0", 12345)) == ("0.0.0.0", 12345)
     with pytest.raises(AssertionError, match="W12 network fence"):
         sys.audit("socket.bind", None, ("0.0.0.0", 12345))

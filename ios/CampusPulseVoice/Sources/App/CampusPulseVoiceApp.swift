@@ -35,7 +35,7 @@ import SwiftUI
                     VStack(alignment: .leading, spacing: 12) {
                         Button("Начать разговор") { model.startConversation() }.disabled(!model.canStart)
                         Button("Остановить разговор", role: .destructive) { model.requestStop() }
-                        // Stop has no busy/connection guard. Repeated Stop is safe.
+
                         Divider()
                         Text("Для каждой реплики нажмите «Начать реплику», дождитесь «Говорите», затем нажмите «Завершить реплику». Можно начать реплику во время ответа ассистента.")
                         Button("Начать реплику") { model.beginUtterance() }.disabled(!model.canBegin)

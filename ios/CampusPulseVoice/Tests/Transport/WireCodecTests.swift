@@ -2,7 +2,7 @@ import XCTest
 import CryptoKit
 @testable import CampusPulseVoice
 
-// M01 must wire Fixtures/Protocol as test resources (W11 project spec owns this).
+
 enum VoiceFixtures {
     static func data(_ name: String) throws -> Data {
         let parts = name.split(separator: ".", maxSplits: 1).map(String.init)

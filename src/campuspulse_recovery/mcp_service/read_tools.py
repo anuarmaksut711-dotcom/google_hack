@@ -30,7 +30,7 @@ def tool_definitions() -> list[Tool]:
 
 
 def error_result(code: str) -> CallToolResult:
-    # Fixed codes only; never stringify exceptions, inputs, headers or metadata.
+
     return CallToolResult(isError=True, content=[TextContent(type="text", text=code)])
 
 
@@ -43,7 +43,7 @@ async def dispatch(name, arguments, *, request, contexts, assignments, calendar)
     except (ValidationError, ValueError, TypeError):
         return error_result("invalid_arguments")
     try:
-        # Request is supplied by the HTTP transport, never JSON arguments/_meta.
+
         with contexts.request(request) as context:
             reader = assignments if name == "read_assignments" else calendar
             snapshot = outputs.model_validate(await reader.read(context, payload.horizon))
@@ -52,9 +52,9 @@ async def dispatch(name, arguments, *, request, contexts, assignments, calendar)
                 return error_result("source_interval_mismatch")
             data = snapshot.model_dump(mode="json")
             if not snapshot.source.complete:
-                # Readers await durable persistence before returning. Preserve
-                # the validated T03 source reference/issues for backend reload
-                # and clarification, without declaring usable availability.
+
+
+
                 return CallToolResult(isError=True, structuredContent=data,
                                       content=[TextContent(type="text", text="source_incomplete")])
             return CallToolResult(structuredContent=data,

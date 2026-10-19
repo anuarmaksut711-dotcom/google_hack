@@ -143,7 +143,7 @@ def test_real_live_dispatch_through_actual_coordinator_and_concurrent_reads(monk
             assert connection.request.live_connect_config.realtime_input_config.automatic_activity_detection.disabled
             declarations = {d.name for t in connection.request.config.tools for d in t.function_declarations or []}
             assert declarations == set(v.TOOLS)
-            assert connection.realtime == []  # Ready is not activity begin.
+            assert connection.realtime == []
             generation = coordinator.lease.connection_generation
             client.put(p.encode_audio(p.AudioFrame("input", generation, 0, 0, b"\x00\x00" * 320)))
             client.put(control("input", generation, action="end"))
@@ -163,11 +163,11 @@ def test_real_live_dispatch_through_actual_coordinator_and_concurrent_reads(monk
             assert not provider.session.service.sessions[a.APP_NAME][base.lease.binding.owner_id][coordinator.lease.session_id].events
             connection.put(fc(("solve_repair", "live_s", {"request": {}})))
             await settle(lambda: len(connection.sent) == 2)
-            assert len(mcp.calls) == 2  # Pure deterministic solver, no new MCP.
+            assert len(mcp.calls) == 2
             policy = provider.session.policy
             assert policy.candidate is not None
-            # Hold the actual durable check with the old DTO while the actual
-            # W04 watchdog renews it. SDK/tool flow must continue after retry.
+
+
             entered, release, attempts = delayed_first_check(monkeypatch, policy)
             captured = coordinator.lease
             connection.put(fc(("read_assignments", "after_renew", args)))
@@ -185,7 +185,7 @@ def test_real_live_dispatch_through_actual_coordinator_and_concurrent_reads(monk
             assert not any(isinstance(x, p.AudioFrame) for x in client.sent)
             connection.put(transcription(policy.speech()))
             connection.put(LlmResponse(turn_complete=True))
-            # A completed safe turn is released with pacing; no premature audio.
+
             for _ in range(1500):
                 await asyncio.sleep(0)
                 if any(isinstance(x, p.AudioFrame) for x in client.sent): break

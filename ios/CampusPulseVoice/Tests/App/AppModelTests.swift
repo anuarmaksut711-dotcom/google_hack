@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import CampusPulseVoice
 
-// All W11 XCTest are PREPARED, not run on Windows. No native APIs or network.
+
 final class AppTestStore: CredentialStore, @unchecked Sendable {
     private let lock = NSLock()
     private var value: DeviceCredential?
@@ -44,7 +44,7 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
     func start(credential: DeviceCredential, reconnect: Bool) async throws {
         starts.append(reconnect); observer.begin(epoch: epoch)
         if holdStart { await withCheckedContinuation { startGate = $0 } }
-        emit() // Deliberately delivers even after cancellation; UI must fence it.
+        emit()
     }
     func stop() async {
         stops += 1; current = nil; onCaptureStatus?(.inactive)
@@ -70,7 +70,7 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
     func mute(_ value: Bool) async throws -> CaptureReady? {
         guard let current else { return nil }
         if value { self.current = nil; onCaptureStatus?(.muted(current.ticket)); return nil }
-        return nil // Nil unmute must never become a speaking prompt.
+        return nil
     }
     func isCurrent(_ ready: CaptureReady) -> Bool { current == ready && beginGate == nil }
 }
@@ -133,7 +133,7 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
             pairingFactories += 1
             return DevicePairing(origin: origin, http: AppTestPairingHTTP(), store: store, browser: AppTestPairingBrowser())
         })
-        // No await between action launch and Stop: MainActor Task cannot yet run.
+
         model.startConversation(); model.requestStop()
         try await waitFor { !model.stopping }
         XCTAssertEqual(store.loadCount, 0); XCTAssertEqual(factories, 0)
@@ -143,8 +143,8 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
         try await waitFor { !model.stopping }
         XCTAssertEqual(pairingFactories, 0); XCTAssertEqual(store.loadCount, 0)
         XCTAssertNil(model.pairing); XCTAssertEqual(model.connection, .idle)
-        // Existing normal action tests assert actual factory/start/Continue work;
-        // absence of a factory here also means no permission/audio native call.
+
+
     }
     func testCaptureAckEndSerializationAndRespondingBargeIn() async throws {
         var fake: AppTestConversation?
@@ -152,7 +152,7 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
             let value = AppTestConversation(claim: claim, observer: observer); fake = value; return value
         })
         model.startConversation(); try await waitFor { model.wireReady && !model.pending }
-        XCTAssertFalse(model.speakingPrompt) // wire ready is insufficient.
+        XCTAssertFalse(model.speakingPrompt)
         fake?.emit(.responding, type: "generation"); XCTAssertTrue(model.canBegin)
         fake?.holdBegin = true; model.beginUtterance()
         try await waitFor { fake?.beginGate != nil }
@@ -190,7 +190,7 @@ final class AppTestStore: CredentialStore, @unchecked Sendable {
         try store.save(credential("b"), for: BackendOrigin(origin))
         made[0].holdStop = true
         model.startConversation(); try await waitFor { made[0].stopGate != nil }
-        XCTAssertEqual(made.count, 1) // No new actor/audio before joined old stop.
+        XCTAssertEqual(made.count, 1)
         made[0].stopGate?.resume(); made[0].stopGate = nil
         try await waitFor { made.count == 2 && model.wireReady && !model.pending }
         XCTAssertEqual(made[1].starts, [false])

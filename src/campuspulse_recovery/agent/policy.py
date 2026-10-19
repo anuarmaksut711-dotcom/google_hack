@@ -120,7 +120,7 @@ def backend_invocation(context: TrustedRequestContext, policy: ResourcePolicy, *
             or constraints.config_revision != trusted.config_revision
             or constraints.timezone != trusted.timezone):
         raise AccessDenied("server_planning_basis_mismatch")
-    # Reuse frozen identifier/version validators, without inventing a wire DTO.
+
     VerifyPlanInput(plan_id=proposal_id, version=proposal_version)
     if allowed_plan is not None:
         allowed_plan = PlanReference.model_validate(allowed_plan)
@@ -203,7 +203,7 @@ def before_agent(callback_context):
 def before_model(callback_context, llm_request):
     state = current(callback_context)
     if state.llm_calls >= MAX_LLM_CALLS or state.tool_calls >= MAX_TOOL_CALLS:
-        # Preserve domain uncertainty rather than masking it with a budget code.
+
         if state.status not in ("unknown", "partial", "verification_failed", "applied_unverified"):
             state.status = "budget_exhausted"
         return response(state)
@@ -216,11 +216,11 @@ def after_model(callback_context, llm_response):
     parts = llm_response.content.parts if llm_response.content else []
     calls = [p.function_call for p in parts or [] if p.function_call]
     if not calls:
-        return response(state)  # Never let model prose override typed evidence.
+        return response(state)
     if len(calls) != 1 or calls[0].name not in PUBLIC_TOOLS:
         if state.status not in ("partial", "unknown", "verification_failed", "applied_unverified"):
             state.status = "blocked"
-        return response(state)  # Before SDK dispatch; batches may run in parallel.
+        return response(state)
     call = calls[0]
     try:
         normalized = validate_call(state, call.name, call.args or {})
@@ -228,9 +228,9 @@ def after_model(callback_context, llm_response):
         if state.status not in ("partial", "unknown", "verification_failed", "applied_unverified", "stale"):
             state.status = "blocked"
         return response(state)
-    # Strip all untrusted accompanying prose and solver source text from events.
-    # before_tool supplies the actual typed server-built request immediately
-    # before the existing FunctionTool executes; no candidate data is authority.
+
+
+
     visible = {"request": {}} if call.name == "solve_repair" else normalized
     return LlmResponse(content=types.Content(role="model", parts=[types.Part(
         function_call=types.FunctionCall(id=call.id, name=call.name, args=visible))]))
@@ -256,7 +256,7 @@ def validate_call(state, name, args):
             raise ValueError("solver_phase")
         if set(args) != {"request"} or not isinstance(args["request"], dict):
             raise ValueError("invalid_solver_call")
-        state.request()  # authoritative observed snapshots + server-owned basis
+        state.request()
         return {"request": {}}
     if name == "apply_plan":
         dto = ApplyPlanInput.model_validate(args)
@@ -279,11 +279,11 @@ def before_tool(tool, args, tool_context):
         state = current(tool_context)
         validate_call(state, tool.name, args)
         state.tool_calls += 1
-        state.pending = tool.name  # Reserve synchronously before any await.
+        state.pending = tool.name
         state.tool_started = time.monotonic()
         if tool.name == "apply_plan":
             state.apply_dispatched = True
-            state.status = "unknown"  # Includes timeout/cancellation after dispatch.
+            state.status = "unknown"
         elif tool.name == "verify_plan":
             state.verify_calls += 1
             state.verify_started_at = instant(state.context._factory._clock())
@@ -300,8 +300,8 @@ def before_tool(tool, args, tool_context):
 def after_tool(tool, args, tool_context, tool_response):
     state = current(tool_context)
     if tool.name == "solve_repair":
-        # ADK traces function_args after callbacks. The existing solver already
-        # consumed the typed request; remove raw source titles before telemetry.
+
+
         args.clear()
         args["request"] = {}
     if state.pending != tool.name:
@@ -318,9 +318,9 @@ def after_tool(tool, args, tool_context, tool_response):
             schema = AssignmentsSnapshot if tool.name == "read_assignments" else CalendarSnapshot
             value = schema.model_validate(tool_response.get("structuredContent"))
             state.policy.require_source(state.context, value.source.reference)
-            # An incomplete typed snapshot is still useful for needs_input or
-            # unknown. Never turn it into usable availability; the pure solver
-            # rejects incompleteness and the backend reloads it independently.
+
+
+
             if failed and value.source.complete:
                 raise ValueError("failed_complete_read")
             if tool.name == "read_assignments":
@@ -336,8 +336,8 @@ def after_tool(tool, args, tool_context, tool_response):
                 state.calendar = value
                 result = {"status": "read", "events": len(value.events), "owned_blocks": len(value.owned_blocks)}
         elif tool.name == "apply_plan":
-            # isError is inspected first, but typed business uncertainty/progress
-            # must survive it. A bare transport error never means no effects.
+
+
             value = ApplyResult.model_validate(tool_response.get("structuredContent"))
             t = state.context.trusted
             if (value.execution.plan != state.allowed_plan or value.execution.request_key != state.allowed_apply.request_key
@@ -346,8 +346,8 @@ def after_tool(tool, args, tool_context, tool_response):
             state.applied = value
             state.status = str(value.execution.status)
             if state.status == "verified":
-                # Historical replay evidence is retained, but a fresh verify is
-                # still required in this invocation before final verified text.
+
+
                 state.status = "applied_unverified"
             if failed and state.status in ("applied_unverified", "verified"):
                 state.status = "unknown"
@@ -370,7 +370,7 @@ def after_tool(tool, args, tool_context, tool_response):
             if failed and value.status == "verified":
                 state.status = "applied_unverified"
             if previous in ("unknown", "partial", "stale") and value.status != "verified":
-                state.status = previous  # preserve unresolved durable operation effects
+                state.status = previous
             result = {"status": state.status, "verification": value.model_dump(mode="json")}
     except (ValueError, TypeError, AccessDenied, AttributeError):
         if tool.name == "apply_plan":
@@ -396,7 +396,7 @@ def after_tool(tool, args, tool_context, tool_response):
 
 def on_tool_error(tool, args, tool_context, error):
     state = current(tool_context)
-    # No exception text, source input or credential reaches the model/event log.
+
     return {"isError": True, "code": "tool_execution_unavailable"}
 
 

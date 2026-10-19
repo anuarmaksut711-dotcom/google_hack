@@ -40,7 +40,7 @@ enum AppCopy {
             default: break
             }
         }
-        return self.error(AppIssue.connection) // Never render raw native/server text.
+        return self.error(AppIssue.connection)
     }
     static func connection(_ state: VoiceUIState) -> String {
         switch state {

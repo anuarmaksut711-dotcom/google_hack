@@ -27,7 +27,7 @@ actor VoiceSession {
     private var playback = PlaybackLedger(epoch: UUID())
     private var captureTicket: CaptureTicket?
     private var captureEnabled = false
-    private var inputPaused = false // Local admission fence before end/mute awaits.
+    private var inputPaused = false
     private var uncertain = false
     private var runID: String?
     private var sessionID: String?
@@ -48,8 +48,8 @@ actor VoiceSession {
         catch { await socket.close(); throw VoiceFailure.invalidState }
     }
 
-    // W11 supplies a credential loaded for the exact origin. Credential expiry is
-    // bounded locally as well as independently checked/revoked by the server.
+
+
     func start(socket: any VoiceSocket, wallNow: Date = Date(), reconnect: Bool = false) throws {
         guard owner == nil, socket.claim == claim, claim.expiresAt > wallNow else { throw VoiceFailure.invalidState }
         if reconnect { machine.resetForReconnect() }
@@ -85,8 +85,8 @@ actor VoiceSession {
         outgoing.append(item); writeSignal?.yield(())
     }
 
-    // W05 VAD is disabled. These are explicit utterance ports, independent of the
-    // responding/listening UI label. Ready already opens the first wire input.
+
+
     func beginUtterance() async throws -> CaptureTicket {
         let connection = try active()
         guard !captureEnabled, !inputPaused, machine.wire?.muted == false else { throw VoiceFailure.invalidState }
@@ -118,8 +118,8 @@ actor VoiceSession {
         let connection = try active()
         guard captureEnabled, let ticket = captureTicket else { throw VoiceFailure.invalidState }
         captureEnabled = false; inputPaused = true
-        // Admission closes BEFORE awaiting MainActor, then already queued PCM is
-        // sent in order before end. An admitted send is never counter-rolled-back.
+
+
         await audio.stopCapture(ticket: ticket)
         guard ticket.epoch == epoch, !machine.terminal, machine.state != .stopping else { return }
         do { try enqueue(.control(WireJSON.control("input", request: id(), connection: connection, action: "end"))) }
@@ -134,8 +134,8 @@ actor VoiceSession {
         do { try enqueue(.control(WireJSON.control("mute", request: id(), connection: connection, muted: value))) }
         catch { await abortConnection(); throw VoiceFailure.backpressure }
     }
-    // Public Stop joins the one owner and all of its structured child tasks.
-    // Internal final-user Stop only requests closure, avoiding self-join deadlock.
+
+
     func stop() async {
         let running = owner
         await requestStop()
@@ -170,8 +170,8 @@ actor VoiceSession {
         let ticket = epoch, nextSerial = playback.beginFlush()
         await audio.flushOutput(epoch: ticket, nextSerial: nextSerial)
         guard ticket == epoch else { return }
-        // Native unscheduling has returned. Keep any still-running admission or
-        // consumption child charged until it retires, too.
+
+
         playback.confirmFlush(nextSerial: nextSerial)
     }
     private func drive(socket: any VoiceSocket, epoch ticket: UUID, writes: AsyncStream<Void>, plays: AsyncStream<Void>) async {
@@ -186,12 +186,12 @@ actor VoiceSession {
                 catch {
                     if !(machine.state == .stopping && machine.terminal) { machine.fail() }
                 }
-                // Admission is fenced before any await/cancellation. Close wakes
-                // native receive/send; stream finish wakes suspended consumers.
+
+
                 captureEnabled = false; inputPaused = true; uncertain = true
                 group.cancelAll(); writeSignal?.finish(); playSignal?.finish()
                 await socket.close(); await flushOutput(); await audio.close(epoch: ticket)
-                // Task group scope joins every cancellation-cooperative child.
+
             }
         } catch { machine.fail() }
         guard ticket == epoch else { return }
@@ -242,7 +242,7 @@ actor VoiceSession {
                     if m.type == "input" { inputPaused = false }
                     if m.type == "mute" { inputPaused = false }
                 case .pcm(let d):
-                    // Keep bytes counted until the admitted send completes.
+
                     packet = .binary(try machine.admitPCM(d, now: now()).encode())
                 }
                 do { try await bounded(seconds: 2) { try await socket.send(packet) } }
@@ -266,10 +266,10 @@ actor VoiceSession {
     private func playLoop(epoch ticket: UUID, signals: AsyncStream<Void>) async throws {
         try await withThrowingTaskGroup(of: PlaybackEvent.self) { group in
             defer { group.cancelAll() }
-            // At most one wake waiter plus one consumption child per charged
-            // admission (<=32). Only this parent calls scheduleOutput, in FIFO
-            // order, awaiting its synchronous MainActor enqueue acknowledgement.
-            // Child tasks wait for consumption; they NEVER schedule native PCM.
+
+
+
+
             group.addTask {
                 for await _ in signals { return .wake }
                 throw CancellationError()
@@ -286,8 +286,8 @@ actor VoiceSession {
                             receipt = try await audio.scheduleOutput(work.frame, admission: work.admission)
                             guard try playback.scheduled(receipt, expected: work.admission) else { continue }
                         } catch {
-                            // A throw may follow uncertain native scheduling.
-                            // Do not free its budget until native flush returns.
+
+
                             if try playback.schedulingFailed(work.admission) { throw VoiceFailure.transport }
                             continue
                         }

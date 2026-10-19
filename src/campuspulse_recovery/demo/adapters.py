@@ -18,7 +18,7 @@ from . import require_demo
 
 
 def demo_config():
-    # Deliberately fictitious identifiers/locations, never a cloud configuration.
+
     return AppConfig.model_validate(dict(mode="local_development", project_id="campuspulse-demo",
         agent_region="demo-region1", model_location="demo-region1",
         web_cloud_run_region="demo-region1", mcp_cloud_run_region="demo-region1",
@@ -85,7 +85,7 @@ class DemoWorkspace:
         require_demo(demo)
         self.policy, self.read_only = policy, False
         self.lock, self.reads, self.writes = RLock(), [], []
-        # Relative to every fresh startup, on the solver's 15-minute grid.
+
         self.anchor = now.replace(second=0,microsecond=0) + timedelta(minutes=30-now.minute%15)
         self.rows = [["ml", "ML", "Лабораторная работа", (self.anchor+timedelta(hours=7)).isoformat(),120,"todo"],
                      ["db", "Базы данных", "Отчёт", (self.anchor+timedelta(hours=5)).isoformat(),60,"todo"]]
@@ -140,5 +140,5 @@ class DemoWorkspace:
 
 class NoUncertainTakeover:
     async def require_stopped(self, context, transaction, previous, now):
-        # No invented stop certificate. Unknown writers remain blocked.
+
         raise BindingConflict("demo_restart_required_for_uncertain_writer")

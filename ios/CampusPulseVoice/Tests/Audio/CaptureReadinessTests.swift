@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import CampusPulseVoice
 
-// A cancellation-cooperative test barrier before real W09 wire validation.
-// It never substitutes a wire state or a successful graph/tap acknowledgment.
+
+
 final class TestArmingGate: @unchecked Sendable {
     private let lock = NSLock()
     private var shouldHold = false
@@ -22,13 +22,13 @@ final class TestArmingGate: @unchecked Sendable {
     }
     func release() {
         lock.lock(); let latch = held; held = nil; lock.unlock()
-        latch?.resolve(.consumed) // Test barrier only, never an audio receipt.
+        latch?.resolve(.consumed)
     }
 }
 
-// Holds a previous *actual W09 writer send* after its control was admitted.
-// Later begin/unmute remains queued in W09, so its real wire state stays closed/
-// muted until release. There is no fake capture-ready port or fixed UI sleep.
+
+
+
 actor GatedAudioSocket: VoiceSocket {
     enum Mode: Sendable { case end, muteTrue }
     nonisolated let claim: VoiceClaim

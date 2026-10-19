@@ -35,8 +35,8 @@ final class AudioConversionTests: XCTestCase {
         var total = Data()
         for _ in 0..<10 { total.append(try converter.convert(input)) }
         total.append(try converter.convert(nil, end: true))
-        // Resampler rounding/tail can vary; 9610 hardware frames are ~3203 mono
-        // output frames, never 9610 frames relabeled as 16 kHz or stereo bytes.
+
+
         XCTAssertLessThanOrEqual(abs(total.count / 2 - 3203), 4)
         var chunker = PCMChunker(); let chunks = try chunker.append(total)
         XCTAssertTrue(chunks.allSatisfy { $0.count == 640 && $0.count <= 1280 })

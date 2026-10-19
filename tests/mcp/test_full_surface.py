@@ -486,7 +486,7 @@ def test_domain_services_reject_nonactive_or_wrong_boundary_capability(monkeypat
             if case == "copied":
                 with pytest.raises(TypeError):
                     copy(context)
-                # Even a trusted-code adversarial slot clone lacks active identity.
+
                 from dataclasses import fields
                 candidate = object.__new__(type(context))
                 for field in fields(context):

@@ -30,7 +30,7 @@ class JournalLimits(Contract):
 
 class _Run(Contract):
     run_id: TechnicalId
-    binding: str  # hash of owner/calendar/config/session; never raw email
+    binding: str
     created_at: Instant
     expires_at: Instant
     limits: JournalLimits
@@ -54,7 +54,7 @@ class FirestoreRunEventStore(_Repository):
         t = self.policy.require_context(request)
         if request.boundary not in ("backend", "agent", "mcp"):
             raise AccessDenied("journal_boundary_denied")
-        # Technical run IDs must originate from server binding, never source IDs.
+
         from pydantic import TypeAdapter
         TypeAdapter(TechnicalId).validate_python(t.run_id)
         return request, t
@@ -69,8 +69,8 @@ class FirestoreRunEventStore(_Repository):
         return "cp_run_journals/" + _key(t.owner_id, t.calendar_id, t.config_revision, run_id or t.run_id)
 
     def _load(self, context, doc, *, related=False):
-        # Often called immediately after an awaited read. The capability may
-        # have expired or its shared request lease may have been revoked there.
+
+
         self._scope(context)
         value = _decode(doc, "run_journal", _Run)
         if value.binding != self._binding(context) or (not related and value.run_id != context.trusted.run_id):
@@ -117,7 +117,7 @@ class FirestoreRunEventStore(_Repository):
         except (BindingConflict, AccessDenied):
             raise
         except PortError:
-            # Same identity only. A second register never extends retention.
+
             self._scope(context)
             self._load(context, await self.documents.get(path))
             self._scope(context)
@@ -178,8 +178,8 @@ class FirestoreRunEventStore(_Repository):
         except (BindingConflict, AccessDenied):
             raise
         except PortError:
-            # Ambiguous commit: reconcile only this observation, never re-run a
-            # business tool or allocate another event identity.
+
+
             self._scope(context)
             match = duplicate(self._load(context, await self.documents.get(path)))
             if match is None:

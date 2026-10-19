@@ -74,8 +74,8 @@ class VoicePolicy:
     @property
     def lease(self):
         value = self.lease_provider() if self.lease_provider else self._lease
-        # Renewal may replace only lease_until. A successor/rebound connection
-        # can never be adopted through this server-only accessor.
+
+
         if value.model_dump(exclude={"lease_until"}) != self._lease.model_dump(exclude={"lease_until"}):
             raise AccessDenied("voice_lease_fence_changed")
         return value
@@ -105,10 +105,10 @@ class VoicePolicy:
             yield context
 
     async def authorize(self, name=None):
-        # W04 replaces the complete DTO on renewal. A check queued with the old
-        # lease_until may fail even though this exact holder is still valid.
-        # One fresh durable retry is allowed only for that precise race; no
-        # cached access or successor lease can substitute for validation.
+
+
+
+
         async with asyncio.timeout(AUTHORIZATION_SECONDS):
             for attempt in range(2):
                 self.active()
@@ -116,8 +116,8 @@ class VoicePolicy:
                 try:
                     access = await self.sessions.check(captured, tool=name)
                 except AccessDenied as error:
-                    self.active()  # Deadlines may have elapsed while awaiting.
-                    fresh = self.lease  # Rejects any changed immutable fence.
+                    self.active()
+                    fresh = self.lease
                     if (attempt or str(error) != "voice_stream_stale"
                             or fresh.model_dump(exclude={"lease_until"}) != captured.model_dump(exclude={"lease_until"})
                             or fresh.lease_until <= captured.lease_until
@@ -164,7 +164,7 @@ class VoicePolicy:
             raise ValueError("voice_source_unconfirmed")
         if name == READS[0]:
             self.assignments = value
-            # External titles/descriptions are never model instructions or output.
+
             data = [{"assignment_id": a.assignment_id, "deadline": a.deadline.model_dump(mode="json")
                      if a.deadline else None, "remaining_minutes": a.remaining_minutes}
                     for a in value.assignments]
@@ -261,7 +261,7 @@ class LiveToolBridge:
             TypeAdapter(WireId).validate_python(call_id)
             if (call_id in self.used or len(self.pending) >= 4 or self.policy.calls >= MAX_TOOLS):
                 return blocked("voice_tool_budget_or_replay")
-            # Reserve before any await: live SDK callbacks execute concurrently.
+
             self.used.add(call_id)
             self.policy.calls += 1
             future = asyncio.get_running_loop().create_future()
@@ -301,8 +301,8 @@ class LiveToolBridge:
                     method = getattr(McpTool._run_async_impl, "__wrapped__", None)
                     if not isinstance(remote, McpTool) or method is None:
                         raise ValueError("voice_exact_mcp_sdk_required")
-                    # No blind SDK retry. Keep audience-bound MCP auth and its
-                    # independent server resource policy intact.
+
+
                     with self.policy.context(), voice_logs():
                         envelope = await method(remote, args=args, tool_context=entry[2], credential=None)
                     await self.policy.authorize(request.tool)

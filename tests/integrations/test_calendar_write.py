@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import httplib2
 import pytest
-import googleapiclient.discovery  # Preload SDK outside the fake-only event loop.
+import googleapiclient.discovery
 
 from campuspulse_recovery.domain.models import (
     CalendarEvent, Interval, Operation, OwnedBlockRecord,
@@ -190,7 +190,7 @@ def test_create_confirm_retry_and_frozen_adapter_read_composition(monkeypatch):
             confirmed = await h.registry.get_by_block(ctx, h.record.block_id)
             assert confirmed == await h.registry.get_by_event(ctx, h.record.event_id)
             assert confirmed.state == "confirmed" and confirmed.confirmed_etag == first.etag
-            # Original reserved DTO can replay, but actual durable records govern.
+
             replay = await h.writer.create(ctx, h.create, h.record, h.lease)
             assert replay == first
             snapshot = await h.writer.read(ctx, Interval(start=NOW, end=NOW + timedelta(hours=72)))
@@ -239,7 +239,7 @@ def test_create_collision_never_adopts_or_changes_an_existing_event(monkeypatch,
             with pytest.raises((BindingConflict, UnknownWriteOutcome)):
                 await h.writer.create(ctx, h.create, h.record, h.lease)
             assert (await h.registry.get_by_block(ctx, h.record.block_id)).state == "reserved"
-        assert before == h.api.events and len(h.api.mutations) == 1  # Only rejected insert.
+        assert before == h.api.events and len(h.api.mutations) == 1
     run(scenario())
 
 
@@ -391,7 +391,7 @@ def test_dispatched_ambiguity_is_unknown_and_no_hidden_retries(monkeypatch, kind
             with pytest.raises(UnknownWriteOutcome):
                 await getattr(h.writer, kind)(ctx, operation, h.record, h.lease)
             assert len(h.api.mutations) == 1
-            # Reconciliation remains read-only even after durable lease expiry.
+
             h.now = h.lease.expires_at
             actual = await h.writer.get_event(ctx, operation.event_id)
             assert compare_target(operation, h.record, actual) == TargetComparison.MATCHED
@@ -420,7 +420,7 @@ def test_get_failure_never_proves_absence(monkeypatch, status):
     async def scenario():
         h = await Harness(monkeypatch).prepare(confirmed=True)
         h.api.failures["GET"] = TimeoutError() if status == "timeout" else status
-        # A read 503 has one T07 retry; both attempts must fail.
+
         if status == 503:
             original = h.api.request
             def request(*a, **k):
@@ -563,7 +563,7 @@ def test_409_with_failed_read_is_unknown_not_absence_or_adoption(monkeypatch):
     async def scenario():
         h = await Harness(monkeypatch).prepare()
         h.api.events[h.record.event_id] = raw_event(observed(h.plan))
-        h.api.failures["GET"] = 404  # T07 cannot distinguish unshared.
+        h.api.failures["GET"] = 404
         with h.request() as ctx:
             with pytest.raises(UnknownWriteOutcome, match="collision_unresolved"):
                 await h.writer.create(ctx, h.create, h.record, h.lease)

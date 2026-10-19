@@ -35,7 +35,7 @@ def main():
     if args[:1] == ["--"]: args = args[1:]
     os.environ["W12_NETWORK_MODE"] = opts.mode
     os.environ["W12_JOINED_EVIDENCE_DIR"] = str(opts.report.parent / (opts.report.stem + "-joined"))
-    # Child Python processes get the same guard, without touching installed env.
+
     os.environ["PYTHONPATH"] = str(Path(__file__).resolve().parent) + os.pathsep + os.environ.get("PYTHONPATH", "")
     import network_guard
     child_counts = {"python_fenced": 0, "other_processes": 0}
@@ -44,8 +44,8 @@ def main():
     original_popen = subprocess.Popen
     guard_dir = str(Path(__file__).resolve().parent)
     def prepare_child(command, positional, kwargs):
-        # Legacy MCP tests replace PYTHONPATH; domain purity uses -I. Keep the
-        # fence in both, without editing their files or changing SDK handlers.
+
+
         if isinstance(command, (list, tuple)) and command and Path(command[0]).resolve() == Path(sys.executable).resolve():
             command = list(command)
             env = dict(kwargs.get("env") or os.environ)

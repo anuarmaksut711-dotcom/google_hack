@@ -57,8 +57,8 @@ actor FakeVoiceSocket: VoiceSocket {
     func close() async {
         closed = true; queue.removeAll()
         let pending = waiter; waiter = nil
-        // Deterministically allow the session watch child to finish normally
-        // before the pending receive wakes during a pre-Ready local Stop.
+
+
         if delayCloseReceive { try? await Task.sleep(nanoseconds: 100_000_000) }
         pending?.resume(throwing: VoiceFailure.transport)
     }
@@ -93,7 +93,7 @@ actor FakeVoiceSocket: VoiceSocket {
         played.append(ticket); admissions.append(admission)
         let receipt = PlaybackReceipt(admission: admission, consumption: PlaybackConsumption())
         scheduled[admission.id] = receipt; allReceipts[admission.id] = receipt
-        // Deliberately throw AFTER fake native enqueue to test uncertain schedule.
+
         if frame.sequence == failScheduleSequence { throw VoiceFailure.transport }
         if !holdPlayback { completeNative(admission.id, outcome: .consumed) }
         return receipt
@@ -106,7 +106,7 @@ actor FakeVoiceSocket: VoiceSocket {
         flushed.append(nextSerial)
         minimumSerial[epoch] = max(minimumSerial[epoch, default: 0], nextSerial)
         let cancelled = scheduled.values.filter { $0.admission.ticket.epoch == epoch && $0.admission.ticket.serial < nextSerial }
-        // Fake synchronous native unschedule occurs BEFORE cancellation resolution.
+
         for receipt in cancelled { scheduled.removeValue(forKey: receipt.admission.id) }
         cancelled.forEach { $0.consumption.resolve(.cancelled) }
     }
@@ -162,7 +162,7 @@ actor FakeVoiceSocket: VoiceSocket {
         let final = await session.playbackUsage
         XCTAssertEqual(final.bytes, 0); XCTAssertEqual(final.packets, 0); XCTAssertTrue(audio.scheduled.isEmpty)
         for admission in audio.admissions.dropFirst() {
-            audio.completeNative(admission.id, outcome: .consumed) // late native callbacks
+            audio.completeNative(admission.id, outcome: .consumed)
             XCTAssertEqual(audio.allReceipts[admission.id]?.consumption.resolvedOutcome, .cancelled)
         }
         let active = await socket.activeSends, receive = await socket.pendingReceive
@@ -230,7 +230,7 @@ actor FakeVoiceSocket: VoiceSocket {
     func testPreReadyStopWatchFirstCleanupJoinsThenAllowsRestart() async throws {
         let claim = TestClaim.make()
         let socket = FakeVoiceSocket(claim: claim, autoReady: false)
-        // Use exactly the same immutable claim, including expiry, for all sockets.
+
         let pending = FakeVoiceSocket(claim: claim, autoReady: false, delayCloseReceive: true)
         let session = VoiceSession(claim: claim, audio: FakeAudio(), observer: FakeObserver())
         try await session.start(socket: pending)
@@ -302,7 +302,7 @@ actor FakeVoiceSocket: VoiceSocket {
         try await eventually { await socket.closed }
         await session.stop()
         XCTAssertTrue(audio.scheduled.isEmpty)
-        XCTAssertNil(observer.transcripts["user"]) // command is control only after validation
+        XCTAssertNil(observer.transcripts["user"])
     }
     func testUncertainAdmittedSendFailsConnectionWithoutReplay() async throws {
         let socket = FakeVoiceSocket(), audio = FakeAudio(), observer = FakeObserver()

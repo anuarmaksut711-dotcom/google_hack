@@ -1,10 +1,10 @@
-// Public defaults only. Local.xcconfig is ignored; never put tokens in it.
+
 CAMPUSPULSE_BUNDLE_ID = org.example.CampusPulseVoice
-// $() keeps the URL double slash from becoming an xcconfig comment.
-// This example is intentionally rejected by AppConfiguration.
+
+
 CAMPUSPULSE_BACKEND_ORIGIN = https:/$()/campuspulse.example.invalid
 CAMPUSPULSE_IOS_DEPLOYMENT_TARGET = 15.0
 SWIFT_VERSION = 5.0
 CODE_SIGN_STYLE = Automatic
-// Select your own team in Xcode on Mac. No certificate/device/team is inferred.
+
 #include? "Local.xcconfig"

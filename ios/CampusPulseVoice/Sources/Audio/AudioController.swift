@@ -1,20 +1,20 @@
-// Copyright 2025 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// Modified for CampusPulse, 2026-10-19: W09 port, explicit foreground permission,
-// bounded owned pumps, fenced lifecycle/turns, pause instead of route restart;
-// no Firebase/model, logging, recording or silent keepalive. See UPSTREAM.json.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import AVFoundation
 import Foundation
@@ -38,8 +38,8 @@ import UIKit
     typealias GraphFactory = @MainActor (AudioEventMailbox) throws -> any AudioGraph
     private let driver: any AudioSessionDriving
     private let graphFactory: GraphFactory
-    // Test-only cancellable gate before actual W09 wire admission validation.
-    // Native composition uses the no-op default; it is not a UI delay workaround.
+
+
     private let beforeArming: @Sendable (CaptureReady) async throws -> Void
     private weak var voice: VoiceSession?
     private var fences = AudioFences()
@@ -70,15 +70,15 @@ import UIKit
     static func native() -> AudioController {
         AudioController(driver: NativeAudioSession()) { try NativeAudioGraph(events: $0) }
     }
-    // W11 creates audio -> VoiceSession -> bind, retaining the SAME VoiceSession
-    // for the same credential. Binding has no authority or session-start effect.
+
+
     func bind(_ session: VoiceSession) throws {
         guard graph == nil, pump == nil, watcher == nil, starting == nil else { throw AudioFailure.inactive }
         voice = session
     }
 
-    // Only the explicit foreground UI Start may call this. Init, W09 startCapture,
-    // notification handlers and reconnect NEVER request permission/activate audio.
+
+
     func userStart() async throws {
         guard voice != nil, driver.canStart, starting == nil, graph == nil,
               pump == nil, watcher == nil else { throw AudioFailure.inactive }
@@ -126,7 +126,7 @@ import UIKit
     }
     func stopCapture(ticket: CaptureTicket) {
         let current = fences.capture == ticket
-        fences.retire(ticket) // Even a late stop permanently retires its ticket.
+        fences.retire(ticket)
         if graph != nil, !fences.authorized { stopHardware(); return }
         guard current else { return }
         arming?.resolve(.failure(.retiredTicket)); arming = nil
@@ -163,9 +163,9 @@ import UIKit
         if fences.close(epoch) { stopHardware() }
     }
 
-    // UI End utterance / release-to-send. Flush the converter and bounded local
-    // queue BEFORE W09 closes input admission. A normal W09 stopCapture discards
-    // residual audio; it must never try to submit after that admission fence.
+
+
+
     func userEndUtterance() async throws {
         guard let ticket = fences.capture, fences.authorized, !muted, !finishing,
               !needsArm, let ack = arming, isCurrent(ack.identity),
@@ -193,7 +193,7 @@ import UIKit
             throw error
         }
     }
-    // These wrappers retain W09's exact input/mute/stop control protocol.
+
     func userBeginUtterance() async throws -> CaptureReady {
         guard fences.authorized, let voice else { throw AudioFailure.inactive }
         let token = lifetime
@@ -201,8 +201,8 @@ import UIKit
         guard lifetime == token, let ack = arming, ack.identity.ticket == ticket else { throw AudioFailure.retiredTicket }
         return try await awaitArming(ack)
     }
-    // nil on mute or on unmute without an open local utterance. It never begins
-    // an ended input. Non-nil means the NEW unmuted tap revision actually armed.
+
+
     @discardableResult func userMute(_ value: Bool) async throws -> CaptureReady? {
         guard fences.authorized, muteRequest == nil, let voice else { throw AudioFailure.inactive }
         let token = lifetime, request = UUID()
@@ -212,8 +212,8 @@ import UIKit
             let current = await voice.machine
             guard lifetime == token, !current.terminal, let wire = current.wire,
                   wire.phase == .active else { throw AudioFailure.retiredTicket }
-            // Idempotent UI controls need no duplicate wire request/admission
-            // pause. Actual transitions still go through the exact W09 control.
+
+
             if wire.muted == value, (fences.capture == nil || muted == value) {
                 if !value, let ack = arming { return try await awaitArming(ack) }
                 return nil
@@ -221,8 +221,8 @@ import UIKit
             try await voice.setMuted(value)
             guard lifetime == token else { throw AudioFailure.retiredTicket }
             if value {
-                // Do not let an immediate unmute mistake the pre-mute false
-                // wire state for admission of the new unmute control.
+
+
                 try await waitWire(voice, token: token) { $0.muted }
                 return nil
             }
@@ -283,7 +283,7 @@ import UIKit
     }
     func userStop() async {
         let oldPump = pump, oldWatcher = watcher
-        stopHardware() // Fences pending permission callbacks synchronously.
+        stopHardware()
         let stoppedLifetime = lifetime
         await voice?.stop()
         await oldPump?.value; await oldWatcher?.value
@@ -299,9 +299,9 @@ import UIKit
         if needsArm, let ticket = fences.capture, let voice, let ack = arming {
             let value = revision
             do {
-                // W09 enqueues begin/unmute before the one writer admits it.
-                // Wait for that actual wire state, within a bounded deadline;
-                // do not record ahead of it or retry/replay rejected PCM.
+
+
+
                 let gate = beforeArming, identity = ack.identity
                 try await bounded(seconds: 0.250) {
                     try await gate(identity)
@@ -337,9 +337,9 @@ import UIKit
         while !Task.isCancelled, token == lifetime, let delivery = box.take() {
             do {
                 if valid(delivery.ticket, revision: delivery.revision, token: token), let voice {
-                    // A large/late hardware callback may produce several valid
-                    // 20-ms chunks. Pace them rather than burst beyond W02's
-                    // 80-ms byte bucket. The delivery stays charged while asleep.
+
+
+
                     let delay = try pacer.reserve(bytes: delivery.pcm.count, now: ProcessInfo.processInfo.systemUptime)
                     if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
                     if valid(delivery.ticket, revision: delivery.revision, token: token), !Task.isCancelled {
@@ -360,7 +360,7 @@ import UIKit
         guard graph != nil else { return }
         pauseReason = reason; stopHardware(); onPause?(reason)
         await voice?.stop()
-        // Explicit UI userStop joins pump/watcher before another userStart.
+
     }
     private func stopHardware() {
         arming?.resolve(.failure(.retiredTicket)); arming = nil
@@ -379,8 +379,8 @@ import UIKit
     private var activated = false
     var canStart: Bool { UIApplication.shared.applicationState == .active }
     func requestPermission() async -> Bool {
-        // Official DocC: AVAudioApplication introduced iOS17, fallback permission
-        // API introduced iOS7. Guard both compiler knowledge and runtime version.
+
+
         #if compiler(>=5.9)
         if #available(iOS 17.0, *) {
             return await withCheckedContinuation { continuation in
@@ -394,11 +394,11 @@ import UIKit
     }
     func activate() throws {
         let session = AVAudioSession.sharedInstance()
-        // The stable legacy spelling supports HFP on older SDKs. Current Apple
-        // DocC renames it allowBluetoothHFP (metadata says iOS1, NOT iOS26).
-        // No new HFP/high-quality symbols or inferred availability are required.
+
+
+
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
-        try session.setPreferredIOBufferDuration(0.020) // Preference, never a wire-format assertion.
+        try session.setPreferredIOBufferDuration(0.020)
         try session.setActive(true)
         activated = true
     }
@@ -429,7 +429,7 @@ import UIKit
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: nil) { note in
             let kind = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue
             if kind == AVAudioSession.InterruptionType.began.rawValue { events.offer(.interruption) }
-            // .ended/.shouldResume do not authorize reactivation.
+
         })
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: nil) { note in
             let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
@@ -453,8 +453,8 @@ import UIKit
     func shutdown() {
         guard !closed else { engine.stop(); microphone.stop(); return }; closed = true
         observers.forEach { NotificationCenter.default.removeObserver($0) }; observers.removeAll()
-        // Fence callback outcomes BEFORE stopping the engine, which itself may
-        // invoke player completion handlers. Detach nodes only after engine stop.
+
+
         player.shutdown { self.engine.stop(); self.microphone.stop() }
         if #available(iOS 13.0, *), engine.inputNode.isVoiceProcessingEnabled {
             try? engine.inputNode.setVoiceProcessingEnabled(false)

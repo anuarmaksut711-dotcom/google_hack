@@ -11,8 +11,8 @@ from unittest.mock import Mock
 
 import pytest
 
-# Core/build environments intentionally do not install MCP's Google clients.
-# Execute this suite with the pinned MCP environment, as documented.
+
+
 pytest.importorskip("google.auth", reason="T07 requires the MCP SDK environment")
 pytest.importorskip("googleapiclient.discovery", reason="T07 requires the MCP SDK environment")
 import requests
@@ -289,7 +289,7 @@ def test_actual_auth_transport_never_logs_tokens_even_at_debug(config, monkeypat
     monkeypatch.setattr(google.auth, "default", Mock(return_value=(source, "ignored")))
     monkeypatch.setattr(socket, "create_connection", Mock(side_effect=AssertionError("network_forbidden")))
     monkeypatch.setattr(socket.socket, "connect", Mock(side_effect=AssertionError("network_forbidden")))
-    # A transport regression must not even hand raw data to SDK logging hooks.
+
     request_log = Mock(side_effect=AssertionError("sdk_auth_request_logging_forbidden"))
     response_log = Mock(side_effect=AssertionError("sdk_auth_response_logging_forbidden"))
     monkeypatch.setattr(_helpers, "request_log", request_log)
@@ -339,7 +339,7 @@ def test_actual_auth_transport_never_logs_tokens_even_at_debug(config, monkeypat
             credentials.refresh(None)
         assert credentials.token is None
         assert caught.value.__cause__ is None and caught.value.__context__ is None
-        # Simulate normal exception logging by a caller, including exc_info.
+
         probe.error("safe_auth_failure", exc_info=(type(caught.value), caught.value, caught.value.__traceback__))
     probe.debug("auth_logging_still_enabled")
     assert any(r.getMessage() == "auth_logging_still_enabled" for r in caplog.records)
@@ -628,7 +628,7 @@ def test_diagnostic_reads_only_metadata_and_outputs_redacted_result(config, wire
         result = GoogleWorkspaceClients(policy, environment="local", read_only=True).diagnose_access(context, now=NOW)
     assert result["status"] == expected
     assert result["checks"]["calendar"]["code"] == code
-    assert result["evidence"] == "live_metadata_reads"  # Transport is explicitly mocked in this test.
+    assert result["evidence"] == "live_metadata_reads"
     rendered = json.dumps(result)
     assert SENSITIVE not in rendered and config.student.calendar_id not in rendered
     assert config.student.spreadsheet_id not in rendered and config.identities.mcp_service_account not in rendered

@@ -32,14 +32,14 @@ MAX_EVENTS = 500
 _RESOURCE = TypeAdapter(ResourceId)
 _MARKER_PREFIX = "campuspulse."
 _MARKER_FIELDS = tuple(OwnershipMarker.model_fields)
-# Intentionally omit title/description/attendees. They cannot instruct this tool.
+
 EVENT_FIELDS = ("timeZone,nextPageToken,items(id,etag,status,transparency,start,end,"
                 "recurrence,recurringEventId,originalStartTime,htmlLink,"
                 "extendedProperties/private,eventType,endTimeUnspecified)")
 
 
 def _event_ref(event_id: str) -> str:
-    # T03 resource IDs may be longer than issue Identifier (512 vs 256).
+
     return event_id if len(event_id) <= 256 else "event_" + canonical_hash([event_id])
 
 
@@ -74,8 +74,8 @@ def _boundary(raw: object) -> tuple[str, object]:
         raise ValueError("calendar_boundary_invalid")
     if "timeZone" in raw:
         iana_zone(raw["timeZone"])
-    # The offset is authoritative for a timed instant. Calendar may render it
-    # in its response zone while preserving a different authored timeZone.
+
+
     return ("time", instant(raw["dateTime"])) if "dateTime" in raw else ("date", iso_date(raw["date"]))
 
 
@@ -114,21 +114,21 @@ def normalize_event(raw: dict, timezone: str) -> tuple[CalendarEvent, tuple[Sour
     except (ValueError, ValidationError):
         marker = None
         issues.append(SourceIssue(code="calendar_marker_invalid", item_ref=_event_ref(event_id)))
-    # Optional metadata is independently checked without losing availability.
+
     metadata = {}
     for source_key, target_key in (("etag", "etag"), ("htmlLink", "event_link")):
         value = raw.get(source_key)
         if value is not None:
             try:
-                # Validate selected field through the actual constrained DTO.
+
                 CalendarEvent(event_id=event_id, interval=interval, status=raw.get("status", "confirmed"),
                               **{target_key: value})
             except (ValueError, ValidationError):
                 issues.append(SourceIssue(code="calendar_" + target_key + "_invalid", item_ref=_event_ref(event_id)))
             else:
                 metadata[target_key] = value
-    # Deleted tombstones are only guaranteed to carry id (plus original
-    # instance identity when provided). They are nonbusy and never mutable.
+
+
     if "etag" not in metadata and raw.get("status") != "cancelled":
         issues.append(SourceIssue(code="calendar_etag_missing", item_ref=_event_ref(event_id)))
     event = CalendarEvent(event_id=event_id, interval=interval,
@@ -231,8 +231,8 @@ class CalendarReader:
         trusted = self.clients.policy.require_context(context)
         if context.boundary != "mcp":
             raise AccessDenied("mcp_boundary_required")
-        # Google ignores fractional seconds on the query bounds. Widen to whole
-        # seconds, then filter actual intervals against the exact T03 horizon.
+
+
         lower = request.horizon.start.replace(microsecond=0)
         upper = request.horizon.end
         if upper.microsecond:
@@ -286,7 +286,7 @@ class CalendarReader:
                 if count > self.max_events:
                     issues.append(SourceIssue(code="calendar_events_truncated"))
                     break
-                # Register identity even when the second copy is malformed.
+
                 try:
                     event_id = _RESOURCE.validate_python(raw.get("id") if isinstance(raw, dict) else None)
                 except ValidationError:
@@ -302,7 +302,7 @@ class CalendarReader:
                     issues.append(SourceIssue(code="calendar_event_invalid", item_ref=item_ref))
                     continue
                 issues.extend(findings)
-                # A moved exception uses actual bounds, not originalStartTime.
+
                 if event.interval is not None and clip(event.interval.start, event.interval.end,
                         request.horizon.start, request.horizon.end) is None:
                     continue
@@ -325,9 +325,9 @@ class CalendarReader:
         else:
             issues.append(SourceIssue(code="calendar_pages_truncated"))
         if timezone is None:
-            # T03 requires the actual native IANA zone even for an error snapshot.
-            # There is no safe calendar-zone fallback to the student's zone.
-            # No snapshot/reference is returned when metadata could not be read.
+
+
+
             raise IncompleteRead(issues[-1].code) from None
         for event_id in duplicate_ids:
             events.pop(event_id, None)
@@ -363,7 +363,7 @@ class CalendarReader:
                 run_id=trusted.run_id, config_revision=trusted.config_revision,
                 read_at=instant(self.clock()), content_hash=calendar_content_hash(observed, blocks, expanded)),
                 timezone=timezone, covered_interval=request.horizon, complete=not issues, issues=tuple(issues)))
-        # Repository independently joins the registry inside its create-only tx.
-        # Failure/expired scope means no authoritative result/reference is returned.
+
+
         await self.snapshots.put_calendar(context, snapshot)
         return snapshot

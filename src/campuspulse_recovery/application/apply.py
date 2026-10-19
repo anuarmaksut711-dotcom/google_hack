@@ -87,20 +87,20 @@ class ApplyService:
                 revision=execution.revision + 1, updated_at=self._now(), status=status), lease=lease)
 
     async def _send_guard(self, context, plan, lease, request_key):
-        # Awaited guards can themselves cross a time boundary. Sample again
-        # after the LAST await; never reuse preflight.checked_at as current time.
-        # Reload authoritative saved progress at EVERY guard, including after
-        # dispatch and inside T17's final I/O hook. Only durable COMPLETED may
-        # retire an update's original interval; current IN_FLIGHT and every
-        # other unfinished update must still pass the original-start boundary.
+
+
+
+
+
+
         execution = await self.executions.get(context, request_key)
         if execution.plan != plan_reference(plan):
             raise BindingConflict("apply_guard_execution_plan_mismatch")
-        # Finish arbitrary progress reads BEFORE the final real authority reads:
-        # consent can be revoked while an unchanged ledger is being delivered.
+
+
         await self.coordination.assert_current(context, lease, now=self._now())
         approval = await self.approvals.require_active(context, plan_reference(plan), self._now())
-        # No awaits below: validate temporal bounds after the final consent read.
+
         self._scope(context)
         now = self._now()
         if not approval.active_at(now):
@@ -126,8 +126,8 @@ class ApplyService:
         return record
 
     async def _unknown(self, context, execution, operation_id, lease):
-        # Reload after an ambiguous outcome commit. A committed completion is
-        # terminal; do not overwrite it. A failed checkpoint leaves in_flight.
+
+
         execution = await self.executions.get(context, execution.request_key)
         state = next(s for s in execution.operations if s.operation_id == operation_id)
         if state.status == OperationStatus.IN_FLIGHT:
@@ -144,7 +144,7 @@ class ApplyService:
     async def apply(self, context, request: ApplyPlanInput) -> ApplyResult:
         self._scope(context)
         request = ApplyPlanInput.model_validate(request)
-        # Binding conflicts must propagate, never return another payload's state.
+
         plan = await self.plans.get(context, request.plan_id, request.version)
         execution = await self.executions.bind_request(context, request_key=request.request_key,
             plan=plan_reference(plan), at=self._now())
@@ -167,8 +167,8 @@ class ApplyService:
                 now = self._now()
                 lease = await self.coordination.acquire(context, holder_id="apply_" + uuid4().hex,
                     now=now, expires_at=now + timedelta(seconds=self.deadline_seconds + 5))
-                # Read recovery FIRST: preflight requires live consent/active
-                # non-uncertain lease and cannot serve as recovery entry point.
+
+
                 execution = (await self.executions.get_ledger(context, request.request_key)).execution
                 if any(s.status in (OperationStatus.IN_FLIGHT, OperationStatus.UNKNOWN) for s in execution.operations):
                     execution, recovered = await self.reconciler.reconcile(context, plan, execution, lease)
@@ -180,21 +180,21 @@ class ApplyService:
                     execution, pending_findings = await self._pending(context, request, plan, execution, lease)
                     findings.extend(pending_findings)
         except asyncio.CancelledError:
-            # Cancellation is not a stop certificate. Intent survives even if
-            # the now-invalid request cannot checkpoint an unknown outcome.
+
+
             raise
         except Exception:
-            # No raw provider/source/credential exception text reaches the UI.
+
             findings.append(Finding(code="apply_interrupted_recovery_required"))
         finally:
             if lease is not None:
                 try:
                     await self.coordination.release(context, lease)
                 except Exception:
-                    # Unknown/expired/takeover claims must stay pinned.
+
                     findings.append(Finding(code="apply_lease_recovery_required"))
-        # If authority/storage has failed even this read, propagate a safe store
-        # error instead of fabricating a checkpoint or reviving an old context.
+
+
         execution = await self.executions.get(context, request.request_key)
         return ApplyResult(execution=execution, findings=tuple(findings))
 
@@ -205,7 +205,7 @@ class ApplyService:
                 continue
             if state.status != OperationStatus.PENDING:
                 return execution, (Finding(code="apply_replan_required"),)
-            # Fresh full relevant reads before EVERY remaining write.
+
             ready = await self.preflight.check(context, request, lease)
             execution = ready.execution
             if ready.status != "ready":
@@ -218,8 +218,8 @@ class ApplyService:
                 execution = await self._transition(context, execution, "applying", lease)
             record = await self._ownership(context, plan, operation)
             await self._send_guard(context, plan, lease, request.request_key)
-            # A thrown/ambiguous CAS grants ZERO external dispatches. The outer
-            # handler reloads facts; a later invocation must point-read recovery.
+
+
             execution = await self.executions.record_operation(context,
                 request_key=request.request_key, expected_revision=execution.revision,
                 operation=changed(state, status="in_flight", attempts=state.attempts + 1,
@@ -238,8 +238,8 @@ class ApplyService:
                     operation=changed(dispatched, status="completed", updated_at=self._now(),
                                       observed_event=observed), lease=lease)
             except BaseException as error:
-                # Local BindingConflict/StaleSource may occur AFTER remote
-                # success; no class/outcome_unknown flag proves no effect.
+
+
                 try:
                     execution = await self._unknown(context, execution, operation.operation_id, lease)
                     if not isinstance(error, asyncio.CancelledError):
@@ -251,7 +251,7 @@ class ApplyService:
                 if isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
                     raise
                 return execution, findings + (Finding(code="apply_reconciliation_required"),)
-        # Empty no-change plans still require the legal approved/applying edges.
+
         if not plan.payload.operations:
             ready = await self.preflight.check(context, request, lease)
             if ready.findings:

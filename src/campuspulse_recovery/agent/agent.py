@@ -43,7 +43,7 @@ class _BoundedRemoteTool(BaseTool):
             state.require_active(tool_context)
             if state.pending != self.name or state.remote_attempts >= policy.MAX_REMOTE_ATTEMPTS:
                 return {"isError": True, "code": "remote_attempt_budget"}
-            state.remote_attempts += 1  # Includes every actual SDK attempt.
+            state.remote_attempts += 1
             try:
                 async with asyncio.timeout(self._timeout_seconds):
                     return await method(self._tool, args=args, tool_context=tool_context, credential=None)
@@ -66,7 +66,7 @@ class RecoveryMcpToolset(SerializableReadMcpToolset):
         self.tool_filter = list(policy.REMOTE_TOOLS)
 
     async def get_tools(self, readonly_context=None):
-        # Direct unauthenticated Runner usage must not reach discovery/tokens.
+
         policy.current(readonly_context)
         tools = await super().get_tools(readonly_context)
         if {t.name for t in tools} != set(policy.REMOTE_TOOLS):
@@ -117,7 +117,7 @@ async def run_recovery(runner, *, new_message) -> RecoveryRun:
             async for event in stream:
                 events.append(event)
     except asyncio.CancelledError:
-        raise  # A dispatched apply remains unknown; never auto-reapply.
+        raise
     except Exception:
         if state.status not in ("partial", "unknown", "verification_failed", "applied_unverified", "stale"):
             state.status = "unavailable"

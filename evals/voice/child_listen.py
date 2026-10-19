@@ -80,7 +80,7 @@ class Listener:
                 and requested == ("0.0.0.0", self.spec.port)
                 and sock.family == socket.AF_INET and sock.type == socket.SOCK_STREAM
                 and sock.proto in (0, socket.IPPROTO_TCP)):
-            self.used = True  # one attempt, one socket; never an ambient permission
+            self.used = True
             return ("127.0.0.1", self.spec.port)
         return requested
 
@@ -98,7 +98,7 @@ def install():
     def bind(sock, requested):
         effective = listener.effective_address(sock, requested)
         if effective == requested:
-            return original(sock, requested)  # all ordinary audit denials intact
+            return original(sock, requested)
         data = dict(evidence_class="windows_local", adapter="W12_synthetic_child_listen_v1",
             factory=spec.factory, entrypoint=spec.entrypoint, executable=spec.executable,
             requested={"host": "0.0.0.0", "port": spec.port},
@@ -107,14 +107,14 @@ def install():
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         try:
-            result = original(sock, effective)  # actual OS bind, same port, audited
+            result = original(sock, effective)
             host, port = sock.getsockname()
             assert (host, port) == effective
             data.update(status="bound", observed={"host": host, "port": port})
             report.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             return result
         except BaseException:
-            sock.close()  # no unreported successful listener can escape
+            sock.close()
             raise
     socket.socket.bind = bind
     return True

@@ -127,7 +127,7 @@ class VoiceInvocations:
                     (record.consumer is not None if redeem else record.consumer != consumer) or
                     not same_fence(current.lease, record.fence)):
                 raise AccessDenied("voice_invocation_rejected")
-            # Latest expiry after renewal; NEVER serialized initial expiry/access.
+
             _, access, now = await self.sessions._current(tx, current.lease)
             if now >= record.expires_at:
                 raise AccessDenied("voice_invocation_expired")
@@ -193,7 +193,7 @@ def encode_input(packet):
 
 def decode_input(body, lease):
     if set(body) == {"audio"}:
-        # Header plus even PCM; original W02 sequence/generations preserved.
+
         data = b64(body["audio"], p.HEADER_SIZE + p.MAX_INPUT_PCM)
         packet = p.decode_audio(data)
         if packet.kind != "input":
@@ -218,7 +218,7 @@ def encode_event(item):
         return {"type": "transcript", **vars(item)}
     if isinstance(item, ToolRequest):
         return {"type": "tool", **vars(item)}
-    # W05 intentionally creates fresh SDK state: opaque tokens/history ignored.
+
     raise ValueError("managed_voice_event_rejected")
 
 
@@ -282,8 +282,8 @@ class ManagedVoiceRuntime:
             raise ValueError("managed_voice_runtime_binding_required")
         self.invocations, self.ingress, self.scope_factory = invocations, ingress, scope_factory
         self.config, self.constraints_factory = config, constraints_factory
-        # Injection is only a network-denied test seam. Default is the real W05
-        # ADK Runner session executing INSIDE the managed runtime, not backend.
+
+
         self.session_factory = session_factory
 
     def register_operations(self, **kwargs) -> dict[str, list[str]]:
@@ -306,8 +306,8 @@ class ManagedVoiceRuntime:
             for task in owned:
                 task.cancel()
             closing, session = session, None
-            # Shared aggregate deadline, including session close. Never catch an
-            # outer cancellation and start another independently budgeted close.
+
+
             close_task = None
             try:
                 with private_logs():
@@ -380,7 +380,7 @@ class ManagedVoiceRuntime:
                         await emit("closed", {})
                         return
                     body = encode_event(item)
-                    decode_event(body)  # Validate also the runtime -> network boundary.
+                    decode_event(body)
                     if isinstance(item, ToolRequest):
                         await fresh(new_call=item.call_id)
                         if (item.call_id in pending or len(pending) >= 24 or
@@ -394,7 +394,7 @@ class ManagedVoiceRuntime:
                 access = await policy.authorize(entry.request.tool)
                 result = await session.bridge.execute(access, entry.request)
                 await fresh(retired_call=entry.request.call_id)
-                entry.result = result  # Actual result NEVER replaced by backend data.
+                entry.result = result
                 entry.receipt = secrets.token_urlsafe(32)
                 entry.state = "executed"
                 await emit("receipt", {"call_id": entry.request.call_id,
@@ -406,8 +406,8 @@ class ManagedVoiceRuntime:
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    # Wake the output owner even when a dynamically admitted
-                    # tool task fails before producing a receipt.
+
+
                     await emit("error", {"code": "managed_voice_unavailable"})
 
             async def inputs():
@@ -466,16 +466,16 @@ class ManagedVoiceRuntime:
                         done, _ = await asyncio.wait([reader, *tasks], return_when=asyncio.FIRST_COMPLETED)
                         for task in tuple(tasks):
                             if task.done():
-                                task.result()  # Propagate sanitized below; never orphan errors.
+                                task.result()
                         if reader not in done:
-                            # A completed input/upstream puts its terminal before return.
+
                             if output.empty():
                                 raise ValueError("managed_voice_stream_ended")
                             kind, body = output.get_nowait()
                         else:
                             kind, body = reader.result()
                         tasks[:] = [t for t in tasks if not t.done()]
-                        await fresh()  # Backpressure/queue waits never grant stale output.
+                        await fresh()
                         if kind in ("closed", "error"):
                             await cleanup()
                         yield envelope(out_seq, kind, body)
@@ -488,8 +488,8 @@ class ManagedVoiceRuntime:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Error output is terminal: retire all connection-owned work before
-            # yielding it, even if the peer never asks for another frame.
+
+
             await cleanup()
             yield envelope(out_seq, "error", {"code": "managed_voice_unavailable"})
         finally:

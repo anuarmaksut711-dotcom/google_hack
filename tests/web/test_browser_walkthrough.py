@@ -50,7 +50,7 @@ def test_synthetic_consent_separate_apply_reload_retry_keeps_outcome(outcome, la
             applied = await client.post('/api/runs/continue', headers=headers, json=payload)
             assert applied.status_code == 200
             rid = applied.json()['run_id']
-            # A fresh original app shares only this fake documents object.
+
             async with h.client(h.app()) as reload:
                 reload.cookies.update(client.cookies)
                 state = await reload.get('/ui/state', params={'run_id':rid})

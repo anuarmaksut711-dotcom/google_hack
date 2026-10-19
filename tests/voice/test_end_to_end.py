@@ -36,7 +36,7 @@ def test_joined_duplex_callbacks_three_tools_receipts_and_safe_evidence(monkeypa
         x = await joined(monkeypatch, mutation="injection")
         try:
             assert TOOLS == ("read_assignments", "read_calendar", "solve_repair")
-            # Input reaches real Runner while model output/read tools are active.
+
             x.socket.put(p.encode_audio(p.AudioFrame("input", x.lease.connection_generation, 0, 0, b"\0\0" * 320)))
             await until(lambda: len(x.connection.realtime) >= 2)
             for name, cid in (("read_assignments", "joined_a"), ("read_calendar", "joined_c")):
@@ -48,7 +48,7 @@ def test_joined_duplex_callbacks_three_tools_receipts_and_safe_evidence(monkeypa
             assert [n for n, _ in x.attempts] == ["read_assignments", "read_calendar"]
             await turn(x)
             await until(lambda: bool(pcm(x)))
-            # Full managed SDK framing, opaque receipts, never raw source results.
+
             wire = x.sdk.wires[0].sent
             acks = [v["bidi_stream_input"] for v in wire if v["bidi_stream_input"]["kind"] == "result_ack"]
             assert len(acks) == 3

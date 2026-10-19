@@ -59,8 +59,8 @@ class RunState(Contract):
     settled: bool = False
     plan: PlanReference | None = None
     verification: EvidenceSummary | None = None
-    # A claim is pessimistic until the terminal journal record is confirmed.
-    # Degradation is monotonic; only explicit future recovery may clear it.
+
+
     observation_available: bool = False
     observation_failed: bool = False
 
@@ -74,8 +74,8 @@ class RunView(Contract):
     verification_status: Literal["verified", "verification_failed", "applied_unverified", "unknown"] | None
     verification_at: Instant | None
     verification_run_id: TechnicalId | None
-    # Trace presence/remote optimism is never success. Private event links are
-    # intentionally deferred to the authenticated evidence projection/UI seam.
+
+
     verified_success: bool
     observation_available: bool
 
@@ -244,8 +244,8 @@ class RunRegistry(_Repository):
         except AccessDenied:
             raise
         except Exception:
-            # Commit uncertainty permits readback, never a second invocation or
-            # an optimistic health response. A failed/unreadable readback raises.
+
+
             await checkpoint()
             try:
                 saved = await self.get(context, session, state.intent.run_id)
@@ -304,7 +304,7 @@ class RecoveryRuns:
 
     @contextmanager
     def _scope(self, credential, state):
-        # Verify the original credential with T16 before composing the fresh run.
+
         with self.auth.request_scope(credential) as original:
             self.registry._validate(original, credential.session, state)
             session, binding = credential.session, state.binding
@@ -346,7 +346,7 @@ class RecoveryRuns:
                 raise AccessDenied("exact_approval_required")
             await self.sources.check(context, intent.plan)
             await fresh()
-            # Revocation during awaited source reads must be observed as well.
+
             approval = await self.approvals.get(context, intent.plan)
             await fresh()
             if approval is None or not approval.active_at(self.clock()):
@@ -393,7 +393,7 @@ class RecoveryRuns:
         except asyncio.CancelledError:
             raise
         except Exception:
-            await fresh()  # Revoked/expired sessions still deny the whole response.
+            await fresh()
             values["verification"] = EvidenceSummary(status="unknown", verification_at=None,
                                                        run_id=state.intent.run_id)
 
@@ -401,7 +401,7 @@ class RecoveryRuns:
         credential = await self.auth.load(request, mutation=True)
         with self.auth.request_scope(credential) as initial:
             plan = value.plan if isinstance(value, ContinueRequest) else None
-            # Mapping must exist before ALL remote invocation, including retries.
+
             state = await self.registry.bind(initial, credential.session, value.request_key, plan=plan)
             await self._fresh(request, credential, initial, mutation=True)
         with self._scope(credential, state) as context:
@@ -411,7 +411,7 @@ class RecoveryRuns:
             state, claimed = await self.registry.claim(context, credential.session, state)
             await self._fresh(request, credential, context, mutation=True)
             if not claimed:
-                # Durable unknown/partial/finished state is not a retry permit.
+
                 return self._view(state)
             return await self._invoke(request, credential, context, state)
 
@@ -421,7 +421,7 @@ class RecoveryRuns:
             await self._fresh(request, credential, context, mutation=True)
 
         async def work():
-            # Fail closed if required start observation cannot be durably saved.
+
             try:
                 await self.journal.register(context)
                 await fresh()
@@ -430,7 +430,7 @@ class RecoveryRuns:
                     phase="started", status="started"))
                 await fresh()
             except asyncio.CancelledError:
-                raise  # The durable claim already has pessimistic health.
+                raise
             except AccessDenied:
                 raise
             except Exception:
@@ -442,8 +442,8 @@ class RecoveryRuns:
         stopping = False
 
         async def disconnected():
-            # Starlette's is_disconnected uses a cancelling AnyIO scope which
-            # can consume Task.cancel(). Also use an explicit stop condition.
+
+
             while not stopping:
                 if await request.is_disconnected():
                     raise ConnectionError("browser_disconnected")
@@ -461,7 +461,7 @@ class RecoveryRuns:
                 await fresh()
                 values = {**state.model_dump(), "status": terminal.status, "settled": True}
                 if state.intent.action == "propose" and terminal.status == "candidate":
-                    # Reuse actual ingestion, independent authoritative resolver.
+
                     original = self.proposals
                     proposals = ProposalService(_CheckedPort(original.snapshots, fresh),
                         _CheckedPort(original.plans, fresh), self.policy,
@@ -494,15 +494,15 @@ class RecoveryRuns:
                 await fresh()
                 return self._view(saved)
         except asyncio.CancelledError:
-            # The durable claim is ALREADY unknown; cleanup precedes propagation.
+
             raise
         except AccessDenied:
             raise
         except ObservationHealthUnknown:
-            raise  # A possibly uncommitted health write is not confirmed health.
+            raise
         except Exception:
-            # Includes commit ambiguity, missing basis, malformed/EOF/timeout,
-            # transport/evidence outage. Do not overwrite possibly committed fact.
+
+
             await fresh()
             saved = await self.registry.get(context, credential.session, state.intent.run_id)
             await fresh()

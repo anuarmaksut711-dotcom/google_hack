@@ -1,11 +1,5 @@
 #requires -Version 7.0
-<#
-.SYNOPSIS
-Explicit, fail-closed GCP foundation. Default is read-only Inspect.
-Provision never links billing, creates keys, deploys code, or grants IAM.
--WhatIf is an OFFLINE command plan; it does not verify cloud readiness.
-See ../docs/cloud-resources.md for the independent deployment-input schema.
-#>
+
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
     [Parameter(Mandatory)][string]$InputsPath,
@@ -92,7 +86,7 @@ if ([string]$actual.projectNumber -ne $number -or $actual.projectId -ne $project
 $billing = Gcp @('billing', 'projects', 'describe', $project)
 $services = @(Gcp @('services', 'list', '--enabled'))
 $identities = @(Gcp @('iam', 'service-accounts', 'list'))
-# Only selected non-secret fields leave this script. Billing account IDs are omitted.
+
 [ordered]@{ status = 'actual_readback'; read_at_utc = [DateTimeOffset]::UtcNow.ToString('o');
     project_id = $project; project_number = $number; billing_enabled = ($billing['billingEnabled'] -eq $true);
     enabled_apis = @($services | ForEach-Object { $_.config.name });
@@ -101,7 +95,7 @@ $identities = @(Gcp @('iam', 'service-accounts', 'list'))
 if ($Mode -eq 'Inspect') { return }
 if ($billing['billingEnabled'] -ne $true) { throw 'Billing disabled/unlinked. No mutations performed; script never links an account.' }
 
-# Obtain an access token in memory only for readiness reads; never print it, headers or raw API errors.
+
 $token = & gcloud auth print-access-token "--account=$account" "--project=$project" --quiet 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $token) { throw 'Could not obtain deployer credential.' }
 try {
@@ -113,8 +107,8 @@ try {
     $test = Invoke-RestMethod -Uri $permissionUri -Method Post -Headers $headers -ContentType 'application/json' `
         -Body (@{ permissions = $required } | ConvertTo-Json) -TimeoutSec 45
     if (@($required | Where-Object { $_ -notin $test.permissions }).Count) { throw 'Missing provisioning permissions.' }
-    # API enablement is administrative; it precedes quota reads for previously disabled APIs.
-    # No database/repository/bucket/runtime is created until the remaining checks pass.
+
+
     Change $project (@('services', 'enable') + $apiNames)
     foreach ($service in @('aiplatform.googleapis.com', 'run.googleapis.com', 'cloudbuild.googleapis.com')) {
         $next = ''
@@ -136,12 +130,12 @@ foreach ($constraint in @('gcp.resourceLocations', 'iam.disableServiceAccountCre
     @{ status = 'actual_effective_policy'; constraint = $constraint; policy = $effective } | ConvertTo-Json -Depth 15
 }
 if (-not $PolicyAndQuotaReviewed) { throw 'Review effective policies and location/model quotas first; then pass -PolicyAndQuotaReviewed. Only API enablement may have occurred.' }
-# Discover Cloud Build identity; never assume a default account.
+
 Change $project @('beta', 'services', 'identity', 'create', '--service=aiplatform.googleapis.com')
 $buildDefault = Gcp @('builds', 'get-default-service-account', "--region=$($cfg.build_region)")
 Write-Output (@{ status = 'actual_readback'; cloud_build_default = $buildDefault;
     selected_build_identity = $cfg.build_service_account; build_region = $cfg.build_region } | ConvertTo-Json -Depth 4)
-# A selected custom build identity must already exist. This script does not create a fourth identity.
+
 if ($cfg.build_service_account -eq "$number@cloudbuild.gserviceaccount.com") {
     if (($buildDefault | ConvertTo-Json -Compress) -notmatch [regex]::Escape($cfg.build_service_account)) { throw 'Legacy build identity was not returned by discovery.' }
 } else {

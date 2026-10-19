@@ -7,7 +7,7 @@ enum VoiceFailure: String, Error, Sendable {
     case pairingDenied, credentialUnavailable
 }
 
-// Lexical numbers preserve the distinction between 1, true, 1.0 and 1e0.
+
 indirect enum WireValue: Equatable, Sendable {
     case string(String), number(String), bool(Bool), object([String: WireValue])
     case array([WireValue]), null

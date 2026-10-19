@@ -62,7 +62,7 @@ class Attempt(Contract):
 class _Ledger(Contract):
     execution: ExecutionState
     target_fingerprints: tuple[Digest, ...]
-    attempts: tuple[Attempt, ...] = ()  # latest attempt per dispatched operation
+    attempts: tuple[Attempt, ...] = ()
 
 
 class _Audit(Contract):
@@ -80,7 +80,7 @@ def _request_path(owner, calendar, key):
 
 def _plan_binding_path(owner, calendar, reference):
     _storage_version(reference.version)
-    # Hash is checked in value; not part of path: changed hash cannot fork ledger.
+
     return f"cp_apply_plans/{_key(owner, calendar, reference.plan_id, reference.version)}"
 
 
@@ -140,7 +140,7 @@ class FirestoreExecutionStore(_Repository):
                 if ledger.execution.plan != plan or binding != {"request_path": path}:
                     raise BindingConflict("request_key_payload_conflict")
                 return ledger.execution
-            # A new key must not conceal a failed/completed/uncertain plan attempt.
+
             if binding is not None:
                 raise BindingConflict("plan_already_bound_to_request")
             if at < saved.payload.created_at:
@@ -303,11 +303,11 @@ class FirestoreExecutionStore(_Repository):
             if (execution.plan, execution.run_id, tuple(op.operation_id for op in execution.operations)) != (
                     old.plan, old.run_id, tuple(op.operation_id for op in old.operations)):
                 raise BindingConflict("execution_saved_intent_mismatch")
-            # A commit timeout is resolved by re-reading/replaying EXACT revision.
+
             if execution == old:
                 if any(op.status == OperationStatus.IN_FLIGHT for op in old.operations):
-                    # Returning an idempotent state is NOT another dispatch
-                    # permit. Unknown commit/duplicate caller must reconcile.
+
+
                     raise BindingConflict("execution_dispatch_already_claimed")
                 return old
             if old.revision != expected_revision or execution.revision != expected_revision + 1:
@@ -318,7 +318,7 @@ class FirestoreExecutionStore(_Repository):
                 validate_execution_transition(old.status, execution.status)
             except ValueError:
                 raise BindingConflict("execution_transition_invalid") from None
-            # Verification belongs to the actual-read VerificationStore/task.
+
             if execution.status in {ExecutionStatus.VERIFIED, ExecutionStatus.VERIFICATION_FAILED}:
                 raise BindingConflict("verification_store_evidence_required")
             changed = [(before, after, operation) for before, after, operation in
@@ -428,8 +428,8 @@ class FirestoreExecutionStore(_Repository):
             encoded = _encode("execution", updated)
             audit = _encode("execution_audit", _Audit(ledger=updated, recorded_at=now,
                 fencing_generation=lease.generation, holder_id=lease.holder_id, evidence=evidence))
-            # Recheck clock after transaction reads, immediately before commit.
-            # Firestore conflicts fence concurrent renewal/takeover/revocation.
+
+
             final_now = self.coordination._now()
             if final_now >= lease.expires_at:
                 raise BindingConflict("calendar_lease_stale")
@@ -468,11 +468,11 @@ class FirestoreExecutionStore(_Repository):
         elif OperationStatus.FAILED in statuses:
             status = "failed"
         else:
-            status = state.status  # recovery to pending grants no dispatch authority
+            status = state.status
             if status == ExecutionStatus.UNKNOWN:
                 status = "applying"
-        # Unknown -> applying with ONLY reconciled pending operations records
-        # facts; it does not grant active lease or approval for another dispatch.
+
+
         execution = ExecutionState.model_validate(state.model_dump() | {
             "operations": operations, "status": status, "revision": expected_revision + 1,
             "updated_at": operation.updated_at})

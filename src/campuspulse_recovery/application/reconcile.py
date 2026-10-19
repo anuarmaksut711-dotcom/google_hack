@@ -48,7 +48,7 @@ class ReconciliationService:
             if ledger.execution != execution:
                 raise BindingConflict("reconcile_execution_changed")
             attempt = next(a for a in ledger.attempts if a.operation_id == operation.operation_id)
-            # get_event is authoritative; bounded list observations are not used.
+
             observed = await self.writer.get_event(context, operation.event_id)
             at = instant(self.clock())
             comparison = compare_target(operation, record, observed)
@@ -73,7 +73,7 @@ class ReconciliationService:
             else:
                 findings.append(Finding(code="reconcile_target_unresolved", operation_id=operation.operation_id))
                 continue
-            # T06 checks CURRENT recovery token and original stop/read chronology.
+
             execution = await self.executions.record_operation(context,
                 request_key=execution.request_key, expected_revision=execution.revision,
                 operation=OperationState.model_validate(after), lease=lease, evidence=evidence)

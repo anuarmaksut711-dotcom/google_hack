@@ -51,7 +51,7 @@ def test_russian_machine_expectations_and_repeatability(case):
     if case["id"] == "deadlines":
         assert [a.assignment_id for a in sorted(data.assignments.assignments, key=lambda a: a.deadline.at)] == expected["deadline_order"]
     if case["id"] == "hour":
-        # Past scheduled 60 minutes did not subtract from the explicit 45 left.
+
         assert first.allocations[0].remaining_minutes == 45
         assert all(b.interval.start >= data.now for b in first.blocks)
     if case["id"] == "deficit":

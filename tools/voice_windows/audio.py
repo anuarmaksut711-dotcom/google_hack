@@ -206,8 +206,8 @@ class AudioDevice:
             if len(self.output_pcm) + len(pcm) > 9600:
                 raise ProtocolError("backpressure")
             self.output_pcm.extend(pcm)
-        # Keep this frame counted as in-flight in OutputBuffer until the device
-        # callback takes it. Avoid two independent 200ms application queues.
+
+
         while True:
             if self.failed:
                 raise ProtocolError("backpressure")

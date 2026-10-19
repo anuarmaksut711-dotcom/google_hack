@@ -38,7 +38,7 @@ class JournalEmitter:
                    operation_id=None, attempt_id=None, duration_ms=None, code=None,
                    required=False):
         try:
-            # Authenticate before even constructing a trusted run identifier.
+
             request, trusted = self.store._scope(context)
             event_id = "evt_" + canonical_hash(["trace-event-v1", trusted.run_id,
                 layer, call_id, slot or phase, operation_id, attempt_id])
@@ -47,8 +47,8 @@ class JournalEmitter:
                 call_id=call_id, operation_id=operation_id, attempt_id=attempt_id,
                 duration_ms=duration_ms, summary=summary, code=code)
             def same_delivery(previous):
-                # Redelivery timing isn't a new observed tool outcome. Keep the
-                # FIRST measured timing; never change semantic result/identity.
+
+
                 def semantic(item):
                     data = item.model_dump(mode="json")
                     for key in ("occurred_at", "duration_ms", "sequence"):
@@ -61,8 +61,8 @@ class JournalEmitter:
             try:
                 return await self.store.append_record(request, value)
             except Exception:
-                # A concurrent identical callback may have won since get. This
-                # rereads one identity only; no second append/business retry.
+
+
                 previous = await self.store.get_record(request, event_id=event_id)
                 if previous is not None and same_delivery(previous):
                     return previous
@@ -73,7 +73,7 @@ class JournalEmitter:
             self.health.failed = True
             self.health.failure_count += 1
             if required:
-                # Fixed safe code, with no exception/credential/source details.
+
                 raise RuntimeError("journal_unavailable_before_dispatch") from None
             return None
 
@@ -94,8 +94,8 @@ def summary_for(value):
             historical_verification=old is not None,
             verification_status=old.status if old else None,
             verification_at=old.verification_at if old else None,
-            # The old run may be a resource-like Identifier. Only opaque ref is
-            # safe here; the exact original remains in authenticated evidence.
+
+
             verification_run=_safe_run(old.run_id) if old else None))
     from ..domain.models import VerificationResult
     if isinstance(value, VerificationResult):
@@ -105,8 +105,8 @@ def summary_for(value):
 
 
 def _safe_run(value):
-    # Don't expose arbitrary validated Identifier values from provider results.
-    # Journal run_id itself is separately checked against the trusted context.
+
+
     from .events import reference
     return reference(value)
 
@@ -121,7 +121,7 @@ async def _domain_call(owner, context, tool, invoke, *, horizon=None):
         raise AccessDenied("mcp_boundary_required")
     if owner.trace.store.policy is not policy:
         raise AccessDenied("journal_authority_mismatch")
-    # This ID is an instrumentation span, explicitly not JSON-RPC/ADK/attempt ID.
+
     span = "domain_" + uuid4().hex
     start = time.monotonic()
     await owner.trace.emit(request, layer="domain_adapter", call_id=span, tool=tool,
@@ -144,8 +144,8 @@ async def _domain_call(owner, context, tool, invoke, *, horizon=None):
     if isinstance(value, ApplyResult):
         attempts = {}
         try:
-            # Original durable T06 ledger read, not ADK function-call IDs,
-            # transport ordinals or state.remote_attempts masquerading as IDs.
+
+
             ledger = await owner.executions.get_ledger(request, value.execution.request_key)
             attempts = {a.operation_id: a.attempt_id for a in ledger.attempts}
         except asyncio.CancelledError:
@@ -241,9 +241,9 @@ def instrument_agent(agent, emitter):
         try:
             return policy.current(callback_context)
         except AccessDenied:
-            # A safe policy denial must survive absent/foreign authority. Never
-            # invent a scope merely to log it. Allowed dispatch still requires
-            # active authority and a required pre-dispatch journal observation.
+
+
+
             if required:
                 raise
             return None
@@ -258,7 +258,7 @@ def instrument_agent(agent, emitter):
 
     async def before_tool(tool, args, tool_context):
         result = await _invoke(policy.before_tool, tool=tool, args=args, tool_context=tool_context)
-        # Even a denied request is only a policy decision, not MCP dispatch.
+
         state = observation_state(tool_context, required=result is None)
         if state is None:
             return result
@@ -276,8 +276,8 @@ def instrument_agent(agent, emitter):
         state = observation_state(tool_context)
         if state is None:
             return result
-        # after_tool has already validated and sanitized solver args/results.
-        # Read typed state, never raw tool_response, args or model output.
+
+
         typed = {"read_assignments": state.assignments, "read_calendar": state.calendar,
                  "apply_plan": state.applied, "verify_plan": state.verification}.get(tool.name)
         _, summary = summary_for(typed)

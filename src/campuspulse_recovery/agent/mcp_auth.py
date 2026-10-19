@@ -76,12 +76,12 @@ class PlatformIdTokenIssuer:
                 kwargs["timeout"] = timeout_seconds
                 return super().__call__(*args, **kwargs)
 
-        # The session is explicitly closed, including on credential/refresh errors.
+
         import requests
         with requests.Session() as session:
             request = BoundedRequest(session=session)
-            # Metadata identity endpoint ONLY: no ADC, service-account JSON key,
-            # impersonation fallback or developer's locally signed-in identity.
+
+
             credentials = IDTokenCredentials(request=request, target_audience=audience,
                                               use_metadata_identity_endpoint=True)
             credentials.refresh(request)
@@ -91,8 +91,8 @@ class PlatformIdTokenIssuer:
             expiry = credentials.expiry
             if expiry.tzinfo is None:
                 expiry = expiry.replace(tzinfo=UTC)
-            # These claims come from the trusted platform issuer, not wire input.
-            # Cloud Run verifies signature/identity; the provider does not grant IAM.
+
+
             from google.auth import jwt
             claims = jwt.decode(credentials.token, verify=False)
             if claims.get("aud") != audience:
@@ -134,14 +134,14 @@ class RefreshingIdTokenHeaders:
     async def __call__(self, readonly_context):
         if readonly_context is None:
             raise TokenAcquisitionError("adk_context_required")
-        # Bound lock waiting + acquisition, not just the issuer call.
+
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 if self._lock is None:
                     self._lock = asyncio.Lock()
                 async with self._lock:
                     if not self._fresh():
-                        self._cached = None  # Failure never falls back to stale tokens.
+                        self._cached = None
                         issuer = self._issuer or PlatformIdTokenIssuer()
                         token = await issuer(self.audience, self.timeout_seconds)
                         if (not isinstance(token, IssuedIdToken)
@@ -158,7 +158,7 @@ class RefreshingIdTokenHeaders:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Do not preserve exception chaining: upstream SDK loggers can print it.
+
             raise TokenAcquisitionError("id_token_acquisition_failed") from None
 
     def __getstate__(self):

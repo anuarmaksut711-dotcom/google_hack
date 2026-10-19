@@ -293,7 +293,7 @@ def test_renewal_retry_never_grants_changed_or_denied_authority(monkeypatch, cha
             monkeypatch.setattr(h.sessions, "_current", denied)
         release.set()
         with pytest.raises(AccessDenied): await task
-        # The durable check may retry only an exact stale-lease mismatch.
+
         assert len(attempts) <= 2
         if change in ("revoke", "expiry", "config", "successor"):
             assert len(attempts) == 1

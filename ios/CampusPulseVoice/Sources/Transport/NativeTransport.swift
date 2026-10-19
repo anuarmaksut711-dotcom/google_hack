@@ -39,8 +39,8 @@ func bounded<T: Sendable>(seconds: Double, operation: @escaping @Sendable () asy
     }
 }
 
-// No authentication-challenge override: URLSession performs normal system TLS
-// certificate/hostname validation. All redirects are refused, including same-host.
+
+
 final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
@@ -75,7 +75,7 @@ struct NativePairingHTTP: PairingHTTP {
         do {
             return try await bounded(seconds: 7) {
                 try await withTaskCancellationHandler {
-                    // Streaming collection has a cap BEFORE appending, unlike data(for:).
+
                     let (stream, response) = try await session.bytes(for: finalRequest)
                     guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                           let finalURL = http.url, origin.matches(finalURL, websocket: false), finalURL.path == path,
@@ -97,7 +97,7 @@ protocol VoiceSocket: Sendable {
     var claim: VoiceClaim { get }
     func send(_ packet: VoicePacket) async throws
     func receive() async throws -> VoicePacket
-    // Must wake outstanding send/receive and cooperate with task cancellation.
+
     func close() async
 }
 

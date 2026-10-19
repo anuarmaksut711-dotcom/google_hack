@@ -44,7 +44,7 @@ class _Claim(Contract):
 
 
 def _claim_path(calendar: str) -> str:
-    # Calendar-wide, deliberately NOT scoped by owner/worker/process.
+
     return f"cp_calendar_claims/{_key(calendar)}"
 
 
@@ -107,7 +107,7 @@ class FirestoreCalendarCoordination(_Repository):
             lease = CalendarLease(owner_id=trusted.owner_id, calendar_id=trusted.calendar_id,
                 holder_id=holder_id, generation=generation, acquired_at=current_time,
                 expires_at=expires_at, state="recovery_required" if recovery else "active")
-            # Keep the ORIGINAL uncertain writer across repeated recovery crashes.
+
             record = _Claim(lease=lease,
                 execution_path=old.execution_path if recovery else None,
                 previous=(old.previous or old.lease) if recovery else None,
@@ -135,7 +135,7 @@ class FirestoreCalendarCoordination(_Repository):
     async def assert_current(self, context, lease, *, now):
         context, _ = self._context(context)
         self._now(now)
-        # Transactional read gives a consistent check; no lease token caches.
+
         async def check(tx):
             claim = await self._require(context, tx, lease, active=True)
             if claim.writer_uncertain:
@@ -151,11 +151,11 @@ class FirestoreCalendarCoordination(_Repository):
             if lease.state == "active" and not claim.writer_uncertain:
                 return lease
             if lease.state == "active":
-                # A stopped holder must never resume under the very generation
-                # certified stopped. Take over with a NEW holder/generation.
+
+
                 raise BindingConflict("calendar_takeover_required")
             if claim.execution_path:
-                # Ledger is mandatory before restart; no blind pending replay.
+
                 from .operations import _Ledger
                 ledger = _decode(await tx.get(claim.execution_path), "execution", _Ledger)
                 if any(op.status in {OperationStatus.UNKNOWN, OperationStatus.IN_FLIGHT}
@@ -190,7 +190,7 @@ class FirestoreCalendarCoordination(_Repository):
                     raise BindingConflict("calendar_unreconciled_operations")
             if claim.writer_uncertain:
                 raise BindingConflict("calendar_writer_recovery_required")
-            # Retain tombstone/generation forever; deletion would reset fencing.
+
             tx.set(_claim_path(trusted.calendar_id), _encode("calendar_claim",
                 claim.model_copy(update={"released": True})))
 

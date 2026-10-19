@@ -42,14 +42,14 @@ struct WireState: Sendable {
     private var inputPackets = TokenBucket(rate: 100, capacity: 10)
     private var outputPackets = TokenBucket(rate: 100, capacity: 10)
     private var controls = TokenBucket(rate: 20, capacity: 20)
-    // Bounded uniqueness metadata; a peer exceeding this retires the connection.
+
     private var eventIDs: Set<String> = []
 
     init(connection: UInt64) throws {
         guard (1...0xFFFFFFFF).contains(connection) else { throw VoiceFailure.staleGeneration }
         self.connection = connection
     }
-    // Mutations commit only after all checks pass (also for multi-bucket failures).
+
     mutating func client(_ data: Data, now: Double) throws {
         var next = self; try next.acceptClient(WireJSON.parse(data, client: true), now: now); self = next
     }

@@ -122,7 +122,7 @@ class WebAuth(_Repository):
         return instant(self.clock())
 
     def check_request(self, request, *, mutation=False):
-        # Do not trust forwarded host/proto or model identity headers.
+
         if request.url.scheme != "https" or request.headers.get("host") != self.host:
             raise AccessDenied("request_origin_rejected")
         if request.headers.get("sec-fetch-site") not in (None, "same-origin", "none"):
@@ -141,7 +141,7 @@ class WebAuth(_Repository):
 
     def _cookie(self, request, name):
         value = request.cookies.get(name)
-        # Reject duplicate cookies, including path/domain shadowing.
+
         count = sum(part.strip().split("=", 1)[0] == name for part in request.headers.get("cookie", "").split(";"))
         if not value or len(value) > 256 or count != 1:
             raise AccessDenied("session_required")
@@ -166,7 +166,7 @@ class WebAuth(_Repository):
         self.check_csrf(request, challenge.csrf_digest)
         if challenge.consumed or self.now() >= challenge.expires_at:
             raise AccessDenied("signin_challenge_expired")
-        # External auth/cert reads take place OUTSIDE the Firestore transaction.
+
         try:
             identity = VerifiedSignIn.model_validate(await self.verifier.verify(token, nonce=challenge.nonce, now=self.now()))
             self.policy.require_principal("backend", identity.principal_id)
@@ -208,14 +208,14 @@ class WebAuth(_Repository):
         except Exception:
             raise AccessDenied("session_rejected") from None
         if mutation:
-            # CSRF cookie duplicate checking uses the same strict parser.
+
             self._cookie(request, CSRF_COOKIE)
             self.check_csrf(request, session.csrf_digest)
         return SessionCredential(session, self._authority)
 
     @contextmanager
     def request_scope(self, credential):
-        # The closure pins the exact server-loaded session and credential.
+
         if type(credential) is not SessionCredential or credential.authority is not self._authority:
             raise AccessDenied("server_session_credential_required")
         session = credential.session

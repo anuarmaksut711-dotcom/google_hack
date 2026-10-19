@@ -176,7 +176,7 @@ class DeviceAuth(_Repository):
         try:
             return await self.documents.transact(callback)
         except PortError:
-            # Normalized by the router. No raw backend exception is exposed.
+
             raise PortError("voice_storage_unavailable") from None
         except Exception:
             _reject()
@@ -219,7 +219,7 @@ class DeviceAuth(_Repository):
             index = None if raw_index is None else _decode(raw_index, "voice_code", CodeIndex)
             raw = None if index is None else await tx.get(self._pair_path(index.grant_hash))
             pair = None if raw is None else _decode(raw, "voice_pairing", Pairing)
-            now = self.auth.now()  # after the last read, including on callback retry
+            now = self.auth.now()
             self._check_parent(parent, now)
             if parent != expected:
                 _reject()
@@ -231,7 +231,7 @@ class DeviceAuth(_Repository):
                 valid = valid and pair is not None and pair.parent_hash == parent_hash and pair.binding == parent.binding
             tx.set(budget_path, _encode("voice_budget", budget))
             if not valid:
-                return None  # commit failed lookup budget, then report generic error
+                return None
             updates = {"parent_hash": parent_hash, "binding": parent.binding}
             if decision is not None:
                 updates["state"] = "approved" if decision else "denied"
@@ -253,7 +253,7 @@ class DeviceAuth(_Repository):
 
     async def exchange(self, *, grant: str, verifier: str):
         grant_hash = digest(_secret(grant))
-        # Malformed proofs still count against the bounded grant/global budget.
+
         try:
             challenge = proof_challenge(verifier)
         except AccessDenied:
@@ -297,8 +297,8 @@ class DeviceAuth(_Repository):
         try:
             value = await self._run(redeem_pairing)
         except PortError:
-            # Lost commit ack: reconcile THIS candidate only. Never create a
-            # second credential or reinterpret another exchange as our success.
+
+
             async def reconcile_issuance(tx):
                 pair = _decode(await tx.get(self._pair_path(grant_hash)), "voice_pairing", Pairing)
                 raw = await tx.get(self._credential_path(token_hash))

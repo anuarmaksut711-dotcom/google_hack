@@ -13,7 +13,7 @@ struct StatusRow: Identifiable {
     let detail: String
 }
 
-// Plain text only. No audio, files, logs, URLs or model-provided markup.
+
 struct AppHistory {
     private(set) var transcripts: [TranscriptRow] = []
     private(set) var statuses: [StatusRow] = []
@@ -38,7 +38,7 @@ struct AppHistory {
             case "read_assignments": tool = "Чтение заданий"
             case "read_calendar": tool = "Чтение календаря"
             case "solve_repair": tool = "Расчёт расписания"
-            default: return // No capability invented from arbitrary strings.
+            default: return
             }
             let status: String
             if value.type == "tool_started" { status = "выполняется" }
@@ -69,8 +69,8 @@ struct AppHistory {
     }
 }
 
-// Synchronous observer; no per-event Tasks or unbounded streams. Both the UI
-// lifetime and W09 epoch must match. Stop disables even a late begin callback.
+
+
 @MainActor final class AppObserver: VoiceObserver {
     private var lifetime: UUID?
     private var epoch: UUID?

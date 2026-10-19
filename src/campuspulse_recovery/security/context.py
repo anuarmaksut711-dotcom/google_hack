@@ -149,8 +149,8 @@ class RequestContextFactory:
         if self._current.get() is not None:
             raise AccessDenied("nested_request_context")
         now = instant(self._clock())
-        # Errors are normalized before reaching request/UI logs; no credential,
-        # Google exception message, principal or event content is included.
+
+
         try:
             caller = AuthenticatedCaller.model_validate(self._authenticator.authenticate(credential, boundary=self.boundary, now=now))
             if not caller.authenticated_at <= now < caller.expires_at:
@@ -171,8 +171,8 @@ class RequestContextFactory:
             sheet_id=student.spreadsheet_id, sheet_range=student.assignments_a1_range,
             calendar_id=student.calendar_id, timezone=student.timezone,
             config_revision=config.config_revision, run_id=binding.run_id)
-        # All data-service ports target the MCP Cloud Run region. Independent
-        # agent/model/web locations remain separately explicit in AppConfig.
+
+
         context = object.__new__(TrustedRequestContext)
         values = dict(trusted=trusted, session_id=binding.session_id, request_id="req_" + uuid4().hex,
             boundary=self.boundary, issued_at=now,
@@ -184,7 +184,7 @@ class RequestContextFactory:
         try:
             yield context
         finally:
-            # Shared lease also invalidates copied async ContextVars at exit.
+
             context._lease.active = False
             self._current.reset(reset)
 

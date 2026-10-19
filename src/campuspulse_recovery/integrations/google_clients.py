@@ -40,13 +40,13 @@ class _RequestsHttp:
 
         headers = dict(headers or {})
         self._credentials.before_request(None, method, uri, headers)
-        self._guard()  # Refresh may outlive the request capability.
+        self._guard()
         response = self._session.request(method, uri, data=body, headers=headers,
                                         timeout=(3.0, 10.0), allow_redirects=False)
         status = int(response.status_code)
         content = response.content
         if status >= 300:
-            # googleapiclient logs raw 403 reasons/content even with retries=0.
+
             content = b'{"error":{"message":"workspace_request_failed","errors":[{"reason":"forbidden"}]}}'
         return httplib2.Response({**response.headers, "status": str(status)}), content
 
@@ -136,7 +136,7 @@ class GoogleWorkspaceClients:
                 lambda: self._guard(context, kind, resource_id, a1_range))
             service = build(kind, "v4" if kind == "sheets" else "v3", http=http,
                             static_discovery=True, cache_discovery=False)
-            # Resource policy already ran; no untrusted API request exists yet.
+
             request = (request_factory(service, resource_id, a1_range) if kind == "sheets"
                        else request_factory(service, resource_id))
             self._check_request(request, kind, resource_id, a1_range, mutation=mutation)
@@ -144,8 +144,8 @@ class GoogleWorkspaceClients:
                 self._guard(context, kind, resource_id, a1_range)
                 try:
                     result = request.execute(num_retries=0)
-                    # All supported endpoints return JSON objects. The pinned
-                    # SDK returns raw str for invalid JSON instead of raising.
+
+
                     if not isinstance(result, dict):
                         failure = WorkspaceAccessError("workspace_client_failed", outcome_unknown=mutation)
                         break
@@ -173,10 +173,10 @@ class GoogleWorkspaceClients:
                 try:
                     http.close()
                 except Exception:
-                    pass  # Closing a local transport must not leak raw errors.
-        # Raise only after all handlers and transport cleanup have ended.
-        # `from None` inside except would retain a raw HTTP/parse exception,
-        # including PreparedRequest authorization/body, in __context__.
+                    pass
+
+
+
         if failure is not None:
             raise failure from None
 

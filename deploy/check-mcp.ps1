@@ -1,20 +1,5 @@
 #requires -Version 7.5
-<#
-.SYNOPSIS
-Offline T12 smoke preparation; Check is locked pending production adapters.
-.DESCRIPTION
-Dot-sourcing Prepare exposes bounded wire-check helpers for isolated tests.
-Those helpers NEVER acquire credentials and NEVER authorize a run binding.
-A future reviewed production binding adapter must supply an actual server-owned
-bootstrap invocation before Check can be enabled. No invented X-User/Run headers.
 
-ServiceUrl MUST be the base https://*.run.app URL (no slash, path, query, port).
-ID token audience is that base URL, HTTP endpoint is base URL + /mcp. The caller
-of the isolated helper supplies tokens in memory; never put them in InputsPath,
-command arguments, evidence, transcripts or logs. Prefer X-Serverless-
-Authorization for Cloud Run IAM if the future app needs a distinct auth channel.
-No Calendar writes: only initialize, initialized, list and the two read calls.
-#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$InputsPath,
@@ -28,8 +13,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $deployment = & (Join-Path $PSScriptRoot 'deploy-mcp.ps1') -InputsPath $InputsPath -AppConfigPath $AppConfigPath -Mode Prepare
 function Assert-McpBaseUrl([string]$Url) {
-    # Shape only: no DNS/network/ownership inference. Cloud Run uses both
-    # deterministic and older multi-label hosts; do not parse their internals.
+
+
     if ($Url.Length -gt 261 -or $Url -cnotmatch '^https://(?<mcp_host>[A-Za-z0-9.-]+)\z') {
         throw 'mcp_base_service_url_required'
     }
@@ -46,8 +31,8 @@ function Assert-McpBaseUrl([string]$Url) {
 }
 Assert-McpBaseUrl $ServiceUrl
 function Convert-McpInstant($Value) {
-    # PS 7 ConvertFrom-Json may materialize RFC3339 strings as UTC DateTime.
-    # Never accept an Unspecified/local DateTime as proof of an explicit zone.
+
+
     if ($Value -is [DateTimeOffset]) { return $Value }
     if ($Value -is [DateTime]) {
         if ($Value.Kind -ne [DateTimeKind]::Utc) { throw 'mcp_timezone_aware_horizon_required' }
@@ -81,14 +66,14 @@ function Invoke-McpWire {
     if ($Method -eq 'Post') { $parameters['ContentType'] = 'application/json'; $parameters['Body'] = $Body | ConvertTo-Json -Depth 15 -Compress }
     try {
         $response = Invoke-WebRequest @parameters
-        # Bound response parsing; never print Content or exception bodies.
+
         if ([Text.Encoding]::UTF8.GetByteCount([string]$response.Content) -gt 2097152) { throw 'size' }
         $data = $null
         if ($response.Content -and [int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300 -and
             (($Method -eq 'Post' -and $Body.Contains('id')) -or $Path -eq '/healthz')) {
             $contentType = [string]($response.Headers['Content-Type'] -join ',')
             if ($contentType -notmatch '^application/json(?:;|$)') { throw 'type' }
-            # Preserve RFC3339 offsets rather than coercing to host-local dates.
+
             $data = $response.Content | ConvertFrom-Json -AsHashtable -DateKind String
             if ($data -isnot [System.Collections.IDictionary]) { throw 'shape' }
         }
@@ -109,8 +94,8 @@ function Invoke-McpReadSmokeCore {
     param([string]$BaseUrl, [string]$AuthorizedToken, [string]$WrongAudienceToken,
         [string]$UnauthorizedPrincipalToken, [Parameter(Mandatory)]$Window,
         [Parameter(Mandatory)]$ExpectedBinding)
-    # This helper checks wire/results, NOT token provenance or real IAM. Check
-    # mode below remains locked; only a test harness calls this helper today.
+
+
     Assert-McpBaseUrl $BaseUrl
     if (-not $AuthorizedToken -or -not $WrongAudienceToken -or $AuthorizedToken -ceq $WrongAudienceToken) {
         throw 'mcp_distinct_positive_and_wrong_audience_tokens_required'
@@ -143,8 +128,8 @@ function Invoke-McpReadSmokeCore {
     $initialized = Invoke-McpRpc $BaseUrl $AuthorizedToken 1 'initialize' $probe.params
     if ($initialized['protocolVersion'] -cne '2025-11-25' -or -not $initialized.Contains('capabilities') -or
         -not $initialized.capabilities.Contains('tools')) { throw 'mcp_initialize_contract_failed' }
-    # Explicit per-invocation negotiated state: initialize itself is sent
-    # without this header; all subsequent MCP requests carry the agreed value.
+
+
     $negotiatedVersion = [string]$initialized.protocolVersion
     $notification = Invoke-McpWire -BaseUrl $BaseUrl -Token $AuthorizedToken -ProtocolVersion $negotiatedVersion -Body @{jsonrpc = '2.0'; method = 'notifications/initialized'}
     if ($notification.status -ne 202) { throw 'mcp_initialized_notification_failed' }
@@ -182,8 +167,8 @@ function Invoke-McpReadSmokeCore {
             $snapshot.recurrence_expanded -isnot [bool] -or -not $snapshot.recurrence_expanded)) {
             throw 'mcp_calendar_coverage_incomplete'
         }
-        # Explicit allowlist of evidence fields, never event/assignment contents,
-        # credential, raw JSON, source owner/resource identifiers or exceptions.
+
+
         $summaries += @{tool = $tool; rpc_id = $id; elapsed_ms = $timer.ElapsedMilliseconds;
             read_at = $readAt.ToString('o'); content_hash = $reference.content_hash; complete = $true}
     }
@@ -202,7 +187,7 @@ function Invoke-McpReadSmoke {
     finally { $AuthorizedToken = $null; $WrongAudienceToken = $null; $UnauthorizedPrincipalToken = $null }
 }
 if ($Mode -eq 'Check') {
-    # No token acquisition, HTTP or callback is possible before this gate.
+
     throw 'mcp_production_adapters_unimplemented:authenticator,run_binding,stopped_evidence;cloud_execution_deferred'
 }
 [ordered]@{status = 'OFFLINE_PREPARED'; executable = $false; network_class = 'none';

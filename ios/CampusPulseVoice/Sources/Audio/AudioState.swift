@@ -1,6 +1,6 @@
 import Foundation
 
-// CampusPulse original. Pure, bounded lifecycle seams; no device API here.
+
 enum AudioFailure: Error, Equatable, Sendable {
     case permissionDenied, inactive, retiredTicket, capacity, invalidPCM
     case formatChanged, conversion, graph, admissionTimeout, drainTimeout
@@ -17,9 +17,9 @@ enum CaptureStatus: Equatable, Sendable {
     case inactive, arming(CaptureReady), armed(CaptureReady), ending(CaptureReady), muted(CaptureTicket), failed(AudioFailure)
 }
 
-// One bounded UI waiter per arming revision. Success is published only after
-// graph.startCapture returns successfully; cancellation/failure cannot later
-// turn into ready. Thread-safe to cooperate with structured timeout cancellation.
+
+
+
 final class CaptureArming: @unchecked Sendable {
     let identity: CaptureReady
     private let lock = NSLock()
@@ -106,7 +106,7 @@ struct AudioFences {
     }
     mutating func flush(epoch value: UUID, nextSerial: UInt64) -> Bool {
         do { try adopt(value) } catch { return false }
-        // A late/lower flush can never lower the admission floor.
+
         minimumSerial = max(minimumSerial, nextSerial)
         return true
     }
@@ -142,7 +142,7 @@ struct CapturePacer {
 }
 
 struct PCMChunker {
-    static let nominalBytes = 640 // 20 ms, 320 mono Int16 samples at 16 kHz.
+    static let nominalBytes = 640
     private(set) var partial = Data()
     mutating func append(_ bytes: Data) throws -> [Data] {
         guard bytes.count % 2 == 0 else { throw AudioFailure.invalidPCM }
@@ -160,8 +160,8 @@ struct PCMChunker {
     }
 }
 
-// A one-element wakeup channel carries no audio and creates no task per tap or
-// notification. Actual work stays in separately bounded, locked storage.
+
+
 final class AudioWakeup: @unchecked Sendable {
     let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation

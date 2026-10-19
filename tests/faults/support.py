@@ -56,7 +56,7 @@ def install_network_guard(monkeypatch, *, loopback=False):
 def synthetic_config(namespace):
     data = config().model_dump()
     data.update(project_id="demo-campuspulse-t27", firestore_database="t27-" + namespace)
-    # Retained fixture locations are inert validation data, never deployment targets.
+
     data["student"].update(trusted_user_id="student-" + namespace,
                            calendar_id=namespace + "@group.calendar.google.com")
     for key in data["identities"]:

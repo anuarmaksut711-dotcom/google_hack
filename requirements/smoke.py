@@ -13,7 +13,7 @@ def main() -> None:
     args = parser.parse_args()
     import campuspulse_recovery
 
-    # The shared namespace must not eagerly import any SDK/server stack.
+
     assert not any(name in sys.modules for name in ("google.adk", "vertexai", "mcp"))
     assert campuspulse_recovery.__version__ == metadata.version("campuspulse-recovery")
     assert ZoneInfo("Asia/Qyzylorda").key == "Asia/Qyzylorda"

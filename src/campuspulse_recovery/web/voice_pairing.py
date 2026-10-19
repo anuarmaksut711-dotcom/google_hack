@@ -22,7 +22,7 @@ from ..voice.device_auth import DeviceAuth
 PAGE_PATH = "/voice/pair"
 API_PATH = "/api/voice/pairing"
 
-# All untrusted display fields use textContent, never HTML interpolation.
+
 PAGE_SCRIPT = r"""'use strict';
 const code = document.getElementById('code');
 const notice = document.getElementById('notice');
@@ -168,7 +168,7 @@ def _safe(function):
     @wraps(function)
     async def invoke(request: Request):
         try:
-            # No grant/code/token, including duplicate values, is accepted in a URL.
+
             if request.url.query:
                 raise ValueError()
             return await function(request)
@@ -186,7 +186,7 @@ def create_pairing_router(*, device_auth: DeviceAuth) -> APIRouter:
 
     def native(request):
         service.auth.check_request(request)
-        # Native has its own proof flow, never a cookie/ambient browser session.
+
         if "cookie" in request.headers or "origin" in request.headers:
             raise AccessDenied("voice_access_denied")
 

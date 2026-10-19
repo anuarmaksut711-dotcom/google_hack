@@ -45,8 +45,8 @@ def create_voice_app(*, policy, documents, verifier, origin: str, environment: s
 @dataclass(frozen=True)
 class ManagedBindings:
     target: object
-    # Must verify deployed target, ingress identity + durable binding capability.
-    # No default or configured-string identity implementation is provided here.
+
+
     verify_deployment: Callable
     issue_reference: Callable
     credentials_provider: Callable
@@ -58,9 +58,9 @@ class VoiceConfig:
     mode: ProviderMode = ProviderMode.MANAGED_PRODUCTION
     managed: ManagedBindings | None = None
     local_fake_factory: Callable | None = None
-    journal: Callable | None = None  # async typed VoiceEvent sink, bounded below
+    journal: Callable | None = None
     evidence_class: Literal["windows_local", "cloud_live"] = "windows_local"
-    clock: object | None = None  # local test clock only
+    clock: object | None = None
     limits: Limits = Limits()
 
 
@@ -157,11 +157,11 @@ class SocketTransport:
         return text
 
     async def send(self, packet):
-        # The coordinator bounds this entire send, including the typed sink.
+
         if self.disconnected or self.closed:
-            # W04 joins tools before emitting terminal cancellation controls.
-            # A known dead peer needs no wire write; technical cancellation is
-            # still journaled. Ordinary data is never silently acknowledged.
+
+
+
             if isinstance(packet, p.Closed):
                 return
             if isinstance(packet, p.ToolFinished) and packet.status == "cancelled":
@@ -249,7 +249,7 @@ def mount_voice(app, *, auth, environment, config: VoiceConfig):
         try:
             token = native_token(websocket, auth, local_fake=fake)
             async with asyncio.timeout(2):
-                await devices.authenticate(token)  # before accept or provider creation
+                await devices.authenticate(token)
             if fake:
                 provider = config.local_fake_factory()
             else:
@@ -272,7 +272,7 @@ def mount_voice(app, *, auth, environment, config: VoiceConfig):
             outcome = "disconnected"
             raise
         except Exception:
-            # Never propagate rejected headers/provider error payload to ASGI logs.
+
             pass
         finally:
             try:
@@ -287,7 +287,7 @@ def mount_voice(app, *, auth, environment, config: VoiceConfig):
 
     app.include_router(create_pairing_router(device_auth=devices))
     app.include_router(router)
-    # LAST = outermost: narrowly restore pairing page script CSP after protections.
+
     app.add_middleware(PairingPageHeaders)
 
 

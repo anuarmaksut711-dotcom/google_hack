@@ -85,7 +85,7 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
     @app.exception_handler(ValueError)
     @app.exception_handler(ValidationError)
     async def invalid(request, error):
-        # Never echo rejected token/source content or raw Pydantic errors.
+
         return _json({"error": "invalid_request"}, 400)
 
     @app.get("/auth/challenge")

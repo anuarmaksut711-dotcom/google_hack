@@ -157,7 +157,7 @@ class FirestoreVoiceSessions:
         except BindingConflict:
             raise
         except PortError:
-            # Never retry acquisition with a different holder after lost ack.
+
             async def reconcile(tx):
                 value, parent = await self._authority(tx, token_hash)
                 raw = await tx.get(_path(value.device_id))

@@ -398,7 +398,7 @@ def test_owned_blocks_require_matching_observation_and_stable_identity():
     forged = CalendarEvent.model_validate(observed().model_dump() | {"campuspulse_marker": None})
     with pytest.raises(ValidationError):
         calendar_snapshot(events=(forged,), owned=(block,))
-    # A marker on its own remains an external busy event; it does not add a registry record.
+
     assert calendar_snapshot(events=(observed(),)).owned_blocks == ()
 
 

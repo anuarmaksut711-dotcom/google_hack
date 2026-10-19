@@ -66,9 +66,9 @@ def _covers(coverage: Interval | None, horizon: Interval) -> bool:
 
 
 def _work(snapshot: AssignmentsSnapshot):
-    # Course/title/source row, provider metadata, array order and read identity
-    # are not scheduling facts. Date-only/native-zone rules are already applied
-    # by T08/T03; compare the resulting absolute deadline boundary.
+
+
+
     return {a.assignment_id: (None if a.deadline is None else a.deadline.at, a.remaining_minutes)
             for a in snapshot.assignments}
 
@@ -93,7 +93,7 @@ class PreflightService:
                  coordination: FirestoreCalendarCoordination, registry: FirestoreOwnedBlockRegistry,
                  assignments: AssignmentsReader, calendar: CalendarReader, policy: ResourcePolicy,
                  *, clock: Callable[[], datetime]):
-        # Do not quietly compose a second database, policy or invented guard.
+
         documents = plans.documents
         for store in (plans, snapshots, approvals, executions, coordination, registry):
             _require(store.documents is documents and store.policy is policy,
@@ -121,9 +121,9 @@ class PreflightService:
         return instant(self.clock())
 
     async def _consent(self, context, reference):
-        # Materialize an observed terminal lifetime/pointer outcome using T16's
-        # store, then independently require exact current active consent. Never
-        # renew, approve or construct a replacement approval here.
+
+
+
         value = await self.approvals.get(context, reference)
         _require(value is not None and value.active_at(self._now()),
                  "active_exact_ui_approval_required")
@@ -138,21 +138,21 @@ class PreflightService:
         self.policy.require_plan(context, plan)
         reference = plan_reference(plan)
         await self._consent(context, reference)
-        # Binding is not dispatch. It preserves the original execution run and
-        # refuses a fresh key concealing prior work/unknown outcomes.
+
+
         await self.executions.bind_request(context, request_key=request.request_key,
                                            plan=reference, at=self._now())
         original_a, original_c = await self.snapshots.get_for_plan(context, reference)
         await self.coordination.assert_current(context, lease, now=self._now())
         execution = await self.executions.get(context, request.request_key)
-        horizon = plan.payload.constraints.horizon  # Never recompute solver horizon.
+        horizon = plan.payload.constraints.horizon
         started = self._now()
         fresh_a = AssignmentsSnapshot.model_validate(await self.assignments.read(context, horizon))
         await self.coordination.assert_current(context, lease, now=self._now())
         fresh_c = CalendarSnapshot.model_validate(await self.calendar.read(context, horizon))
         self._mcp(context)
-        # Reload the actually persisted current-run snapshots. A forwarded DTO
-        # or a reader returning before persistence cannot manufacture authority.
+
+
         for fresh, old in ((fresh_a, original_a), (fresh_c, original_c)):
             self.policy.require_source(context, fresh.source.reference)
             _require(started <= fresh.source.reference.read_at <= self._now()
@@ -161,8 +161,8 @@ class PreflightService:
         _require(await self.snapshots.get_assignments(context, fresh_a.source.reference) == fresh_a
                  and await self.snapshots.get_calendar(context, fresh_c.source.reference) == fresh_c,
                  "preflight_persisted_source_mismatch")
-        # A simultaneous handler cannot turn bind_request/replayed preflight into
-        # another dispatch permit. T19 still needs its own newly successful CAS.
+
+
         after = await self.executions.get(context, request.request_key)
         _require(after == execution, "preflight_execution_changed")
         await self._consent(context, reference)
@@ -170,21 +170,21 @@ class PreflightService:
         self._mcp(context)
         findings, observations = await self._compare(context, plan, execution,
             original_a, original_c, fresh_a, fresh_c)
-        # Registry reads above can await, too. Consent/lease must survive them.
+
         approval = await self._consent(context, reference)
         await self.coordination.assert_current(context, lease, now=self._now())
         _require(await self.executions.get(context, request.request_key) == execution,
                  "preflight_execution_changed")
-        # No awaits below this point. These bounds supplement the real durable
-        # consent/claim reads above; their DTOs alone are never authority. Even
-        # unchanged ledger delivery can outlast those reads' validity periods.
+
+
+
         self._mcp(context)
         checked_at = self._now()
         _require(approval.active_at(checked_at), "active_exact_ui_approval_required")
         _require(lease.state == "active" and lease.acquired_at <= checked_at < lease.expires_at,
                  "calendar_lease_stale")
         if any(target.interval.start <= checked_at for target in plan.payload.blocks):
-            # Completed Calendar writes never prove completed assignment work.
+
             findings.append(Finding(code="preflight_target_started"))
         states = {state.operation_id: state for state in execution.operations}
         for op in plan.payload.operations:
@@ -198,7 +198,7 @@ class PreflightService:
         elif findings:
             status = "replan_required"
         elif all(s.status == OperationStatus.COMPLETED for s in execution.operations):
-            status = "already_applied"  # Still unverified.
+            status = "already_applied"
         else:
             status = "ready"
         return PreflightResult(status=status, plan=plan, execution=execution,
@@ -223,7 +223,7 @@ class PreflightService:
                 or any(s.source.covered_interval is not None and not _covers(s.source.covered_interval, horizon)
                        for s in (old_a, fresh_a))):
             finding("preflight_incomplete_sources")
-            return findings, observations  # Missing pages never prove absence.
+            return findings, observations
         if _work(old_a) != _work(fresh_a):
             finding("preflight_assignments_changed")
         if any(a.deadline is None or a.remaining_minutes is None for a in fresh_a.assignments):
@@ -247,9 +247,9 @@ class PreflightService:
             observed = current_events.get(op.event_id)
             if state.status in (OperationStatus.IN_FLIGHT, OperationStatus.UNKNOWN):
                 finding("preflight_operation_reconciliation_required", op)
-                # No observation below resets a ledger or permits replay.
-                # A horizon-filtered list cannot prove global event absence:
-                # the event may have been moved outside it. T19 must GET it.
+
+
+
                 comparison = (TargetComparison.UNKNOWN if record is None or observed is None else
                               compare_target(op, record, observed, read_complete=True))
                 observations.append(OperationObservation(operation_id=op.operation_id,
@@ -270,8 +270,8 @@ class PreflightService:
                         or compare_target(op, record, observed) != TargetComparison.MATCHED
                         or op.target.block_id not in current_blocks):
                     finding("preflight_completed_target_changed", op)
-                # Only durable COMPLETED effects project onto ORIGINAL sources.
-                # Unknown/in-flight events are never assumed succeeded.
+
+
                 projected_events[op.event_id] = state.observed_event
             elif op.kind == "update":
                 if (record is None or record.state != "confirmed"

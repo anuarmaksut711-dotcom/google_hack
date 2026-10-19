@@ -1,10 +1,5 @@
 #requires -Version 7.0
-<#
-.SYNOPSIS
-Scoped IAM for three runtime identities; default read-only. No keys or broad runtime roles.
-Apply establishes foundation bindings; -BindRuntime additionally requires deployed MCP/engine.
--WhatIf is offline prepared-only and calls neither gcloud nor Google APIs.
-#>
+
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
     [Parameter(Mandatory)][string]$InputsPath,
@@ -77,7 +72,7 @@ function Role([string]$Id, [string[]]$Permissions) {
     }
 }
 function Grant([string[]]$Resource, [string]$Member, [string]$RoleName, [string]$Condition = 'None') {
-    # gcloud add-iam-policy-binding merges a binding; do not replace entire project policy.
+
     $index = if ($Resource[0] -in @('projects', 'secrets')) { 1 } else { 2 }
     $prefix = $Resource[0..($index - 1)]
     $suffix = $Resource[$index..($Resource.Count - 1)]
@@ -93,7 +88,7 @@ function Grant([string[]]$Resource, [string]$Member, [string]$RoleName, [string]
     }
 }
 function PolicyBindings([hashtable]$Policy) {
-    # Compare binding contents independently of JSON property/member ordering and etag changes.
+
     foreach ($entry in @($Policy['bindings'])) {
         if ($null -eq $entry) { throw 'Invalid null policy binding.' }
         $condition = $null
@@ -114,13 +109,13 @@ if (-not $WhatIfPreference) {
     $actual = Gcp @('projects', 'describe', $project)
     if ([string]$actual.projectNumber -ne $number -or $actual.projectId -ne $project -or $actual.lifecycleState -ne 'ACTIVE') { throw 'Project identity/state mismatch.' }
     $policy = Gcp @('projects', 'get-iam-policy', $project)
-    # Do not echo a complete policy containing unrelated principals.
+
     @{ status = 'actual_readback'; read_at_utc = [DateTimeOffset]::UtcNow.ToString('o'); project_id = $project;
         runtime_bindings = @($policy.bindings | Where-Object { @($_.members | Where-Object { $_ -in @(
             "serviceAccount:$($cfg.backend_service_account)", "serviceAccount:$($cfg.agent_service_account)",
             "serviceAccount:$($cfg.mcp_service_account)") }).Count } | Select-Object role, condition) } | ConvertTo-Json -Depth 5
     if ($Mode -eq 'Inspect') { return }
-    # Billing is read-only. Requiring foundation prevents implicit project/bootstrap choices.
+
     $billing = Gcp @('billing', 'projects', 'describe', $project)
     if ($billing['billingEnabled'] -ne $true) { throw 'Billing disabled/unlinked; no IAM changes performed.' }
     $buildDefault = Gcp @('builds', 'get-default-service-account', "--region=$($cfg.build_region)")
@@ -159,7 +154,7 @@ Role 'campuspulseApiConsumer' @('serviceusage.services.use')
 Role 'campuspulseBackendQuery' @('aiplatform.reasoningEngines.query')
 $dbExpression = "resource.name == 'projects/$project/databases/$($cfg.firestore_database)'"
 $condition = "title=campuspulse_database_only,expression=$dbExpression"
-# Preserve the exact title of previously accepted bindings for the default database.
+
 if ($cfg.firestore_database -eq '(default)') { $condition = "title=campuspulse_default_database_only,expression=$dbExpression" }
 foreach ($key in @('backend_service_account', 'mcp_service_account')) {
     Grant @('projects', $project) "serviceAccount:$($cfg[$key])" "projects/$project/roles/campuspulseFirestoreData" $condition
@@ -187,8 +182,8 @@ if ($BindRuntime) {
         $currentProjectPolicy = Gcp @('projects', 'get-iam-policy', $project)
         foreach ($p in @($currentProjectPolicy, $mcpPolicy)) {
             if ($p -isnot [hashtable]) { throw 'Unreadable MCP access policy; stop for explicit review.' }
-            # Conservative boundary: reject public principals in ANY role/condition, including
-            # custom/unknown roles. A short role-name allowlist cannot prove private invocation.
+
+
             $entries = @()
             if ($p.ContainsKey('bindings') -and $null -ne $p['bindings']) {
                 if ($p['bindings'] -isnot [array]) { throw 'Unreadable MCP access policy; stop for explicit review.' }
@@ -216,7 +211,7 @@ if ($BindRuntime) {
             $base = "https://$($cfg.agent_region)-aiplatform.googleapis.com/v1/$resource"
             $engine = Invoke-RestMethod -Uri $base -Method Get -Headers $headers -TimeoutSec 45
             if ($engine.spec.serviceAccount -ne $cfg.agent_service_account) { throw 'Engine runtime identity mismatch.' }
-            # v1 discovery: POST, policy version in QUERY, no request body.
+
             $getPolicyUri = $base + ':getIamPolicy?options.requestedPolicyVersion=3'
             $enginePolicy = Invoke-RestMethod -Uri $getPolicyUri -Method Post -Headers $headers -TimeoutSec 45
             $ep = $enginePolicy | ConvertTo-Json -Depth 20 | ConvertFrom-Json -AsHashtable

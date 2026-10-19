@@ -11,7 +11,7 @@ def main(argv=None):
     parser.add_argument("--execute", action="store_true")
     options = parser.parse_args(argv)
     try:
-        # Unconditional code gate: JSON/env/model cannot lift LOCAL_ONLY.
+
         if options.execute:
             raise ValueError("LOCAL_ONLY_execute_forbidden")
         if options.config is None:

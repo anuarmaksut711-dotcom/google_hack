@@ -24,8 +24,8 @@ def isolate_network():
             raise RuntimeError('demo_external_dns_disabled')
         return dns(host,*args,**kwargs)
     socket.socket.connect,socket.socket.connect_ex,socket.getaddrinfo=guarded,guarded_ex,guarded_dns
-    # Importing credential base types is required by the existing reader module;
-    # discovery/ADC/file loaders are forbidden before product startup.
+
+
     import google.auth
     import google.auth._default
     def no_credentials(*args,**kwargs):
@@ -70,10 +70,18 @@ def main():
     parser=argparse.ArgumentParser(description='CampusPulse loopback-only test demo; no Google/Gemini calls')
     parser.add_argument('--demo',action='store_true',help='Explicitly select test adapters')
     parser.add_argument('--port',type=int,default=8947)
+    parser.add_argument('--chat-target',type=Path,
+        help='Explicit Vertex chat config JSON: project_id, location, model. Enables external Gemini IO; Workspace stays synthetic.')
     args=parser.parse_args()
     require_demo(args.demo)
     if not 1024<=args.port<=65535: parser.error('port must be 1024..65535')
-    isolate_network()
+    chat_agent = None
+    if args.chat_target is None:
+        isolate_network()
+    else:
+        from ..agent.conversation import AdkConversationAgent, ConversationTarget
+        target = ConversationTarget.model_validate_json(args.chat_target.read_text(encoding='utf-8'))
+        chat_agent = AdkConversationAgent(target)
     root=Path.cwd()
     if not (root/'pyproject.toml').is_file(): parser.error('run from the recovery_app directory')
     runtime=root/'.validation/mvp-20261019/step01/runtime'
@@ -82,13 +90,13 @@ def main():
     import uvicorn
     from .app import create_demo_app
     origin='https://127.0.0.1:'+str(args.port)
-    app,_=create_demo_app(demo=True,origin=origin)
-    print(NOTICE)
+    app,_=create_demo_app(demo=True,origin=origin,chat_agent=chat_agent)
+    print(NOTICE if chat_agent is None else 'Vertex AI chat enabled explicitly. Workspace/sign-in are synthetic; history resets on restart. Not an Agent Engine deployment.')
     print('Open '+origin+'/demo (manual local certificate warning; never enter Google credentials).',flush=True)
     import asyncio
     config=uvicorn.Config(app,host='127.0.0.1',port=args.port,ssl_certfile=str(cert),ssl_keyfile=str(key),
                          proxy_headers=False,access_log=False,log_level='warning')
-    # A selector loop also avoids Windows Proactor TLS disconnect callback noise.
+
     with asyncio.Runner(loop_factory=asyncio.SelectorEventLoop) as runner:
         runner.run(uvicorn.Server(config).serve())
 

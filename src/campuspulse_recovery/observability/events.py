@@ -58,14 +58,14 @@ class SafeSummary(Contract):
     verification_at: Instant | None = None
     verification_run: TechnicalId | None = None
     historical_verification: StrictBool = False
-    # Links are intentionally absent: fetch the original evidence via its own
-    # authenticated service, never by interpreting trace strings as URLs.
+
+
 
 
 class Observation(Contract):
     event: RunEvent
     layer: Layer
-    attempt_id: TechnicalId | None = None  # only a real durable operation attempt
+    attempt_id: TechnicalId | None = None
     summary: SafeSummary = Field(default_factory=SafeSummary)
 
     @model_validator(mode="after")

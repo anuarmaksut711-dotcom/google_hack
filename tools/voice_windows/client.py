@@ -69,8 +69,8 @@ class NativeHTTP:
             data = json.dumps(body).encode("utf-8")
             if path not in ("/api/voice/pairing/start", "/api/voice/pairing/exchange") or len(data) > 2048:
                 raise ClientError("invalid_pairing_request")
-            # One request-owned TLS transport, aggregate deadline includes connect,
-            # headers and body. Cancellation closes it; no blocking HTTP thread.
+
+
             async with asyncio.timeout(self.timeout):
                 reader, writer = await asyncio.open_connection(parsed.hostname, parsed.port or 443,
                     ssl=self.context, server_hostname=parsed.hostname, limit=8192,
@@ -133,7 +133,7 @@ class PairingClient:
 async def browser_pair(origin):
     client = PairingClient(NativeHTTP(origin))
     attempt = await client.start()
-    # Only the non-secret fixed URL goes to browser/process arguments.
+
     webbrowser.open(origin + "/voice/pair")
     answer = getpass.getpass("Pairing code: " + attempt.code + "\nReview this device in the signed-in browser. "
                             "After clicking Connect, type CONTINUE here (hidden): ")
@@ -156,7 +156,7 @@ def wss_connection(origin, credential, context=None):
     context = context or ssl.create_default_context()
     if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
         raise ClientError("verified_tls_required")
-    # Exactly one Authorization, no Origin/Cookie/query/subprotocol; never reconnect/replay.
+
     return connect("wss://" + urlsplit(origin).netloc + "/api/voice/ws",
         ssl=context, additional_headers={"Authorization": "Bearer " + credential},
         compression=None, proxy=None, open_timeout=5, close_timeout=2,
@@ -165,7 +165,7 @@ def wss_connection(origin, credential, context=None):
 
 
 def safe_event(event):
-    # No transcript, errors/exceptions, arbitrary dictionaries or audio in diagnostics.
+
     names = ("type", "run_id", "session_id", "connection_generation", "generation",
              "phase", "call_id", "tool", "status", "duration_ms", "elapsed_ms", "reason", "code")
     return {name: getattr(event, name) for name in names if hasattr(event, name)}
@@ -212,9 +212,9 @@ class VoiceClient:
                 connection_generation=self.state.connection_generation, **values)), client=True)
             if isinstance(event, p.Heartbeat) and len(self.pending_heartbeats) >= p.MAX_QUEUED_EVENTS:
                 raise p.ProtocolError("limit_exceeded")
-            # A duplex peer may already have emitted events before it sees Stop.
-            # Preserve its receive ordering at the exact local admission boundary;
-            # never put the shared W02 state back into ACTIVE after local Stop.
+
+
+
             receive_drain = deepcopy(self.state) if isinstance(event, p.Stop) else None
             self.state.accept_client(event, now=time.monotonic())
             if receive_drain is not None:
@@ -222,7 +222,7 @@ class VoiceClient:
                 self._stop_deadline = time.monotonic() + 2
                 self.output.flush()
             if isinstance(event, p.Heartbeat):
-                # Register before awaiting send: its ACK may win that await race.
+
                 self.pending_heartbeats.append(event.request_id)
             await self.admitted_send(p.encode_json(event, client=True))
 
@@ -234,8 +234,8 @@ class VoiceClient:
         try:
             await asyncio.shield(task)
         except BaseException:
-            # State was already admitted. Never reuse an uncertain connection,
-            # roll back counters or replay. Join/stop the bounded send first.
+
+
             self.uncertain = True
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -263,7 +263,7 @@ class VoiceClient:
             chunk = pcm[offset:offset + 640]
             await pacer.wait(len(chunk) / 32000)
             await self.send_pcm(chunk)
-        # The final frame also represents time; don't send end at its first sample.
+
         await pacer.wait(0)
         await self.control("input", action="end")
 
@@ -293,8 +293,8 @@ class VoiceClient:
         if self.state is None:
             self.state = p.ProtocolState(event.connection_generation)
             self.state.accept_client(self.start_event, now=time.monotonic())
-        # Server controls still consume the ordered event counter even when their
-        # stale assistant content is fenced. Permit only a validated old transcript.
+
+
         if isinstance(event, p.Transcript) and event.speaker == "assistant" and (
                 event.connection_generation == self.state.connection_generation and
                 (event.generation < self.state.generation or
@@ -357,7 +357,7 @@ class VoiceClient:
                 self.pending_heartbeats.popleft()
                 self.acks += 1
             elif isinstance(event, p.Closed):
-                self.state = state  # Both local and peer views are now terminal.
+                self.state = state
                 self.reason = event.reason
                 self.closed.set()
                 self.pending_heartbeats.clear()
@@ -365,8 +365,8 @@ class VoiceClient:
             elif isinstance(event, p.Error) and event.fatal:
                 raise ClientError("server_fatal_error")
             else:
-                # No enqueue/playback, transcript display, response_done signal,
-                # tool action or success trace after local Stop admission.
+
+
                 self.shutdown_discarded_packets += 1
         self.shutdown_packets += 1
 
@@ -417,7 +417,7 @@ class VoiceClient:
             finally:
                 producer.cancel()
                 await asyncio.gather(producer, return_exceptions=True)
-            # wav source waits for its own reply; microphone returns on explicit stop.
+
             for task in self.tasks:
                 if task.done():
                     task.result()
@@ -453,8 +453,8 @@ class VoiceClient:
                 if task.done():
                     task.result()
             await asyncio.sleep(.005)
-        # Last sink write is queued to hardware in playback mode; bounded device
-        # buffer is drained by the source wrapper before terminal stop.
+
+
 
     def summary(self):
         return dict(input_bytes=self.sent_bytes, output_bytes=self.received_bytes,
@@ -483,8 +483,8 @@ async def microphone_turns(client, device, command):
                 await pacer.wait(len(pcm) / 32000)
                 if end_capture.is_set():
                     return
-                # An admitted bounded send is joined before input.end. Ordinary
-                # end/stop never cancels it and never guesses peer receipt.
+
+
                 await client.send_pcm(pcm)
             finally:
                 read.cancel()

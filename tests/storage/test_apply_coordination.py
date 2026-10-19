@@ -233,9 +233,9 @@ def test_approval_guard_is_required_for_new_dispatch(mode):
                 await s.approval(plan=await s.h.seed(version=2))
             if mode == "expired":
                 s.clock.advance(901)
-                # Clean reacquire solely for exercising expired consent.
+
                 s.lease = await s.acquire(ctx, "after-expiry")
-                # Test hook emulates trusted resolution of no prior writer.
+
                 await s.stopped(s.lease.model_copy(update={"holder_id": "worker-a", "generation": 1}))
                 s.lease = await s.leases.complete_recovery(ctx, s.lease, now=s.clock())
             next_state = ExecutionState.model_validate(state.model_dump() | {
@@ -265,7 +265,7 @@ def test_approval_expiry_during_transaction_reads_does_not_grant_dispatch():
         await s.seed()
         with s.h.request("mcp") as ctx:
             await s.begin(ctx)
-            # Consent valid at callback start but expires during the reader.
+
             s.clock.advance(899)
             s.lease = await s.acquire(ctx, "later-worker")
             await s.stopped(s.lease.model_copy(update={"holder_id": "worker-a", "generation": 1}))
@@ -329,15 +329,15 @@ def test_timeout_success_is_reconciled_without_second_attempt():
         with s.h.request("mcp") as ctx:
             await s.begin(ctx)
             await s.record(ctx, "in_flight")
-            # Simulates write succeeded externally but response lost; no Calendar calls.
+
             external_event = s.observed()
             await s.record(ctx, "unknown")
             await s.record(ctx, "completed", observed=external_event, evidence=s.evidence(observed=external_event))
             ledger = await s.store.get_ledger(ctx, "req-1")
             assert ledger.execution.operations[0].attempts == 1
             assert ledger.execution.status == "applied_unverified"
-            # Reading the target proves an outcome, not that a delayed writer
-            # cannot still run. Do not clear the safety barrier from that read.
+
+
             with pytest.raises(BindingConflict, match="writer_recovery"):
                 await s.leases.release(ctx, s.lease)
             with pytest.raises(BindingConflict, match="writer_recovery"):
@@ -568,8 +568,8 @@ def _worker(namespace, gate, output, mode):
                         lease = await s.acquire(ctx, "worker-" + str(os.getpid()))
                         result = {"status": "acquired", "generation": lease.generation}
                     except PortError as exc:
-                        # SDK may exhaust a cold-start contention retry. A
-                        # transaction with unknown outcome grants NO I/O permit.
+
+
                         result = {"status": "refused", "code": str(exc)}
                 else:
                     state = await s.store.get(ctx, "req-1")
@@ -685,8 +685,8 @@ def test_emulator_two_clients_one_operation_dispatch_permit():
                 old = s.state.operations[0]
                 intent = OperationState(operation_id=old.operation_id, status="in_flight", attempts=1,
                     updated_at=NOW, fencing_generation=s.lease.generation)
-                # Deliberately share a token to test replay protection beyond
-                # normal independent workers' unique lease-holder identities.
+
+
                 outcomes = await asyncio.gather(
                     s.store.record_operation(ctx, request_key="req-1", expected_revision=1,
                         operation=intent, lease=s.lease),

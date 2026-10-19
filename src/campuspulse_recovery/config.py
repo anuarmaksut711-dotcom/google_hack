@@ -20,14 +20,14 @@ from .domain.models import Identifier, IanaZone, ResourceId, canonical_hash
 Environment = Literal["local", "cloud"]
 ProjectId = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")]
 Region = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-z]+(?:-[a-z]+)+[0-9]$")]
-# Accept explicit regional endpoint syntax or the explicit global endpoint.
-# Actual selected-model availability/quota in that location is a T13 live gate.
+
+
 ModelLocation = Region | Literal["global"]
 ServiceAccount = Annotated[str, StringConstraints(strict=True, max_length=256, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$")]
 SecretReference = Annotated[str, StringConstraints(strict=True, max_length=512, pattern=r"^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/[a-zA-Z0-9_-]+/versions/(?:[1-9][0-9]*|latest)$")]
 
-# This is defense in depth, not a replacement for the caller's explicit cloud
-# environment. T13 must pass environment="cloud" on every managed component.
+
+
 CLOUD_MARKERS = frozenset({"K_SERVICE", "K_REVISION", "CLOUD_RUN_JOB", "CLOUD_RUN_EXECUTION", "GOOGLE_CLOUD_AGENT_ENGINE_ID"})
 
 
@@ -41,7 +41,7 @@ class ConfigValue(BaseModel):
 
 class StudentResources(ConfigValue):
     trusted_user_id: Identifier
-    # Canonical issuer#subject from VERIFIED sign-in, not a display email/header.
+
     allowed_signin_principal: Identifier
     spreadsheet_id: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")]
     assignments_a1_range: Annotated[str, StringConstraints(strict=True, max_length=512)]
@@ -73,8 +73,8 @@ class StudentResources(ConfigValue):
     @field_validator("assignments_a1_range")
     @classmethod
     def bounded_range(cls, value: str) -> str:
-        # One explicit tab and bounded rectangle, not an open column/named range.
-        # Quoted tab names (including doubled apostrophes) are supported.
+
+
         import re
 
         match = re.fullmatch(r"(?:'(?:[^'\x00-\x1f]|'')+'|[A-Za-z_][A-Za-z0-9_]*)!([A-Z]{1,3})([1-9][0-9]{0,6}):([A-Z]{1,3})([1-9][0-9]{0,6})", value)
@@ -106,8 +106,8 @@ class ServiceIdentities(ConfigValue):
 
 
 class SecretReferences(ConfigValue):
-    # Optional references only. Providing these does not select/enable OAuth;
-    # switching from sharing requires the separately documented migration.
+
+
     oauth_client_secret_reference: SecretReference | None = None
     oauth_refresh_token_secret_reference: SecretReference | None = None
 
@@ -169,8 +169,8 @@ def load_config(path: str | Path, *, environment: Environment) -> AppConfig:
         config = AppConfig.model_validate(payload)
     except ValidationError as error:
         fields = sorted({".".join(str(part) for part in item["loc"]) or "configuration" for item in error.errors()})
-        # Unknown keys could themselves contain credentials. Expose only known
-        # schema paths, or a generic marker for all unknown-key errors.
+
+
         if any(item["type"] == "extra_forbidden" for item in error.errors()):
             raise ConfigurationError("unknown configuration fields") from None
         raise ConfigurationError("invalid configuration fields: " + ", ".join(fields)) from None

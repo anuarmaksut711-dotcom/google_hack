@@ -1,8 +1,8 @@
 import XCTest
 @testable import CampusPulseVoice
 
-// Actual W09 actor -> actual W10 controller -> actual W10 player -> fake native
-// scheduler. No replacement VoiceAudioPort, AV engine, microphone or network.
+
+
 @MainActor final class JointAudioPipelineTests: XCTestCase {
     private func waitFor(_ condition: @MainActor () async -> Bool) async throws {
         for _ in 0..<400 {
@@ -41,7 +41,7 @@ import XCTest
         XCTAssertEqual(graph.player.retainedBytes, 2880); XCTAssertEqual(graph.native.pending.count, 3)
         let held = await voice.playbackUsage
         XCTAssertEqual(held.bytes, 2880); XCTAssertEqual(held.packets, 3)
-        // Completion0 was withheld throughout admissions1/2.
+
         graph.native.complete(0)
         try await waitFor { await voice.playbackUsage.bytes == 1920 }
         XCTAssertEqual(graph.player.retainedBytes, 1920)
@@ -55,7 +55,7 @@ import XCTest
         let (audio, voice, socket, graph) = try await start()
         for sequence in 0..<5 {
             try await push(socket, sequence: UInt32(sequence), bytes: 1920)
-            try await Task.sleep(nanoseconds: 40_000_000) // Respect actual W02 wire budgets.
+            try await Task.sleep(nanoseconds: 40_000_000)
         }
         try await waitFor { graph.native.history.count == 5 }
         let full = await voice.playbackUsage; XCTAssertEqual(full.bytes, 9600)
@@ -122,14 +122,14 @@ import XCTest
         XCTAssertEqual(graph.player.retainedBytes, 0)
     }
     func testRealPipelineAcceptsInitialAndIntermediateSilentGenerationsValidatedByW09() async throws {
-        let (audio, voice, socket, graph) = try await start() // generation1 starts, no PCM.
+        let (audio, voice, socket, graph) = try await start()
         try await socket.inject("interrupted", ["generation": 1])
         try await socket.inject("generation", ["generation": 2, "phase": "started"])
         try await push(socket, sequence: 0, generation: 2)
         try await waitFor { graph.native.history.count == 1 }
         try await socket.inject("generation", ["generation": 2, "phase": "completed"])
         try await socket.inject("generation", ["generation": 3, "phase": "started"])
-        try await socket.inject("generation", ["generation": 3, "phase": "completed"]) // No PCM again.
+        try await socket.inject("generation", ["generation": 3, "phase": "completed"])
         try await socket.inject("generation", ["generation": 4, "phase": "started"])
         try await push(socket, sequence: 0, generation: 4)
         try await waitFor { graph.native.history.count == 2 }

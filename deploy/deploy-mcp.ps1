@@ -1,21 +1,5 @@
 #requires -Version 7.0
-<#
-.SYNOPSIS
-Offline T12 command preparation. This revision CANNOT deploy.
-.DESCRIPTION
-InputsPath is a NEW non-secret T12 input document, not gcp-foundation.json.
-It includes the explicit T11 fields validated below, plus image_tag,
-image_digest, mcp_app_factory and app_config_secret_reference. AppConfigPath
-is an explicit T04 AppConfig file. No defaults, credential discovery or imports.
 
-Prepare returns data, never executes its command vectors. Deploy deliberately
-fails before subprocess/HTTP: accepted full4 production composition still lacks
-concrete authentication, server-owned run binding and durable stopped evidence
-adapters. A future reviewed wiring change must remove this gate; input booleans,
-proof JSON, a two-read factory or a caller-supplied script cannot open it.
-The proposed APP_CONFIG path mount/env contract below requires that wiring too.
-Neither preparation nor synthetic tests prove cloud readiness or IAM.
-#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$InputsPath,
@@ -35,7 +19,7 @@ function Read-McpJson([string]$Path) {
 function Require-McpField($Object, [string]$Key, [string]$Pattern) {
     if ($Object -isnot [System.Collections.IDictionary] -or -not $Object.Contains($Key) -or
         $Object[$Key] -isnot [string] -or $Object[$Key] -cnotmatch $Pattern) {
-        # Field names are static call-site constants; never echo input values.
+
         throw "mcp_input_invalid:$Key"
     }
 }
@@ -53,8 +37,8 @@ function Assert-McpPrivatePolicy($Policy) {
     }
 }
 function Assert-McpProductionReady {
-    # Intentional hard gate, not an operator approval switch. Do not replace
-    # with static trusted identity, fake stop proof or config.approved=true.
+
+
     throw 'mcp_production_adapters_unimplemented:authenticator,run_binding,stopped_evidence;cloud_execution_deferred'
 }
 
@@ -115,8 +99,8 @@ Require-McpField $app.student 'calendar_id' '^[^\s\x00-\x1f]{1,512}$'
 if ($app.student.calendar_id -ieq 'primary') { throw 'mcp_explicit_calendar_required' }
 Require-McpField $app.student 'timezone' '^[A-Za-z_]+(?:/[A-Za-z0-9_+.-]+)+$'
 Require-McpField $app.student 'assignments_a1_range' "^(?:'(?:[^'\x00-\x1f]|'')+'|[A-Za-z_][A-Za-z0-9_]*)![A-Z]{1,3}[1-9][0-9]{0,6}:[A-Z]{1,3}[1-9][0-9]{0,6}$"
-# These checks protect command preparation, not a substitute for T04's strict
-# load_config(environment='cloud') inside the future trusted factory.
+
+
 
 $root = Split-Path $PSScriptRoot -Parent
 $imageBase = "$($cfg.artifact_registry_location)-docker.pkg.dev/$project/$($cfg.artifact_registry_repository)/campuspulse-mcp"
@@ -155,8 +139,8 @@ $plan = [ordered]@{
     app_config_sha256 = (Get-FileHash -LiteralPath $AppConfigPath -Algorithm SHA256).Hash.ToLowerInvariant()
     production_surface = @('read_assignments', 'read_calendar', 'apply_plan', 'verify_plan')
     smoke_calls = @('read_assignments', 'read_calendar'); build_config = $buildConfig; command_vectors = $steps
-    # Docker ignore does not protect the source upload to Cloud Build. Future
-    # executor must materialize this separate allowlist and inspect the tar.
+
+
     build_source_ignore = @('*', '!pyproject.toml', '!src/', '!src/**', '!requirements/',
         '!requirements/LICENSE', '!requirements/dev.lock', '!requirements/mcp-linux.lock',
         '!deploy/', '!deploy/Dockerfile.mcp', '!deploy/mcp-entrypoint.py', '!.dockerignore',

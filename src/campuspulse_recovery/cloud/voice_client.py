@@ -26,8 +26,8 @@ class ManagedVoiceProvider:
         if any(x is None for x in (target, issue_reference, authorize, credentials_provider)):
             raise ValueError("managed_voice_backend_binding_required")
         self.target = AgentEngineTarget.model_validate(target)
-        # authorize(lease) must resolve current W04 claim and verify immutable
-        # fence, configured project and resource ownership in trusted server code.
+
+
         self.issue_reference, self.authorize = issue_reference, authorize
         self.credentials_provider, self.client_factory = credentials_provider, client_factory
         self.session = None
@@ -39,8 +39,8 @@ class ManagedVoiceProvider:
         self.used = True
         session = ManagedVoiceSession(self, lease)
         try:
-            # Resume text/token/audio/tools never cross the network. A fresh
-            # invocation consumes once; W04 retains retired IDs across reconnect.
+
+
             with private_logs():
                 async with asyncio.timeout(5):
                     await session.start()
@@ -83,8 +83,8 @@ class ManagedVoiceSession:
         await self.check()
         reference = await bounded(self.provider.issue_reference(self.lease), 2)
         credentials = await bounded(self.provider.credentials_provider(), 5)
-        # connect's refresh is SYNCHRONOUS and unbounded in SDK1.165.1. Require
-        # already refreshed credentials with enough lifetime to avoid that path.
+
+
         expiry = getattr(credentials, "expiry", None)
         if expiry is not None and expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=UTC)
@@ -116,7 +116,7 @@ class ManagedVoiceSession:
         async with self.write_lock:
             if self.closed:
                 raise ValueError("managed_voice_closed")
-            await self.check()  # Recheck AFTER waiting for write lock.
+            await self.check()
             message = envelope(self.seq, kind, body)
             await bounded(self.connection.send(query_input=message))
             self.seq += 1
@@ -186,8 +186,8 @@ class ManagedVoiceSession:
         entry = self.pending.get(request.call_id)
         if fresh != access or entry != (request, "requested"):
             raise AccessDenied("managed_voice_dispatch_rejected")
-        # Atomic local reservation before awaiting network; runtime also checks
-        # the durable W04 retired set before executing the exact pending call.
+
+
         self.pending[request.call_id] = (request, "executing")
         future = asyncio.get_running_loop().create_future()
         self.receipts[request.call_id] = future
@@ -206,7 +206,7 @@ class ManagedVoiceSession:
                                       "receipt": result.value["receipt"]})
 
     async def cancel(self):
-        # One aggregate budget; external cancellation is never swallowed.
+
         try:
             with private_logs():
                 async with asyncio.timeout(CLOSE_SECONDS):
@@ -227,9 +227,9 @@ class ManagedVoiceSession:
         deadline = asyncio.get_running_loop().time() + CLOSE_SECONDS
         error = None
         owned = []
-        # The pinned websocket close is idempotent. Its explicit close and
-        # context exit may run together; HTTP pool close is independent. All
-        # three share ONE deadline and are joined before returning/cancelling.
+
+
+
         closers = ([] if self.connection is None else [self.connection.close])
         if self.manager is not None:
             closers.append(lambda: self.manager.__aexit__(None, None, None))
@@ -251,8 +251,8 @@ class ManagedVoiceSession:
         except Exception:
             error = ValueError("managed_voice_unavailable")
         finally:
-            # No new closer or timeout starts after outer cancellation. These
-            # cooperative children acknowledge cancellation in this same join.
+
+
             for task in owned:
                 if not task.done():
                     task.cancel()
@@ -262,8 +262,8 @@ class ManagedVoiceSession:
                     await asyncio.gather(*joining, return_exceptions=True)
             finally:
                 if self.client is not None:
-                    # Synchronous pool close is not hard-clock proven. Never
-                    # hide it in a thread that could outlive this invocation.
+
+
                     try:
                         with private_logs():
                             self.client._api_client.close()

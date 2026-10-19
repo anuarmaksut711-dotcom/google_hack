@@ -1,6 +1,5 @@
-// Copy to Local.xcconfig; use your actual public host and chosen bundle ID.
-// No credentials, Google resource IDs, signing certificate or device IDs here.
+
+
 CAMPUSPULSE_BUNDLE_ID = org.example.CampusPulseVoice
 CAMPUSPULSE_BACKEND_ORIGIN = https:/$()/campuspulse.example.invalid
 CAMPUSPULSE_IOS_DEPLOYMENT_TARGET = 15.0
-// Select DEVELOPMENT_TEAM in Xcode, or add your actual selected team locally.

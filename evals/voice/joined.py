@@ -37,8 +37,8 @@ async def until(predicate, *, task=None):
 async def joined(monkeypatch, *, mutation=None, stall_audio=False):
     import vertexai
     x = await components(monkeypatch)
-    # Only the managed network client factory is replaced. Actual provider,
-    # runtime, invocation repository, policy, tool callbacks remain intact.
+
+
     monkeypatch.setattr(vertexai, "Client", x.sdk)
     x.attempts = x.mcp.calls
     x.model_attempts = []
@@ -64,7 +64,7 @@ async def joined(monkeypatch, *, mutation=None, stall_audio=False):
                 tuple(Assignment.model_validate(v) for v in body["assignments"]))
         return mt.CallToolResult(content=[], structuredContent=body)
 
-    x.mcp.call_tool = data_endpoint  # documented synthetic Google/MCP data endpoint
+    x.mcp.call_tool = data_endpoint
     async def issue(sessions, lease):
         assert sessions.documents is x.h.documents
         return await x.issue(lease)

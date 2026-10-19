@@ -26,12 +26,12 @@ from ..domain.ports import BindingConflict, PortError, TrustedContext
 from ..security.context import AccessDenied, TrustedRequestContext
 from ..security.resources import ResourcePolicy
 
-# Store canonical UTF-8 as a Firestore bytes field: arrays/order and microseconds
-# round-trip exactly, with no nested indexing/truncation of operations. Leave
-# substantial room below the 1 MiB document limit. No automatic TTL in MVP.
+
+
+
 MAX_BODY_BYTES = 800_000
-# Storage policy only; T03's wire/domain PositiveInt schema is unchanged.
-# Keeps raw v{version} document IDs bounded to 20 ASCII bytes.
+
+
 MAX_STORAGE_PLAN_VERSION = 2**63 - 1
 T = TypeVar("T")
 M = TypeVar("M", bound=BaseModel)
@@ -110,13 +110,13 @@ class FirestoreDocuments:
         except (BindingConflict, AccessDenied):
             raise
         except Exception:
-            # A commit timeout is ambiguous. Caller retries the same identity /
-            # reads durable state; never substitute a new version or intent.
+
+
             raise PortError("storage_transaction_outcome_unknown") from None
 
 
 def _key(*parts: Any) -> str:
-    # IDs can contain slashes/Unicode; no supplied ID becomes a document path.
+
     return canonical_hash(list(parts))
 
 
@@ -241,7 +241,7 @@ class FirestorePlanStore(_Repository):
                         raise BindingConflict("plan_source_coverage_mismatch")
                 elif source.timezone != trusted.timezone:
                     raise BindingConflict("plan_source_timezone_mismatch")
-            # All reads precede writes. Transaction callbacks perform no Calendar I/O.
+
             self._trusted(context, writer="backend")
             tx.create(path, document)
             return plan_reference(plan)

@@ -10,7 +10,7 @@ enum ReceiveEffect: Sendable {
     case event(WireMessage), audio(AudioEnvelope), discard, closed, stopCommand
 }
 
-// Pure value state. Only VoiceSession's actor calls it in production.
+
 struct SessionMachine: Sendable {
     private(set) var state: VoiceUIState = .idle
     private(set) var wire: WireState?
@@ -101,8 +101,8 @@ struct SessionMachine: Sendable {
             case "closed": terminal = true; state = .idle; closedReason = try m.text("reason"); return .closed
             case "error": if try m.flag("fatal") { throw VoiceFailure.transport }
             case "transcript":
-                // Deliberately exact: no trim, lowercasing, punctuation or substring matching.
-                // This branch runs only AFTER schema, sequence, identity and revision validation.
+
+
                 if try m.text("speaker") == "user", try m.flag("final"), try m.text("text") == "закончить разговор" {
                     return .stopCommand
                 }
@@ -120,15 +120,15 @@ struct SessionMachine: Sendable {
     }
     mutating func fail() { terminal = true; state = .error; wire = nil; receiveDrain = nil; startData = nil }
     mutating func disconnected() { fail() }
-    // Called by the lifecycle owner ONLY after its task group and native close
-    // have joined. In particular pre-Ready local Stop cannot strand .stopping.
+
+
     mutating func cleanupCompleted(failed: Bool) {
         terminal = true; state = failed ? .error : .idle
         wire = nil; receiveDrain = nil; startData = nil; stopAt = nil
-        // lastConnection belongs to this actor's immutable VoiceClaim and survives.
+
     }
     mutating func resetForReconnect() {
-        // Foreground UI must explicitly request a fresh connection; no audio/tool replay.
+
         fail(); state = .reconnecting
     }
 }

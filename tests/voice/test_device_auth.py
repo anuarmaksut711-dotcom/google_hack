@@ -35,7 +35,7 @@ from campuspulse_recovery.web.voice_pairing import (
 from tests.storage.test_plans import FakeDocuments, NOW, run
 from tests.web.test_approval import ORIGIN, ScheduledDocuments, Setup, login
 
-VERIFIER = "v" * 64  # explicit synthetic client proof
+VERIFIER = "v" * 64
 
 
 @pytest.fixture(autouse=True)
@@ -103,7 +103,7 @@ def test_current_sources_and_s256_known_vector():
         actual = Path(sys.modules["campuspulse_recovery." + name].__file__).resolve()
         print("CURRENT_REGRESSION_SOURCE_MODULE =", actual)
         assert actual == root / "src/campuspulse_recovery" / relative
-    # Independent RFC 7636 Appendix B vector, no external calls.
+
     assert proof_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
 
 
@@ -115,7 +115,7 @@ def test_pending_browser_approval_exchange_scope_and_hash_only_storage(caplog):
             offer = await start(native)
             assert set(offer) == {"pairing_code", "grant", "expires_at", "approval_path"}
             assert (await exchange(native, offer)).status_code == 403
-            # Cannot skip the browser's device review, even with a valid session.
+
             action = {"code": offer["pairing_code"], "decision": "approve"}
             assert (await browser.post(API_PATH + "/decision", headers=headers, json=action)).status_code == 403
             preview = await browser.post(API_PATH + "/preview", headers=headers, json={"code": offer["pairing_code"]})
@@ -134,7 +134,7 @@ def test_pending_browser_approval_exchange_scope_and_hash_only_storage(caplog):
             with pytest.raises(AccessDenied):
                 with h.auth.request_scope(access):
                     pass
-            # A voice bearer cannot become browser consent.
+
             assert (await native.post("/api/approval", headers={"Authorization": "Bearer " + token}, json={})).status_code == 403
             assert not any(p.startswith("cp_approvals/") for p in h.documents.data)
             assert (await exchange(native, offer)).status_code == 403
@@ -410,7 +410,7 @@ def test_creation_lookup_and_unknown_grant_rate_bounds_survive_instances():
             for _ in range(20):
                 assert (await browser.post(API_PATH + "/preview", headers=headers, json={"code": "A" * 12})).status_code == 403
                 assert (await browser.post(API_PATH + "/revoke", headers=headers, json={"code": "A" * 12})).status_code == 403
-            # A second service shares the durable bounds; no process-local counter.
+
             second = DeviceAuth(h.auth)
             for _ in range(121):
                 with pytest.raises(AccessDenied): await second.exchange(grant="a" * 43, verifier=VERIFIER)

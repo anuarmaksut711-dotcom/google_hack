@@ -97,7 +97,7 @@ def test_real_services_mcp_approval_apply_fresh_verification_and_reload():
                 again=(await client.post('/api/runs',headers=headers,json={'request_key':'demo-no-change'})).json()
                 assert again['status']=='no_change',again
                 assert len(system.workspace.writes)==count
-                # Verification is a new adapter read, not a canned successful DTO.
+
                 event_id=system.workspace.writes[0]['event_id']
                 from datetime import datetime
                 raw=system.workspace.events[event_id]

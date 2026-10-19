@@ -44,6 +44,9 @@ dev = ["pytest==9.1.1", "build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+campuspulse_recovery = ["web/assets/logo/*.js", "web/assets/logo/assets/*.png", "web/assets/logo/vendor/*.js", "web/assets/logo/vendor/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "requirements/test_environment.py"]
 addopts = "-ra --import-mode=importlib"

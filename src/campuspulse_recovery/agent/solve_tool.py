@@ -21,15 +21,15 @@ def solve_repair(request: SolveRepairInput) -> dict:
     Returns:
         The JSON-compatible RepairResult, without persistence or approval.
     """
-    # ADK otherwise wraps a non-dict BaseModel in a new {result: ...} envelope.
+
     return _solve_repair(request).model_dump(mode="json")
 
 
 class _SolveRepairTool(FunctionTool):
     def _preprocess_args(self, args: dict) -> dict:
-        # ADK 2.6.3's generic conversion logs raw Pydantic errors (including
-        # source text) on malformed model arguments. Validate before that path,
-        # and emit a safe code; keep the declared typed DTO schema unchanged.
+
+
+
         try:
             if set(args) != {"request"}:
                 raise ValueError()

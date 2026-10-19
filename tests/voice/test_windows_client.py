@@ -86,7 +86,7 @@ def test_wav_odd_data_length_with_valid_padding_is_rejected():
     raw = bytearray(make_wav([12]))
     raw.extend(b"\x01\x00")
     struct.pack_into("<I", raw, 4, len(raw) - 8)
-    struct.pack_into("<I", raw, 40, 3)  # One PCM sample plus a half sample and RIFF pad
+    struct.pack_into("<I", raw, 40, 3)
     with pytest.raises(ValueError, match="invalid_wav"):
         decode_wav(bytes(raw))
 
@@ -99,7 +99,7 @@ def test_pacer_monotonic_no_catchup_bursts():
         pacer = Pacer(lambda: now[0], sleep)
         for i in range(5):
             if i == 2:
-                now[0] += .5  # stalled socket/OS; don't repay accumulated delay
+                now[0] += .5
             await pacer.wait(.02)
             times.append(now[0])
         assert times == pytest.approx([0, .02, .52, .54, .56])
@@ -136,8 +136,8 @@ class DelayedStopSocket(NullSocket):
         await super().send(packet)
         control = p.parse_json(packet, client=True)
         if isinstance(control, p.Stop):
-            # These events are validated/produced while the peer is still ACTIVE.
-            # The peer cannot know that local Stop has already been admitted.
+
+
             for kind, values in self.crossing:
                 if kind == "audio":
                     frame = p.AudioFrame("output", 7, 1, 0, bytes(960))
@@ -182,7 +182,7 @@ def test_ack_produced_before_stop_delivered_after_local_stop_is_validated_and_fe
         sock.client = c
         async def source(client):
             await client.control("heartbeat")
-            assert len(sock.held) == 1  # ACK exists before local Stop admission.
+            assert len(sock.held) == 1
         result = await c.run(source)
         assert sock.phase_at_ack_delivery == p.Phase.CLOSING
         assert result["closed_reason"] == "stopped" and result["heartbeat_acks"] == 1
@@ -278,7 +278,7 @@ def test_shutdown_drain_has_message_and_deadline_bounds_without_validation_bypas
         boot(c)
         await c.control("stop")
         for index in range(p.MAX_QUEUED_EVENTS):
-            # Valid alternating generation boundaries, no audio or side effects.
+
             c.receive_packet(json.dumps(dict(version="1", type="generation", event_id=f"g{index}",
                 event_sequence=c._receive_drain.event_sequence, connection_generation=7, elapsed_ms=0,
                 generation=index // 2 + 1, phase="started" if index % 2 == 0 else "completed")))
@@ -499,7 +499,7 @@ def test_end_during_admitted_pcm_send_joins_before_next_microphone_utterance():
         await entered.wait()
         await commands.put("end")
         await asyncio.sleep(.03)
-        # Only initial end and begin; end must wait for the admitted send.
+
         assert [json.loads(v).get("action") for v in sock.sent] == ["end", "begin"]
         release.set()
         await asyncio.sleep(.03)
@@ -651,8 +651,8 @@ def test_actual_route_ack_held_after_tls_read_until_local_stop_admission():
                     async def recv(self):
                         packet = await socket.recv()
                         if isinstance(packet, str) and json.loads(packet)["type"] == "heartbeat_ack":
-                            # This ACK is from the actual W07 route/W04 coordinator
-                            # over verified TLS, not a fabricated endpoint response.
+
+
                             ack_held.set()
                             await stop_sent.wait()
                             phases.append(client.state.phase)
@@ -748,7 +748,7 @@ def test_real_pairing_tls_cancel_closes_peer_connection_no_http_worker(tmp_path)
             try:
                 await reader.readuntil(b"\r\n\r\n")
                 entered.set()
-                # Consume the posted body then observe peer EOF without response.
+
                 while await reader.read(4096):
                     pass
                 disconnected.set()
@@ -830,7 +830,7 @@ def test_cli_output_wav_is_24k_and_explicit_only(tmp_path, monkeypatch, capsys):
     assert main(["local-e2e", "--output-wav", str(out)]) == 0
     with wave.open(str(out), "rb") as w:
         assert w.getframerate() == 24000 and w.getnchannels() == 1 and w.getsampwidth() == 2
-        assert w.getnframes() == 2400  # 5 independently generated 20ms 24k packets
+        assert w.getnframes() == 2400
         assert set(struct.unpack("<2400h", w.readframes(2400))) == {17, 34}
     assert set(tmp_path.iterdir()) - before == {out}
     assert main(["local-e2e", "--output-wav", str(out)]) == 1

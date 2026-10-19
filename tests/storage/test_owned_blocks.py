@@ -120,8 +120,8 @@ def test_timestamp_replay_never_ignores_changed_stable_binding(field):
         with h.request("mcp") as ctx:
             await registry.reserve(ctx, record)
             before = deepcopy(h.documents.data)
-            # An event ID inconsistent with block binding is rejected by T03
-            # validation before I/O; other mismatches fail policy/intent/registry.
+
+
             with pytest.raises((BindingConflict, AccessDenied, ValidationError)):
                 changed = OwnedBlockRecord.model_validate(data)
                 await registry.reserve(ctx, changed)
@@ -300,7 +300,7 @@ def test_colliding_event_index_rejects_and_does_not_create_partial_binding():
         plan = await h.seed()
         registry = FirestoreOwnedBlockRegistry(h.documents, h.policy)
         record = reservation(plan)
-        # Simulated corrupt/pre-existing collision; metadata is never adopted.
+
         path = f"cp_calendars/{_key(record.calendar_id)}/events/{_key(record.event_id)}"
         h.documents.data[path] = _encode("owned_block", record)
         with h.request("mcp") as ctx:

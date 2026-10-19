@@ -246,7 +246,7 @@ def test_unfinished_execution_never_promotes_or_dispatches(monkeypatch, state):
                 execution = await h.dispatch(ctx, lease, execution)
             if state == "partial":
                 execution = await h.complete(ctx, lease, execution)
-                # Setup helper changes pages; actual fresh SDK edge must reflect it.
+
                 h.api.events = {e["id"]: deepcopy(e) for e in h.pages[0]["items"]}
             elif state in ("unknown", "failed"):
                 execution = await h.executions.record_operation(ctx, request_key="apply-key",
@@ -436,8 +436,8 @@ def test_shape_valid_forged_or_unbound_proof_never_promotes(monkeypatch, case):
                         attempted_at=before.execution.updated_at - timedelta(seconds=1)))
                 proof_id = canonical_hash(proof)
                 root = _root(ctx.trusted, ref)
-                # Deliberate DB corruption fixture: canonical envelope/shape is
-                # insufficient; real guard must re-read all authoritative bytes.
+
+
                 h.documents.data[root + "/observations/" + proof_id] = _encode("verification", proof)
                 h.documents.data[root + "/index/latest"] = _encode("verification_latest",
                     _Latest(proof_id=proof_id, observed_at=proof.observed_at))
@@ -501,8 +501,8 @@ def test_restart_duplicate_proof_no_new_reads_no_double_revision(monkeypatch, tm
         old = h.ledger()
         saved = tmp_path / "t20-test-checkpoint"
         h.documents.checkpoint(saved)
-        # New objects sharing a reconstructed test document store; no authority
-        # from the old service's memory. The old actual read run is preserved.
+
+
         h.documents = type(h.documents).restore(saved)
         h.plans = FirestorePlanStore(h.documents, h.policy)
         h.snapshots = FirestoreSnapshotStore(h.documents, h.policy)
@@ -630,8 +630,8 @@ def test_clock_and_authority_resampled_after_last_actual_transaction_read(monkey
             with pytest.raises(AccessDenied):
                 await verify(h, v)
         else:
-            # Long-lived active context is minted immediately before target;
-            # final source delivery crosses the target by one second.
+
+
             start = min(b.interval.start for b in h.plan.payload.blocks)
             h.now = start - timedelta(seconds=1)
             result = await verify(h, v)
@@ -830,8 +830,8 @@ def test_verification_firestore_emulator_two_clients_proof_promotion_and_outage(
         documents = FirestoreDocuments(first, project_id=h.config.project_id,
                                        database_id=h.config.firestore_database)
         try:
-            # Copy-only synthetic predecessors. These are not live mutations,
-            # actual UI consent or a Firestore-backed apply claim.
+
+
             old = deepcopy(h.documents.data)
             async def seed(tx):
                 for path, value in old.items():
@@ -855,7 +855,7 @@ def test_verification_firestore_emulator_two_clients_proof_promotion_and_outage(
                 saved = await h.executions.get(ctx, "apply-key")
                 assert saved.revision == proof.expected_ledger.execution.revision + 1
                 assert await v.resume(ctx, result.plan, canonical_hash(proof)) == result
-            # Independent actual AsyncClient; no process-memory proof cache.
+
             second_docs = FirestoreDocuments(second, project_id=h.config.project_id,
                                               database_id=h.config.firestore_database)
             def reconstruction(db):
@@ -875,7 +875,7 @@ def test_verification_firestore_emulator_two_clients_proof_promotion_and_outage(
             fresh = reconstruction(second_docs)
             with h.recovery_scope("independent-client-run") as ctx:
                 assert await fresh.get_verified(ctx, saved) == result
-                # Concurrent duplicate consumption cannot increment revision.
+
                 a, b = await asyncio.gather(
                     v.resume(ctx, result.plan, canonical_hash(proof)),
                     fresh.resume(ctx, result.plan, canonical_hash(proof)))
@@ -1044,7 +1044,7 @@ def test_normal_publication_grid_exact_deadline_and_whole_window_deficit(monkeyp
         if case == "deadline_cut":
             h.rows[0][3] = (NOW + timedelta(minutes=60)).isoformat()
         else:
-            h.rows[0][4] = 60  # Fresh explicit workload; straddling slot is NOT usable.
+            h.rows[0][4] = 60
         result = await verify(h, v)
         assert result.status == "verification_failed"
         prefix = next(f for f in result.findings if f.code == "verify_deadline_capacity_deficit")

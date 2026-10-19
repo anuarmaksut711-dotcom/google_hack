@@ -20,7 +20,7 @@ from campuspulse_recovery.voice.sessions import (
 from campuspulse_recovery.web.auth import WebAuth, WebSession, digest
 from tests.storage.test_plans import FakeDocuments, Harness, NOW, run
 
-TOKEN = "s" * 43  # synthetic scoped credential; never a real bearer
+TOKEN = "s" * 43
 
 
 @pytest.fixture(autouse=True)
@@ -127,7 +127,7 @@ def test_crash_lease_expiry_new_generation_and_bounded_context_without_audio():
         resume = ResumeState(history=(HistoryNote(speaker="user", text="Есть свободный час"),),
             transport_token="synthetic-resumption", transport_expires_at=NOW + timedelta(seconds=100))
         await h.sessions.checkpoint(old, resume)
-        # Process restart: only durable bytes are copied, no Python identities.
+
         restarted = FakeDocuments()
         restarted.data = deepcopy(h.documents.data)
         fresh = h.repository(restarted)
@@ -165,7 +165,7 @@ def test_authority_is_reloaded_at_every_boundary(boundary):
         for operation in (h.sessions.check(lease), h.sessions.renew(lease), h.sessions.checkpoint(lease, ResumeState())):
             with pytest.raises(AccessDenied): await operation
         with pytest.raises(AccessDenied): await h.sessions.acquire(TOKEN)
-        # Expired/revoked authority may clean up its exact fence only.
+
         await h.sessions.release(lease)
     run(scenario())
 
@@ -240,7 +240,7 @@ def test_expiry_after_final_document_read_and_transaction_retry():
                 self.armed = False
                 before = deepcopy(self.data)
                 await super().transact(callback)
-                self.data = before  # simulate retry of an uncommitted snapshot
+                self.data = before
                 h.clock.advance(10)
             return await super().transact(callback)
     async def scenario():

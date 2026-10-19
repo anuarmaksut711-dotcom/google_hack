@@ -33,7 +33,7 @@ class Fixture(Setup):
 
     def factory(self, auth):
         async def check(context, reference):
-            context.require_active()  # FAKE freshness; no API read claimed.
+            context.require_active()
         async def resolve(context):
             raise RuntimeError("fake_candidate_not_supported")
         async def stream(context, intent):
@@ -312,6 +312,14 @@ def test_resources_csp_and_missing_runtime_fail_closed():
                 response = await c.get(path)
                 assert response.text == expected and mime in response.headers["content-type"]
                 assert response.headers["x-content-type-options"] == "nosniff"
+
+
+            for asset in ("welcome.js", "particles.js", "vendor/three.module.js", "vendor/three.core.js", "vendor/gsap.min.js", "assets/g-reference.png"):
+                response = await c.get('/assets/logo/' + asset)
+                assert response.status_code == 200 and response.content
+                assert "img-src 'self'" in response.headers['content-security-policy']
+                assert 'unsafe-inline' not in response.headers['content-security-policy']
+            assert (await c.get('/assets/logo/%2e%2e/%2e%2e/%2e%2e/config.example.json')).status_code == 404
             await login(c)
             page = await c.get("/ui/state")
             assert 'data-runtime="false"' in page.text and 'Облачный исполнитель не настроен' in page.text
@@ -324,7 +332,7 @@ def test_client_uses_only_explicit_mutations_and_safe_trace_projection():
     assert "setInterval" not in SCRIPT and "setTimeout" not in SCRIPT
     assert "innerHTML" not in SCRIPT and "textContent" in SCRIPT
     assert "localStorage.setItem" in SCRIPT and "request_key" in SCRIPT
-    assert "if (busy) return" in SCRIPT and "pending-start" in SCRIPT
+    assert "if (busy || chatBusy) return" in SCRIPT and "pending-start" in SCRIPT
     assert "refresh().catch" in SCRIPT and "act('apply')" not in SCRIPT
     assert "record.observation" in SCRIPT and "event.operation_id" in SCRIPT
     assert "aria-busy" in SCRIPT
@@ -359,9 +367,9 @@ def test_terminal_consent_http_requires_new_version_without_backend_reactivation
             assert "получить свежий план и новую версию" in page.text
             assert "явно согласуйте новую версию" in page.text
             retry = await c.post("/api/approval",headers=headers,json=action(plan,"new-click"))
-            assert retry.status_code == 200  # Original endpoint returns the terminal record.
+            assert retry.status_code == 200
             after = (await c.get("/api/plan",params=params)).json()["approval"]
-            assert after == stored  # HTTP200 cannot renew revoked/expired grant.
+            assert after == stored
             assert not h.invocations
     run(scenario())
 

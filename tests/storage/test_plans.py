@@ -78,7 +78,7 @@ class FakeDocuments:
             return result
 
     def checkpoint(self, path):
-        # Trusted test fixture only; never load user-supplied pickle data.
+
         path.write_bytes(pickle.dumps(self.data))
 
     @classmethod
@@ -122,7 +122,7 @@ class Harness:
         binding = ServerRunBinding(owner_id=cfg.student.trusted_user_id,
             signin_principal_id=cfg.student.allowed_signin_principal, session_id="session-1", run_id=run,
             config_revision=cfg.config_revision, expires_at=NOW + timedelta(hours=1))
-        # Explicit identity/binding doubles. Never production authenticators.
+
         factory = RequestContextFactory(self.policy, boundary=boundary,
             authenticator=SimpleNamespace(authenticate=lambda *a, **k: caller),
             bindings=SimpleNamespace(resolve=lambda **k: binding), clock=lambda: NOW)
@@ -286,7 +286,7 @@ def test_hash_tampering_and_other_owner_cannot_read_plan():
         with other.request() as ctx:
             with pytest.raises(BindingConflict, match="not_found"):
                 await other.plans.get(ctx, value.payload.plan_id, 1)
-        # Copying a valid foreign record under the caller's path still fails policy.
+
         h.documents.data[_plan_path("other-student", value.payload.calendar_id, value.payload.plan_id, 1)] = _encode("plan", value)
         with other.request() as ctx:
             with pytest.raises(AccessDenied):
@@ -464,7 +464,7 @@ def test_out_of_storage_bound_domain_plan_rejected_before_any_io(version):
     async def scenario():
         h = Harness()
         assignments, calendar = sources(h.config)
-        # T03 continues to accept a positive int; only storage is bounded.
+
         value = make_plan(h.config, assignments, calendar, version=version)
         reference = plan_reference(value)
         with h.request() as ctx:
@@ -521,7 +521,7 @@ def test_actual_firestore_sdk_transaction_bridge(fault):
             def transaction(self):
                 return Transaction()
             def document(self, path):
-                # reference must carry path and async read, as the SDK does.
+
                 class Reference(str):
                     async def get(self, transaction=None):
                         if transaction is not None:
@@ -542,7 +542,7 @@ def test_actual_firestore_sdk_transaction_bridge(fault):
             with pytest.raises(PortError, match="outcome_unknown") as error:
                 await documents.transact(publish)
             assert "sensitive" not in str(error.value)
-            # Unknown commit may already have persisted: reconcile same identity.
+
             assert await documents.get("collection/id") == {"body": b"exact"}
             assert calls.count("begin") == 1
         else:
@@ -553,7 +553,7 @@ def test_actual_firestore_sdk_transaction_bridge(fault):
 
 
 def test_firestore_adapter_transaction_api_and_safe_errors():
-    # Actual installed SDK decorator is separately exercised when SDK available.
+
     async def scenario():
         class BadClient:
             project = "campus-test-42"
@@ -580,7 +580,7 @@ def test_firestore_emulator_integration():
 
     async def scenario():
         cfg_data = config().model_dump()
-        # Synthetic isolated namespace, explicit project/database, no ADC lookup.
+
         cfg_data["student"]["trusted_user_id"] = "emulator-" + uuid4().hex
         cfg = AppConfig.model_validate(cfg_data)
         client = firestore.AsyncClient(project=cfg.project_id, database=cfg.firestore_database, credentials=AnonymousCredentials())

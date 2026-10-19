@@ -24,7 +24,7 @@ import XCTest
         let entry = Scheduled(ordinal: index, marker: pcm.first ?? 0, bytes: pcm.count, completion: completion)
         history.append(entry); pending[index] = entry
         maximumBytes = max(maximumBytes, scheduledBytes); maximumPackets = max(maximumPackets, pending.count)
-        if failAfterOrdinal == index { throw AudioFailure.graph } // Intentionally AFTER native enqueue.
+        if failAfterOrdinal == index { throw AudioFailure.graph }
     }
     func complete(_ ordinal: Int, outcome: PlaybackOutcome = .consumed) {
         guard let entry = pending[ordinal] else { return }
@@ -61,7 +61,7 @@ enum NativeOutputTest {
         XCTAssertTrue(receipts.allSatisfy { $0.consumption.resolvedOutcome == nil })
         XCTAssertEqual(player.retainedBytes, 1920); XCTAssertEqual(player.retainedPackets, 2)
         native.complete(0)
-        XCTAssertEqual(player.retainedBytes, 960) // Book retired BEFORE success was published.
+        XCTAssertEqual(player.retainedBytes, 960)
         XCTAssertEqual(receipts[0].consumption.resolvedOutcome, .consumed)
         player.shutdown(); XCTAssertEqual(receipts[1].consumption.resolvedOutcome, .cancelled)
     }

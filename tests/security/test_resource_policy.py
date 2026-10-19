@@ -322,8 +322,8 @@ def test_single_user_mapping_at_each_authenticated_boundary(boundary):
 
 
 def test_bootstrap_read_smoke_can_use_service_binding_without_ui_authentication():
-    # T13's live adapters are not implemented here. These doubles demonstrate
-    # that the mandatory interfaces do not require a finished T16 UI session.
+
+
     for boundary in ("agent", "mcp"):
         app = system(boundary)
         app.auth.caller = AuthenticatedCaller.model_validate(app.auth.caller.model_dump() | {
@@ -355,8 +355,8 @@ def test_missing_identity_or_model_headers_never_establish_identity(boundary, cr
 @pytest.mark.parametrize("principal", ["foreign-subject", "", "mcp-test@campus-test-42.iam.gserviceaccount.com"])
 def test_foreign_or_wrong_service_identity_rejected_before_binding_or_api(boundary, principal):
     app = system(boundary)
-    # Use adapter output JSON here so missing/empty identity also tests its
-    # checked reconstruction at the server boundary.
+
+
     app.auth.caller = app.auth.caller.model_dump() | {"principal_id": principal}
     api = Mock()
     with pytest.raises(AccessDenied):
@@ -495,7 +495,7 @@ def test_context_expires_during_request_and_cannot_be_reused_after_exit_or_in_ne
     app.clock[0] = NOW
     with pytest.raises(AccessDenied):
         app.policy.require_context(previous)
-    # Copied async/thread context must not retain authority after parent exits.
+
     with pytest.raises(AccessDenied):
         captured.run(previous.as_port_context)
     with app.factory.request(app.credential) as current:

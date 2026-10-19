@@ -20,7 +20,7 @@ def _stable_intent(record: OwnedBlockRecord) -> tuple:
 
 class FirestoreOwnedBlockRegistry(_Repository):
     def _root(self, trusted):
-        # Calendar scope, independent of owner: an event cannot be claimed twice.
+
         return f"cp_calendars/{_key(trusted.calendar_id)}"
 
     def _paths(self, trusted, record):
@@ -60,8 +60,8 @@ class FirestoreOwnedBlockRegistry(_Repository):
                 self._bound(context, existing)
                 if existing != indexed or _stable_intent(existing) != _stable_intent(record):
                     raise BindingConflict("ownership_collision")
-                # Revalidate original durable intent/chronology; never replace
-                # reservation or confirmation evidence with retry metadata.
+
+
                 await self._intent(context, tx, existing)
                 return existing
             await self._intent(context, tx, record)

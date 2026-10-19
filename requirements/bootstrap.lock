@@ -18,4 +18,3 @@ uv==0.13.1 \
     --hash=sha256:d6aaec25ff6900ee30a29a2e7a3335aff19a2305c60488bb4e0f29cf1d6ada9f \
     --hash=sha256:ec1bdc90e2cccc32f51dcea2fa4ec9082b321c77f3fe51a0407d40e8a44f540f \
     --hash=sha256:f2518450da2f6d0ea8a943c9f402abda63d5a66acc9999216c2792115b922ba4
-    # via -r requirements/bootstrap.in

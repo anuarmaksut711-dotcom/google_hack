@@ -44,7 +44,7 @@ import UIKit
         }
         do { configuration = try AppConfiguration(origin: origin) }
         catch { configuration = nil; message = AppCopy.error(AppIssue.configuration) }
-        // No Keychain read, pairing, permission, connection or audio on init.
+
     }
 
     var configured: Bool { configuration != nil }
@@ -53,7 +53,7 @@ import UIKit
     var canBegin: Bool {
         guard wireReady, !pending, !stopping, !isMuted else { return false }
         if case .inactive = capture { return true }
-        return false // Responding alone never prohibits explicit barge-in.
+        return false
     }
     var canEnd: Bool {
         guard !pending, !stopping, !isMuted else { return false }
@@ -76,8 +76,8 @@ import UIKit
         action = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                // Stop can cancel this queued Task before it first runs. Fence
-                // BEFORE body may read credentials/create audio/start pairing.
+
+
                 try self.check(token)
                 try await body(token)
             }
@@ -113,7 +113,7 @@ import UIKit
             try check(token)
             pairing = nil; pairingAgent = nil; connection = .idle
             message = "Устройство подключено. Нажмите «Начать разговор»."
-            // Saving a credential never starts or resumes audio.
+
         }
     }
     func startConversation() {
@@ -123,8 +123,8 @@ import UIKit
             guard let credential = try store.load(for: configuration.origin) else { throw AppIssue.credentialMissing }
             guard credential.expiresAt > now() else { throw AppIssue.credentialExpired }
             let claim = VoiceClaim(origin: configuration.origin, credential: credential)
-            // Even SAME claim reconnect joins audio/session before restart. A new
-            // claim adopts a new actor only after the old audio.userStop joined.
+
+
             if let old = conversation { await old.stop(); try check(token) }
             if conversation?.claim != claim {
                 observer?.deactivate()
@@ -146,8 +146,8 @@ import UIKit
             }
             conversation.onPause = { [weak self] _ in
                 guard let self, self.lifetime == token else { return }
-                // Separate OWNED cleanup task: this callback may run on W10's
-                // pump/watcher. Never await userStop (and self-join) here.
+
+
                 self.requestStop(message: "Аудио приостановлено. Проверьте наушники и начните разговор заново.")
             }
             conversationActive = true; connection = attemptedStart ? .reconnecting : .connecting
@@ -169,8 +169,8 @@ import UIKit
         guard canEnd, let conversation else { return }
         readiness = nil
         launch { [self] token in
-            try await conversation.end() // Tail/mailbox + real wire input.end.
-            try check(token) // No second Begin until this action has returned.
+            try await conversation.end()
+            try check(token)
         }
     }
     func toggleMute() {
@@ -186,8 +186,8 @@ import UIKit
         }
     }
 
-    // Always callable, including permission/connecting/arming/responding/error.
-    // Fence immediately; cleanup owns and joins the previous control action.
+
+
     func requestStop(message finalMessage: String? = nil) {
         guard cleanup == nil else { return }
         lifetime = UUID(); let token = lifetime
@@ -216,6 +216,6 @@ import UIKit
             requestStop(message: value.type == "error" ? AppCopy.error(AppIssue.connection) : nil)
         }
     }
-    // Deliberately no scene-phase observer/restoration/reconnect timer. Moving
-    // an already authorized conversation to background alone does not stop it.
+
+
 }

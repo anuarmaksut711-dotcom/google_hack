@@ -1,0 +1,29 @@
+Three.js: Copyright three.js authors. MIT License, included in THREE-LICENSE.txt.
+https://threejs.org/
+
+GSAP: Copyright GreenSock. See the licensing terms distributed with the
+official package and https://gsap.com/community/standard-license/.
+https://gsap.com/
+
+The G reference image was supplied by the user for this demo.
+
+src\campuspulse_recovery\web\assets\logo\vendor\gsap.min.js
+!
+ * GSAP 3.15.0
+ * https://gsap.com
+ *
+ * @license Copyright 2026, GreenSock. All rights reserved.
+ * Subject to the terms at https://gsap.com/standard-license.
+ * @author: Jack Doyle, jack@greensock.com
+
+src\campuspulse_recovery\web\assets\logo\vendor\three.core.js
+*
+ * @license
+ * Copyright 2010-2026 Three.js Authors
+ * SPDX-License-Identifier: MIT
+
+src\campuspulse_recovery\web\assets\logo\vendor\three.module.js
+*
+ * @license
+ * Copyright 2010-2026 Three.js Authors
+ * SPDX-License-Identifier: MIT

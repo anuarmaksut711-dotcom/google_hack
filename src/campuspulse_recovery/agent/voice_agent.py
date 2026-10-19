@@ -71,7 +71,7 @@ def live_config():
     return RunConfig(streaming_mode=StreamingMode.BIDI, response_modalities=[types.Modality.AUDIO],
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
-        # Protocol Ready opens input; first PCM lazily starts SDK activity.
+
         realtime_input_config=types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(disabled=True)),
         save_live_blob=False, save_input_blobs_as_artifacts=False,
@@ -87,15 +87,15 @@ class _VoiceAgent(Agent):
     @property
     def _llm_flow(self):
         flow = super()._llm_flow
-        # Pinned source caches input unconditionally despite save_live_blob=False.
+
         flow.audio_cache_manager = _NoAudioCache()
         return flow
 
 
 class _EphemeralSessions(InMemorySessionService):
     async def append_event(self, session, event):
-        # Live model owns active context. Never accumulate PCM, thoughts, raw
-        # tool calls/results or transcription in ADK session/artifact storage.
+
+
         return event
 
 
@@ -110,7 +110,7 @@ class _ReadyModel(BaseLlm):
 
     @asynccontextmanager
     async def connect(self, llm_request):
-        await self._policy.authorize()  # Also runs before SDK internal reconnect.
+        await self._policy.authorize()
         protect_sdk_logs()
         async with self._delegate.connect(llm_request) as connection:
             await self._policy.authorize()
@@ -119,7 +119,7 @@ class _ReadyModel(BaseLlm):
 
     async def generate_content_async(self, llm_request, stream=False):
         raise RuntimeError("voice_live_only")
-        yield  # async-generator interface required by BaseLlm
+        yield
 
 
 class _LiveTool(BaseTool):
@@ -131,7 +131,7 @@ class _LiveTool(BaseTool):
         return self._declaration
 
     async def run_async(self, *, args, tool_context):
-        # Independent dispatch guard even if an SDK callback is skipped.
+
         return await self._bridge.call(self.name, args, tool_context)
 
 
@@ -213,7 +213,7 @@ class LiveOutputGate:
             raise ValueError("voice_turn_timeout")
         if event.interrupted:
             self.pcm.clear(); self.text = ""; self.transcript_final = False; self.invalid = False; self.started = None
-            # Held output has never been sent, so no old generation is opened.
+
             return []
         for part in event.content.parts if event.content else []:
             if part.thought: continue
@@ -226,7 +226,7 @@ class LiveOutputGate:
                 if len(self.pcm) + len(data) > 480000:
                     raise ValueError("voice_output_queue_limit")
                 self.pcm.extend(data)
-            # Text parts cannot substitute for the actual audio transcript.
+
         if event.output_transcription:
             self.text = event.output_transcription.text or ""
             self.transcript_final = bool(event.output_transcription.finished and not event.partial)
@@ -266,7 +266,7 @@ class LocalAdkSession:
         self.service = _EphemeralSessions()
         self.runner = Runner(agent=self.agent, app_name=APP_NAME, session_service=self.service)
         self.input = _BoundedQueue()
-        self.active = True  # W02 Ready opens input without input.begin.
+        self.active = True
         self.sdk_active = self.muted = self.closed = False
         self.task = None
         self.sdk_events = self.sdk_tool_calls = 0
@@ -317,9 +317,9 @@ class LocalAdkSession:
                                 allow_nan=False).encode("utf-8")) > 16384)):
                         raise ValueError("voice_sdk_event_budget")
                     if event.interrupted:
-                        # The SDK receive loop remains live while receive()
-                        # paces playback. Flush unsent media before forwarding
-                        # interruption; never relabel old PCM as a new turn.
+
+
+
                         self.output_epoch += 1
                         self.output.clear()
                         if self.output_open is not None:
@@ -372,7 +372,7 @@ class LocalAdkSession:
     async def receive(self):
         while True:
             if self.task.done():
-                await self.task  # Safe errors are normalized by W04.
+                await self.task
                 return None
             if not self.events.empty(): return self.events.get_nowait()
             if self.output:
@@ -436,8 +436,8 @@ class LocalAdkProvider:
         policy = self.policy_factory(lease)
         if not isinstance(policy, VoicePolicy) or policy.lease != lease or policy.lease_provider is None:
             raise AccessDenied("voice_policy_factory_required")
-        # Do not replay opaque provider tokens or old notes/tools into SDK state.
-        # W04 keeps the retired IDs and enforces them on the typed dispatch path.
+
+
         self.session = LocalAdkSession(policy, self.config, headers=self.headers,
             local_transport=self.local_transport, model=self.model)
         try:

@@ -153,7 +153,7 @@ async def components(monkeypatch, *, session_factory=None):
         with scope(h, lease.binding, "backend") as context:
             return await invocations.issue(context, lease)
     async def authorize(lease):
-        # Backend reads current durable lease too; no initial-expiry authority.
+
         async def current(tx):
             value = _decode(await tx.get(_path(lease.device_id)), "voice_stream", _Claim)
             if not runtime.same_fence(value.lease, lease): raise AccessDenied("successor")
@@ -233,7 +233,7 @@ def test_managed_w04_w05_duplex_tools_renewal_and_output(monkeypatch):
             lease = coordinator.lease
             downstream.put(p.encode_audio(p.AudioFrame("input", lease.connection_generation, 0, 0, b"\x00\x00" * 320)))
             await settle(lambda: len(x.connection.realtime) >= 2)
-            # Renewal changes the full DTO; runtime must reload the durable claim.
+
             x.h.clock.advance(10)
             await settle(lambda: coordinator.lease.lease_until > lease.lease_until)
             args = {"horizon": x.base.constraints.horizon.model_dump(mode="json")}
@@ -243,7 +243,7 @@ def test_managed_w04_w05_duplex_tools_renewal_and_output(monkeypatch):
             assert set(coordinator.resume.seen_call_ids) == {"managed_a", "managed_c"}
             assert x.sessions[0].policy.lease == coordinator.lease
             assert all(part.function_response.response["status"] == "read" for part in x.connection.sent[0].parts)
-            # The network contains correlation receipts, never MCP source data.
+
             ack = [m["bidi_stream_input"] for m in x.sdk.wires[0].sent
                    if m["bidi_stream_input"]["kind"] == "result_ack"]
             assert len(ack) == 2 and all(set(a["body"]) == {"call_id", "status", "receipt"} for a in ack)
@@ -379,8 +379,8 @@ def test_runtime_tool_correlation_cannot_be_forged(monkeypatch, fault):
             elif fault == "wrong_call":
                 await session._send("dispatch", {"call_id": "some_other_call"})
             else:
-                # Contract test acting as W04: actual durable retirement before
-                # real bridge execution; never a second product checkpoint writer.
+
+
                 await x.h.sessions.checkpoint(lease, resume.changed(seen_call_ids=(request.call_id,)))
                 access = await x.h.sessions.check(lease)
                 result = await provider.execute(access, request)
@@ -395,7 +395,7 @@ def test_runtime_tool_correlation_cannot_be_forged(monkeypatch, fault):
             with pytest.raises(ValueError, match="managed_voice"):
                 await asyncio.wait_for(session.receive(), 2)
             assert len(x.mcp.calls) == (1 if fault in ("duplicate_dispatch", "wrong_receipt") else 0)
-            assert not x.connection.sent  # Forged/duplicated results never reach ADK.
+            assert not x.connection.sent
         finally:
             await session.close()
         assert not [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
@@ -432,8 +432,8 @@ def test_managed_stalled_tool_cancels_joins_and_never_replays(monkeypatch, fault
             assert not x.sessions[0].bridge.pending
             assert not x.connection.sent
             if fault == "stop":
-                # A new managed stream gets a fresh reference, while the actual
-                # W04 durable retired set rejects the same SDK function-call ID.
+
+
                 x.mcp.gate = None
                 next_coordinator = VoiceCoordinator(x.h.sessions, x.provider(),
                     selected_mode=ProviderMode.MANAGED_PRODUCTION, production=True, tools=None, clock=x.h.clock)
@@ -495,7 +495,7 @@ def test_cancel_stalled_send_receive_and_close_attempts_all_resources(monkeypatc
         await sender_entered.wait()
         sending.cancel(); receiving.cancel()
         await asyncio.gather(sending, receiving, return_exceptions=True)
-        # A close timeout still attempts context exit and both HTTP pools.
+
         monkeypatch.setattr(client, "CLOSE_SECONDS", .01)
         async def close(): await asyncio.Event().wait()
         monkeypatch.setattr(session.connection, "close", close)
@@ -522,7 +522,7 @@ def test_runtime_private_mcp_id_token_is_separate_from_backend_oauth(monkeypatch
             issued.append(audience)
             return IssuedIdToken("synthetic-mcp-id-token", audience, 1000)
         headers.bind_local_runtime(issuer=issuer, clock=lambda: 100)
-        # Actual pinned header provider, not the backend OAuth bearer.
+
         result = await headers(SimpleNamespace())
         assert result == {"Authorization": "Bearer synthetic-mcp-id-token"}
         assert issued == [config().mcp_audience]
@@ -566,7 +566,7 @@ def test_concurrent_reference_redemption_has_one_durable_consumer(monkeypatch):
             for consumer in ("runtime_a", "runtime_b")), return_exceptions=True)
         assert sum(isinstance(value, tuple) for value in values) == 1
         assert sum(isinstance(value, AccessDenied) for value in values) == 1
-        # Invocation operations never write a stream checkpoint/retired set.
+
         assert x.h.documents.data[_path(lease.device_id)] == before
     run(scenario())
 
@@ -594,8 +594,8 @@ def test_resume_creates_fresh_connection_without_token_history_or_audio_replay(m
         state = ResumeState(history=(HistoryNote(speaker="user", text="untrusted synthetic instruction"),),
             seen_call_ids=("old_call",), transport_token="synthetic-provider-resumption-token",
             transport_expires_at=x.h.clock() + timedelta(seconds=10))
-        # Only actual durable retired IDs matter. Provider ignores resumption
-        # token/notes, even when an injected state claims a valid transport token.
+
+
         await x.h.sessions.checkpoint(lease, state)
         session = await x.provider().open(lease, state)
         try:
@@ -641,8 +641,8 @@ def test_existing_text_client_operation_preserved_with_explicit_protocol(monkeyp
             results = [item async for item in text.stream(context, intent)]
         assert len(results) == 1 and results[0].status == "no_change"
         assert called[0]["message"] == "synthetic text query"
-        # There is no existing cloud recovery runtime source/registration to
-        # preserve or fabricate: this new media class registers ONLY bidi.
+
+
         assert x.app.register_operations() == {"bidi_stream": ["bidi_stream_query"]}
     run(scenario())
 
@@ -705,7 +705,7 @@ def test_actual_w04_cleanup_budget_with_all_sdk_closers_stalled(monkeypatch):
             downstream.put(control("stop", coordinator.lease.connection_generation))
             result = await asyncio.wait_for(task, 1)
             elapsed = asyncio.get_running_loop().time() - started
-            assert elapsed < .4, elapsed  # Windows scheduling allowance, not a cloud latency claim.
+            assert elapsed < .4, elapsed
             assert result.cleanup_failed is True
             assert entered == cancelled == {"connection", "manager", "http"}
             assert downstream.closed and x.sdk.wires[0].closed and x.connection.closed

@@ -51,7 +51,7 @@ final class MemoryCredentialStore: CredentialStore, @unchecked Sendable {
         let presentation = try await pairing.begin(deviceName: "Synthetic iPhone", now: now)
         XCTAssertEqual(presentation.status, .awaitingBrowserReview); XCTAssertEqual(presentation.code, "ABCDEFGH2345")
         XCTAssertEqual(browser.pages, [try origin.url(path: "/voice/pair")])
-        XCTAssertNil(try store.load(for: origin)) // no native approval shortcut
+        XCTAssertNil(try store.load(for: origin))
         try await pairing.continueAfterBrowserApproval(now: now)
         let bodies = await http.bodies, paths = await http.paths
         XCTAssertEqual(paths, ["/api/voice/pairing/start", "/api/voice/pairing/exchange"])
@@ -93,7 +93,7 @@ final class MemoryCredentialStore: CredentialStore, @unchecked Sendable {
         let url = try origin.url(path: "/voice/pair")
         let session = URLSession(configuration: NativeConfiguration.session())
         defer { session.invalidateAndCancel() }
-        let task = session.dataTask(with: url) // never resumed: no network
+        let task = session.dataTask(with: url)
         let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: nil)!
         for destination in [url, URL(string: "https://other.invalid")!] {
             let completed = expectation(description: "redirect denied")

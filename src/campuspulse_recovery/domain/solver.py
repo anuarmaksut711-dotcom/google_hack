@@ -72,7 +72,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
     if incomplete:
         return result(RepairStatus.UNKNOWN, extra=incomplete)
 
-    windows = constraints.working_windows  # None has already failed closed.
+    windows = constraints.working_windows
     review = []
     mutable = []
     for block in owned:
@@ -95,7 +95,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
         if a.deadline.at > horizon.end and block.interval.start >= horizon.end:
             findings.append(Finding(code="deferred_block_outside_horizon", block_id=block.block_id,
                                     assignment_id=a.assignment_id))
-            continue  # Existing future work is retained externally, never deleted.
+            continue
         if a.deadline.at > horizon.end and block.interval.end > horizon.end:
             review.append(Finding(code="deferred_block_crosses_horizon", block_id=block.block_id))
             continue
@@ -113,7 +113,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
             review.append(Finding(code="overdue_remaining_work", assignment_id=aid, deadline=a.deadline.at))
         if deferred[aid]:
             findings.append(Finding(code="assignment_deferred", assignment_id=aid, deadline=a.deadline.at))
-            # Retain the already planned portion; do not invent a horizon quota.
+
             demands[aid] = sum(int(b.interval.minutes) for b in current)
             outside = sum(b.interval.minutes for b in owned if b.assignment_id == aid
                           and b.interval.start >= horizon.end)
@@ -133,7 +133,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
 
     mutable = tuple(sorted(mutable, key=lambda b: b.block_id))
     mutable_map = {b.block_id: b for b in mutable}
-    # Markers/titles/generated-looking IDs do not exclude external busy time.
+
     movable_events = {b.event_id for b in mutable}
     busy = tuple(e.interval for e in request.calendar.events
                  if e.busy and e.interval is not None and e.event_id not in movable_events)
@@ -143,8 +143,8 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
                       if _inside(slot, windows) and not any(_overlap(slot, b) for b in busy))
     available_set = frozenset(available)
 
-    # Necessary capacity certificates in the relaxed, fully splittable grid model.
-    # Include the retained deferred portion at the horizon endpoint, not its full workload.
+
+
     certificates = []
     for deadline in sorted({deadlines[a] for a in demands if demands[a]}):
         required = sum(amount for aid, amount in demands.items() if deadlines[aid] <= deadline)
@@ -167,7 +167,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
         """Independent hard-constraint check, also used before no_change."""
         allocations = allocations_for(blocks)
         try:
-            # Revalidate target grid/length even for internal candidates.
+
             blocks = tuple(BlockTarget.model_validate(b) for b in blocks)
             validate_projected_schedule(blocks, allocations, constraints)
         except (ValidationError, ValueError):
@@ -234,7 +234,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
                     groups[-1].append(i)
                 else:
                     groups.append([i])
-            # Every original identity survives; shorten/split sessions rather than delete.
+
             while len(groups) < len(old):
                 position = next((j for j, g in enumerate(groups) if len(g) > 1), None)
                 if position is None:
@@ -248,7 +248,7 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
                     + abs((value.end - previous.interval.end).total_seconds()), value.start, value.end))
                 intervals.remove(chosen)
                 blocks.append(BlockTarget(block_id=previous.block_id, assignment_id=aid, interval=chosen))
-            # Logical allocation ordinals do not depend on times, plan version or random state.
+
             ordinal = 0
             known_ids = {b.block_id for b in owned} | {b.block_id for b in blocks}
             ref = request.calendar.source.reference
@@ -262,8 +262,8 @@ def solve_repair(request: SolveRepairInput) -> RepairResult:
                 blocks.append(BlockTarget(block_id=block_id, assignment_id=aid, interval=interval))
         return tuple(sorted(blocks, key=lambda b: (b.interval.start, b.block_id)))
 
-    # Iterative DFS avoids input-dependent recursion limits. Drop branch is pushed
-    # first so the keep branch runs first. Each popped state consumes one node.
+
+
     stack = [(0, (), frozenset())]
     nodes = 0
     while stack and nodes < constraints.search_node_budget:

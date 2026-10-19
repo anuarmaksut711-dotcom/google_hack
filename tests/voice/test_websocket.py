@@ -139,8 +139,8 @@ def test_actual_uvicorn_protocol_limits_before_payload_allocation():
         server = cfg.ws_protocol_class(cfg, ServerState(), {})
         assert server.max_size == 2048 and server.max_queue == 4
         assert not server.available_extensions
-        # A masked binary frame declares 2049 bytes. Decoder must reject its
-        # header BEFORE asking for the attacker-controlled payload or mask.
+
+
         wire = bytearray(b"\x82\xfe" + (2049).to_bytes(2, "big"))
         read_sizes = []
         async def read_exact(size):
@@ -211,7 +211,7 @@ def test_duplex_tool_trace_transcript_ephemeral_stop(caplog):
         assert finished.run_id == ready["run_id"] and finished.call_id.startswith("ref_")
         raw = repr(f.h.documents.data)
         assert "synthetic-private-transcript" not in raw
-        assert 'synthetic_call' in raw  # W04 retirement survives
+        assert 'synthetic_call' in raw
         traces = json.dumps([e.model_dump(mode="json") for e in f.events])
         for secret in (TOKEN, "synthetic-private-transcript", "synthetic-source-do-not-log", "receipt"):
             assert secret not in traces
@@ -317,7 +317,7 @@ def test_managed_real_provider_runtime_and_typed_bridge_through_route(monkeypatc
             assert sessions.documents is x.h.documents
             return await x.issue(lease)
         async def creds(): return credentials()
-        # Synthetic capability receipt is explicitly local test evidence.
+
         cfg = VoiceConfig(enabled=True, mode=ProviderMode.MANAGED_PRODUCTION,
             managed=ManagedBindings(target(), lambda *a: True, issue, creds), limits=Limits(check_seconds=.02))
         app = create_voice_app(policy=x.h.policy, documents=x.h.documents, verifier=SyntheticVerifier(),
@@ -329,8 +329,8 @@ def test_managed_real_provider_runtime_and_typed_bridge_through_route(monkeypatc
                 assert not s.task.done()
                 await asyncio.sleep(.001)
         lease = x.sessions[0].policy.lease
-        # W07 backend/current callback reloads after W04 renewal, independently
-        # from runtime's W05 current-lease provider. No lock reentry.
+
+
         x.h.clock.advance(10)
         async with asyncio.timeout(1):
             while _decode(x.h.documents.data[_path(lease.device_id)], "voice_stream", _Claim).lease.lease_until <= lease.lease_until:
@@ -402,7 +402,7 @@ def test_durable_current_authority_renewal_no_reentrant_lock():
         initial, _ = await h.sessions.acquire(TOKEN)
         h.clock.advance(10)
         renewed = await h.sessions.renew(initial)
-        h.clock.advance(6)  # serialized initial lease expired, current one remains valid
+        h.clock.advance(6)
         assert await authorize_current(h.sessions, initial)
         await h.sessions.release(renewed)
         with pytest.raises(AccessDenied):
@@ -417,7 +417,7 @@ def test_authorizer_race_uses_full_durable_check(change):
         docs = ScheduledDocuments()
         h = SessionSetup(documents=docs)
         lease, _ = await h.sessions.acquire(TOKEN)
-        # Pause the ACTUAL check transaction after latest has captured the DTO.
+
         docs.arm("check", "before")
         task = asyncio.create_task(authorize_current(h.sessions, lease))
         await docs.started.wait()
@@ -504,8 +504,8 @@ def test_pairing_actual_factory_headers_csrf_signout_and_native_revoke(terminati
             signed = await browser.post("/auth/signin", headers={"Origin": ORIGIN,
                 "X-CSRF-Token": challenge.json()["csrf_token"]}, json={"credential": "synthetic-signed-token"})
             headers = {"Origin": ORIGIN, "X-CSRF-Token": signed.json()["csrf_token"]}
-            # The unchanged base factory's ordinary approval still works on the
-            # composed application and does not transfer a local auth capability.
+
+
             from tests.web.test_approval import Setup, action
             setup = Setup(documents=f.h.documents)
             plan = await setup.seed_current()

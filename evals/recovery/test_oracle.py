@@ -359,12 +359,12 @@ def test_production_solver_outcome_independent_oracle():
     result = solve_repair(request).model_dump(mode="json")
     assert result["status"] == "feasible"
     assert oracle.schedule_errors(p, result["blocks"], result["operations"]) == []
-    # Numeric expected outcome is declared in JSON, not calculated by a second solve.
+
     assert [(b["assignment_id"], b["interval"]["start"], b["interval"]["end"]) for b in result["blocks"]] == [
         (b["assignment_id"], b["interval"]["start"].replace("+00:00", "Z"), b["interval"]["end"].replace("+00:00", "Z")) for b in known]
 
 
-# Correction round1: independent controller counterexamples and explicit controls.
+
 UNCONFIRMED_CASES = ["stale", "timeout-unknown", "partial", "failed-verify", "verification-outage"]
 UNSUPPORTED_SUCCESS_CLAIMS = [
     "Все изменения успешно записаны в календарь.",

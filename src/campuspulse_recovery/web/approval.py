@@ -105,8 +105,8 @@ class FirestoreApprovalStore(_Repository):
         return value
 
     def _terminal(self, value, status: Literal["revoked", "superseded", "expired"], at):
-        # model_copy(update=...) skips the frozen contract's validators. Every
-        # persisted transition must revalidate chronology as well as shape.
+
+
         return Approval.model_validate({**value.model_dump(), "status": status, "invalidated_at": at})
 
     def _effective(self, value, current, now):
@@ -149,7 +149,7 @@ class FirestoreApprovalStore(_Repository):
 
         async def record(tx):
             self._action(context, approval.plan)
-            # Every check shares this transaction with proposal CAS and revoke.
+
             _, current = await self._exact(context, tx, approval.plan, current=False)
             key_doc = await tx.get(key_path)
             document = await tx.get(path)
@@ -159,19 +159,19 @@ class FirestoreApprovalStore(_Repository):
             if previous is not None and previous != approval.plan:
                 previous_doc = await tx.get(self._path(trusted, previous))
             self._action(context, approval.plan)
-            # Firestore may queue/retry this callback. UI action/grant time is
-            # immutable; transitions of records read here use fresh time only
-            # after all reads, including a later grant written while we waited.
+
+
+
             transition_at = self._now()
             if key_doc is not None:
                 saved = _decode(key_doc, "ui_request", _RequestRecord)
                 if saved.plan != approval.plan or saved.action != "approve":
                     raise BindingConflict("approval_request_key_collision")
                 self._approval(document, trusted, approval.plan)
-                return  # Original outcome, including terminal status; no renewal.
+                return
             if document is not None:
                 self._approval(document, trusted, approval.plan)
-                # A new key does not constitute a new lifetime for this version.
+
                 tx.create(key_path, _encode("ui_request", _RequestRecord(plan=approval.plan, recorded_at=now)))
                 return
             if current != approval.plan:

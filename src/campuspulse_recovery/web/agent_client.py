@@ -28,8 +28,8 @@ _PRIVATE_QUERY = ContextVar("campuspulse_private_query", default=False)
 
 class _PrivateQueryFilter(logging.Filter):
     def filter(self, record):
-        # SDK1.165.1's SSE parser logs malformed raw lines. Suppress that
-        # specific logger only in this invocation's async context.
+
+
         return not _PRIVATE_QUERY.get()
 
 
@@ -119,7 +119,7 @@ async def consume(client: RemoteClient, context, intent, limits: StreamLimits, *
                 raise ValueError("invalid_apply_terminal")
             return terminal
     finally:
-        # No task survives the bounded HTTP invocation, even on cancellation.
+
         async with asyncio.timeout(limits.close_seconds):
             await stream.aclose()
 
@@ -187,8 +187,8 @@ class PlatformAgentClient:
             factory = vertexai.Client
         else:
             factory = self.client_factory
-        # Client/get may perform SDK IO. They remain within the caller's bound;
-        # never detach a thread whose RPC could outlive the HTTP invocation.
+
+
         http_options = {"timeout": max(1, int(self.limits.seconds * 1000)),
                         "retry_options": {"attempts": 1}}
         client = factory(project=self.target.project_id, location=self.target.location,
@@ -214,8 +214,8 @@ class PlatformAgentClient:
                     raise ValueError("raw_stream_budget_exceeded")
                 yield RemoteFrame.model_validate(self.protocol.decode(context, intent, raw))
         finally:
-            # Each closer gets its own budget. Catch cancellation only while
-            # attempting the remaining original resources, then propagate it.
+
+
             primary = sys.exception()
             cleanup_error = None
             try:
@@ -228,16 +228,16 @@ class PlatformAgentClient:
                     except BaseException as error:
                         if cleanup_error is None or isinstance(error, asyncio.CancelledError):
                             cleanup_error = error
-                # Vertex1.165.1 has no public sync Client.close(). This is the
-                # same pinned per-request SDK HTTP client, not a substitute for
-                # async cleanup. A synchronous close is not hard-clock proven.
+
+
+
                 try:
                     client._api_client.close()
                 except BaseException as error:
                     if cleanup_error is None or isinstance(error, asyncio.CancelledError):
                         cleanup_error = error
             finally:
-                # Restore privacy even when any resource closer fails.
+
                 try:
                     _PRIVATE_QUERY.reset(token)
                 finally:
