@@ -135,6 +135,11 @@ ADK 2.6.3 требует OpenTelemetry не выше 1.42.1, тогда как F
 ограничения не сняты. Если хакатон требует именно Agent Engine, это отдельное условие:
 новый Cloud Run runtime не следует представлять как развёртывание Agent Engine.
 
+Для отдельного пути Agent Engine теперь подготовлены custom server runtime и offline
+bundle: [AGENT-ENGINE.md](AGENT-ENGINE.md). Они сохраняют проверку сервисного токена
+и Firestore grants. Текущий backend transport не переключён; настоящий deployment,
+IAM, SDK-вызов и живое демо остаются отдельной работой команды подключений.
+
 ### Что заполнить
 
 В `cloud-settings.json`:

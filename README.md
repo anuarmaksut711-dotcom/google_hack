@@ -9,6 +9,8 @@ Python 3.12, Google ADK, Gemini через Vertex AI, MCP, FastAPI и Firestore.
 
 Серверный сценарий Moodle: [оценки времени, доступные окна и API планирования](setup/MOODLE-PLANNING.md).
 
+Следующий облачный этап: [runtime Agent Engine, offline-пакет и контракт для команды подключений](setup/AGENT-ENGINE.md).
+
 ## Установка для разработки и тестов
 
 Требуется Python **3.12**. Выполняйте команды из корня репозитория.
