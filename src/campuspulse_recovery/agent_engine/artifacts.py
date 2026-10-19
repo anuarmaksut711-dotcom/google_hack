@@ -1,7 +1,10 @@
 """Bounded, offline inspection of the trusted product build and hashed lock."""
 from dataclasses import dataclass
+import base64
+import csv
 from email.parser import BytesParser
-from io import BytesIO
+import hashlib
+from io import BytesIO, StringIO
 from pathlib import Path
 import re
 from zipfile import BadZipFile, ZipFile
@@ -88,8 +91,34 @@ def inspect_artifacts(wheel, requirements):
                     or meta.get('Version') != filename[1]
                     or SpecifierSet(meta.get('Requires-Python', '')) != SpecifierSet('>=3.12,<3.13')):
                 raise ValueError('product_wheel_metadata_mismatch')
-            if archive.testzip() is not None:
-                raise ValueError('corrupt_wheel_archive')
+            info = metadata_path.rsplit('/', 1)[0] + '/'
+            wheel_meta = BytesParser().parsebytes(archive.read(info + 'WHEEL'), headersonly=True)
+            if (wheel_meta.get('Wheel-Version') != '1.0' or wheel_meta.get('Root-Is-Purelib') != 'true'
+                    or wheel_meta.get_all('Tag') != ['py3-none-any']):
+                raise ValueError('portable_wheel_tag_required')
+            record_path = info + 'RECORD'
+            if archive.getinfo(record_path).file_size > 1_000_000:
+                raise ValueError('wheel_record_too_large')
+            rows = list(csv.reader(StringIO(archive.read(record_path).decode('utf-8'))))
+            if any(len(row) != 3 for row in rows):
+                raise ValueError('invalid_wheel_record')
+            records = {row[0]: row[1:] for row in rows}
+            files = {entry.filename for entry in entries if not entry.is_dir()}
+            if len(records) != len(rows) or set(records) != files or records[record_path] != ['', '']:
+                raise ValueError('incomplete_wheel_record')
+            for path in files - {record_path}:
+                data = archive.read(path)
+                digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()
+                if records[path] != ['sha256=' + digest, str(len(data))]:
+                    raise ValueError('wheel_record_digest_mismatch')
+            # The SDK schema is generated from the installed runtime, so the
+            # shipped runtime/worker/authority must be those same source bytes.
+            package = Path(__file__).resolve().parents[1]
+            if any(archive.read(path) != (package / path.split('/', 1)[1]).read_bytes()
+                   for path in required):
+                raise ValueError('stale_runtime_wheel')
     except BadZipFile:
         raise ValueError('invalid_product_wheel') from None
+    except KeyError:
+        raise ValueError('incomplete_product_wheel') from None
     return ArtifactInputs(wheel.name, product, lock, filename[1])

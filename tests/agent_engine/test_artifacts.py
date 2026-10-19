@@ -1,5 +1,8 @@
 """Inspect real wheel/lock formats without installing or executing their code."""
 import hashlib
+import base64
+import csv
+import io
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -11,15 +14,32 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / 'requirements/cloud-linux.lock'
 
 
-def wheel(tmp_path, *, name='campuspulse-recovery', python='>=3.12,<3.13', missing=False):
+def wheel(tmp_path, *, name='campuspulse-recovery', python='>=3.12,<3.13', missing=False,
+          stale=False, wrong_tag=False, bad_record=False):
     target = tmp_path / 'campuspulse_recovery-0.1.0-py3-none-any.whl'
+    info = 'campuspulse_recovery-0.1.0.dist-info/'
+    files = {info + 'METADATA':
+        f'Metadata-Version: 2.4\nName: {name}\nVersion: 0.1.0\nRequires-Python: {python}\n'.encode(),
+        info + 'WHEEL': ('Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: ' +
+                        ('cp313-cp313-linux_x86_64' if wrong_tag else 'py3-none-any') + '\n').encode()}
+    for module in ('agent_engine/runtime.py', 'cloud/agent.py', 'cloud/authority.py'):
+        if missing and module.startswith('agent_engine'):
+            continue
+        files['campuspulse_recovery/' + module] = (b'# stale runtime\n' if stale and module.startswith('agent_engine')
+            else (ROOT / 'src/campuspulse_recovery' / module).read_bytes())
+    rows = []
+    for path, data in files.items():
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b'=').decode()
+        rows.append([path, 'sha256=' + digest, str(len(data))])
+    if bad_record:
+        rows[0][1] = 'sha256=' + 'a' * 43
+    rows.append([info + 'RECORD', '', ''])
+    record = io.StringIO()
+    csv.writer(record).writerows(rows)
+    files[info + 'RECORD'] = record.getvalue().encode()
     with ZipFile(target, 'w') as archive:
-        archive.writestr('campuspulse_recovery-0.1.0.dist-info/METADATA',
-            f'Metadata-Version: 2.4\nName: {name}\nVersion: 0.1.0\nRequires-Python: {python}\n')
-        for module in ('agent_engine/runtime.py', 'cloud/agent.py', 'cloud/authority.py'):
-            if missing and module.startswith('agent_engine'):
-                continue
-            archive.writestr('campuspulse_recovery/' + module, '# trusted build fixture\n')
+        for path, data in files.items():
+            archive.writestr(path, data)
     return target
 
 
@@ -43,6 +63,15 @@ def test_rejects_unusable_wheel_before_bundle_creation(tmp_path, cause):
         product.write_bytes(b'not-a-wheel')
     elif cause == 'wrong_filename':
         product = product.rename(tmp_path / 'arbitrary.whl')
+    with pytest.raises(ValueError):
+        inspect_artifacts(product, LOCK)
+
+
+@pytest.mark.parametrize('cause', ['stale_runtime', 'wrong_tag', 'record_digest'])
+def test_rejects_stale_or_internally_inconsistent_builds(tmp_path, cause):
+    from campuspulse_recovery.agent_engine.artifacts import inspect_artifacts
+    product = wheel(tmp_path, stale=cause == 'stale_runtime', wrong_tag=cause == 'wrong_tag',
+                    bad_record=cause == 'record_digest')
     with pytest.raises(ValueError):
         inspect_artifacts(product, LOCK)
 
