@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import Field, StringConstraints
 
 from ...domain.models import Contract, PlanVersion, VerificationResult
+from ...domain.chat_plan import ClassSchedule
 from ...storage.plans import FirestorePlanStore, plan_reference
 from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
@@ -38,6 +39,7 @@ class SafeSources(Contract):
     """
     assignments: DisplayLines | None = None
     calendar: DisplayLines | None = None
+    class_schedule: ClassSchedule | None = None
     verification: VerificationResult | None = None
 
 
@@ -73,7 +75,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     plans = FirestorePlanStore(documents, policy)
     approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
-        agent=chat_agent, projection=projection, owner_history=owner_chat_history))
+        agent=chat_agent, projection=projection, owner_history=owner_chat_history,
+        structured_advice=chat_mode == 'calendar_advice'))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:

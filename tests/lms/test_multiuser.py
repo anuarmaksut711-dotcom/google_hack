@@ -46,7 +46,7 @@ class Agent:
 
     async def reply(self, **arguments):
         self.calls.append(arguments)
-        return 'Личный план: ' + json.dumps(arguments['sources'], ensure_ascii=False)
+        return json.dumps({'kind': 'message', 'message': 'Уточните часы самостоятельной работы.', 'blocks': []})
 
 
 def application(directory, calls):

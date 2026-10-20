@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from pydantic import Field, StringConstraints
 
 from ..domain.models import Contract, Instant, canonical_json
+from ..domain.chat_plan import ClassSchedule, render_advice
 from ..domain.ports import BindingConflict
 from ..observability.events import TechnicalId
 from ..security.context import AccessDenied
@@ -107,7 +108,8 @@ class ChatStore(_Repository):
         return await self.documents.transact(transact)
 
 
-def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False):
+def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False,
+                       structured_advice=False):
     router = APIRouter()
     store = ChatStore(documents, policy, owner_history=owner_history)
 
@@ -157,10 +159,21 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                 async with asyncio.timeout(60):
 
                     sources = {} if projection is None else (await projection.project(
-                        context, run=None, plan=None)).model_dump(mode='json', include={'assignments', 'calendar'})
+                        context, run=None, plan=None)).model_dump(mode='json',
+                            include={'assignments', 'calendar', 'class_schedule'})
                     await fresh(request, credential)
                     response = await agent.reply(history=chat.turns[:-1], message=value.message,
                         user_id=context.trusted.owner_id, session_id=context.session_id, sources=sources)
+                    if structured_advice:
+                        schedule = sources.get('class_schedule')
+                        if projection is not None and hasattr(projection, 'current_class_schedule'):
+                            current = await projection.current_class_schedule(context)
+                            if (schedule and schedule['status'] != 'not_connected' and
+                                    (current is None or current.status == 'not_connected')):
+                                current = ClassSchedule(status='unavailable')
+                            schedule = current
+                        response = render_advice(response, schedule=schedule, now=auth.now(),
+                                                 timezone=policy.config.student.timezone)
 
                     response = ChatTurn(request_key=value.request_key, message=value.message,
                         status='completed', created_at=auth.now(), response=response).response

@@ -550,6 +550,11 @@ SCRIPT = r"""'use strict';
   });
   if (moodleEnabled) {
     $('moodle-refresh').addEventListener('click', loadMoodle);
+    // Keep a visible workspace current; the server coalesces feed requests.
+    window.setInterval(() => { if (!document.hidden && scope) loadMoodle(); }, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && scope) loadMoodle();
+    });
     $('moodle-tasks').addEventListener('click', async event => {
       const button = event.target.closest('button[data-task-id]');
       if (!button || button.disabled) return;

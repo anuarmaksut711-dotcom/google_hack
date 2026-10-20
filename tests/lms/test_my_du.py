@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 import pytest
 
-from campuspulse_recovery.lms.multiuser import create_multiuser_app
+from campuspulse_recovery.lms.multiuser import create_multiuser_app as product_app
 from campuspulse_recovery.lms.my_du import MyDuClient, MyDuUnavailable, TermSettings, credentials, parse_week
 from tests.lms.test_multiuser import Agent, ORIGIN, Verifier, client, fetch, login, post, run_async, url
 
@@ -57,6 +57,24 @@ def week_payload(week, invalid=False):
             'subjectName': 'Algorithms', 'teacherName': 'DO NOT SEND TEACHER', 'online': False}]}]}
 
 
+def create_multiuser_app(**kwargs):
+    # Test-only legacy adapter harness; production has no My DU routes or UI.
+    from unittest.mock import patch
+    from campuspulse_recovery.lms.my_du import MyDuAccount
+    from campuspulse_recovery.web.my_du import install_my_du_routes
+    transport = kwargs.pop('my_du_transport')
+    factory = lambda documents, policy, clock: MyDuAccount(documents, policy,
+        transport=transport, clock=clock)
+    app = product_app(**kwargs)
+    class LegacyHarness:
+        state = app.state
+        async def __call__(self, scope, receive, send):
+            with patch('campuspulse_recovery.lms.multiuser.ManualSchedule', factory), \
+                 patch('campuspulse_recovery.lms.multiuser.install_class_routes', install_my_du_routes):
+                await app(scope, receive, send)
+    return LegacyHarness()
+
+
 def application(tmp_path, provider, calls=None, clock=lambda: NOW):
     return create_multiuser_app(origin=ORIGIN, client_id='test.apps.googleusercontent.com',
         directory=tmp_path, test_verifier=Verifier(), transport=httpx.MockTransport(fetch),
@@ -68,6 +86,7 @@ async def connection(user, code='alice-code'):
     response = await post(user, '/api/account/my-du/start', {})
     assert response.status_code == 200, response.text
     query = parse_qs(urlsplit(response.json()['url']).query)
+    assert set(query['scope'][0].split()) == {'offline_access', 'user.read', 'mail.read'}
     return {**SETTINGS, 'callback_url': 'https://my-du.astanait.edu.kz/login#' + urlencode({
         'state': query['state'][0], 'code': code})}
 
@@ -131,6 +150,8 @@ async def test_connect_chat_busy_intervals_restart_isolation_and_disconnect(tmp_
         assert 'Не назначай работу на пересекающееся время' in calendar
         assert 'TEACHER' not in calendar and 'secret-' not in calendar
         assert 'Расписание занятий и свободные часы пользователя не подключены' not in calendar
+        schedule = calls[0]['sources']['class_schedule']
+        assert schedule['status'] == 'ready' and len(schedule['busy']) == 2
     restarted = application(tmp_path, provider)
     async with client(restarted) as alice:
         await login(alice, 'alice')
@@ -239,10 +260,10 @@ async def test_wrong_week_does_not_become_free_time_and_account_form(tmp_path):
         response = await post(alice, '/api/account/my-du/connect', await connection(alice))
         assert response.json()['error'] == 'unavailable' and response.json()['snapshot'] is None
         page = await alice.get('/account')
-        assert 'Подключить расписание пар' in page.text and 'Понедельник первой учебной недели' in page.text
+        assert 'Моё расписание занятий' in page.text and 'Войти через Microsoft' not in page.text
         assert "script-src 'self'" in page.headers['content-security-policy']
         script = await alice.get('/assets/account.js')
-        assert 'textContent=item.subject' in script.text
+        assert 'textContent = label' in script.text
 
 
 @run_async
@@ -282,6 +303,49 @@ async def test_outdated_term_is_not_a_successful_empty_schedule(tmp_path):
         response = await post(alice, '/api/account/my-du/connect', value)
         assert response.json()['error'] == 'unavailable'
         assert response.json()['snapshot'] is None
+
+
+@pytest.mark.parametrize('case', ['conflict', 'valid', 'disconnect', 'unavailable'])
+@run_async
+async def test_only_validated_plan_is_saved_and_schedule_is_rechecked(tmp_path, case):
+    provider, now = Provider(), NOW
+    other_client = None
+
+    class PlanAgent:
+        async def reply(self, **kwargs):
+            assert kwargs['sources']['class_schedule']['status'] in ('ready', 'unavailable')
+            if case == 'disconnect':
+                await post(other_client, '/api/account/my-du/disconnect', {})
+            hour = 13 if case == 'conflict' else 14
+            return json.dumps(dict(kind='plan', message='Do not show unvalidated model prose',
+                blocks=[dict(title='Private study block', start=f'2026-10-20T{hour}:00:00+05:00',
+                             end=f'2026-10-20T{hour+1}:00:00+05:00')]))
+
+    app = create_multiuser_app(origin=ORIGIN, client_id='test.apps.googleusercontent.com',
+        directory=tmp_path, test_verifier=Verifier(), transport=httpx.MockTransport(fetch),
+        my_du_transport=httpx.MockTransport(provider), clock=lambda: now, agent_factory=PlanAgent)
+    async with client(app) as alice, client(app) as other:
+        other_client = other
+        await login(alice, 'alice')
+        await login(other, 'alice')
+        await post(alice, '/api/account/moodle', {'url': url(42)})
+        await post(alice, '/api/account/my-du/connect', await connection(alice))
+        if case == 'unavailable':
+            provider.unavailable = True
+            now += timedelta(minutes=16)
+        response = await post(alice, '/api/chat', {'request_key': 'checked-plan', 'message': 'Составь план'})
+        assert response.status_code == 200
+        turn = response.json()['turns'][-1]
+        assert turn['status'] == 'completed'
+        text = turn['response']
+        assert 'Do not show' not in text
+        if case == 'valid':
+            assert 'План проверен' in text and 'Private study block' in text
+        else:
+            assert 'Private study block' not in text and 'План проверен' not in text
+            assert ('пересечение с парой' if case == 'conflict' else 'Проверьте период расписания') in text
+        history = await alice.get('/api/chat')
+        assert history.json()['turns'][-1]['response'] == text
 
 
 @run_async

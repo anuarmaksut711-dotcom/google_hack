@@ -1,5 +1,10 @@
 # Moodle calendar + Gemini in Google Cloud
 
+Current source replaces My DU with [manual weekly classes](MANUAL-SCHEDULE.md).
+Moodle refreshes every five minutes in the visible workspace; the existing
+cloud scheduler configuration runs every fifteen minutes. Deployment records
+below describe earlier releases and do not confirm deployment of these changes.
+
 This is the deployed version of the local calendar application, not the separate
 Sheets/Calendar recovery agent or Agent Engine runtime.
 
@@ -75,7 +80,7 @@ cooldown across replicas, failed refresh preservation, connection changes across
 replicas and rejection of anonymous requests. Mock-based tests do not substitute
 for the deployed job, Scheduler dispatch, or a real browser sign-in check.
 
-## Verified deployment — 20 October 2026
+## Initial calendar deployment — 20 October 2026
 
 - Serving revision: `campuspulse-00002-h47`, 100% of traffic.
 - Cloud Build: `72f85abf-9620-46fd-920a-de2b95f0553f`, SUCCESS.
@@ -90,6 +95,28 @@ for the deployed job, Scheduler dispatch, or a real browser sign-in check.
 
 These checks confirm the deployed calendar/chat path. They do not claim Moodle
 grade access, Google Calendar writes or a deployed Agent Engine.
+
+## My DU plan validation update — 20 October 2026
+
+- Serving revision: `campuspulse-00004-fnb`, 100% of traffic.
+- Cloud Build: `215cfcc2-9619-4091-a67f-c32c73bd367c`, SUCCESS.
+- Image digest: `sha256:71f7e5ac4f92b601292e763bf768443948ad53450080cc4ace05a709b2f48d22`.
+- Private execution `campuspulse-check-vm2xc` succeeded on that image before
+  switching traffic: real Moodle/Firestore access and a real Gemini structured
+  plan checked against synthetic class intervals (`structured_plan_checked`).
+  The execution used a diagnostic wrapper around the unchanged check entry
+  point; the job's default command remains `cloud.calendar_check`.
+- After deployment, `/health` and `/login` returned HTTP 200. Anonymous requests
+  to `/api/account/my-du` and `/api/chat` returned HTTP 403.
+- The regression suite passed 344 checks, with the Firestore emulator check
+  skipped. After fixing the Gemini schema compatibility issue, all 36 affected
+  plan, My DU and ADK checks passed, including the actual GenAI schema converter.
+- Microsoft authorization requests `offline_access user.read`; no `mail.read`.
+- The server validates structured plan intervals before display and persistence.
+  See [MY-DU.md](MY-DU.md) for coverage limits and connection instructions.
+
+Real Microsoft/My DU sign-in and the student's actual timetable still require
+the user's account check. Google remains the CampusPulse sign-in provider.
 
 ## My DU release — 20 October 2026
 

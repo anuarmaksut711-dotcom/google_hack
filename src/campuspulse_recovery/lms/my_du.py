@@ -16,6 +16,7 @@ import httpx
 from pydantic import Field, StrictInt, model_validator
 
 from ..domain.models import Contract, Instant, Interval
+from ..domain.chat_plan import ClassSchedule
 from ..domain.ports import BindingConflict
 from ..security.context import AccessDenied
 
@@ -360,9 +361,21 @@ class MyDuAccount:
             await update(values)
         return await self.read(context)
 
-    async def calendar_lines(self, context):
+    def planning_schedule(self, state):
+        if not state['connected']:
+            return ClassSchedule(status='not_connected')
+        if state['stale'] or state['error'] or state['snapshot'] is None:
+            return ClassSchedule(status='unavailable')
+        snapshot = ScheduleSnapshot.model_validate(state['snapshot'])
+        return ClassSchedule(status='ready', coverage=snapshot.coverage, fetched_at=snapshot.fetched_at,
+                             busy=tuple(meeting.interval for meeting in snapshot.classes))
+
+    async def calendar_context(self, context):
         # Leave time for Gemini inside the chat endpoint's 60-second budget.
         state = await self.refresh(context, cached=True, timeout=8)
+        return self.calendar_lines(state), self.planning_schedule(state)
+
+    def calendar_lines(self, state):
         if not state['connected']:
             return ('My DU не подключён. Расписание пар неизвестно; предложи подключить его на странице аккаунта.',)
         if state['stale'] or state['error'] or state['snapshot'] is None:

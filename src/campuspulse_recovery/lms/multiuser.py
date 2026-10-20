@@ -27,11 +27,11 @@ from ..web.app import SignInBody, _set, body
 from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
     GoogleSignInVerifier, LoginChallenge, WebAuth, WebSession, digest)
 from ..web.moodle import install_moodle_routes
-from ..web.my_du import ACCOUNT_MY_DU, MY_DU_SCRIPT, install_my_du_routes
+from ..web.manual_schedule import ACCOUNT_CLASSES, CLASSES_SCRIPT, install_class_routes
 from ..web.views.app import SafeSources, create_ui_app
 from .calendar_feed import CalendarFeed, FeedState, validate_feed_url
 from .calendar_projection import CalendarChatProjection
-from .my_du import MyDuAccount
+from .manual_schedule import ManualSchedule
 
 
 class ConnectFeed(Contract):
@@ -49,7 +49,7 @@ def account_config(principal, template=None):
 
 
 class AccountFeed:
-    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None, my_du=None, recovery=None):
+    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None, classes=None, recovery=None):
         self.policy, self.documents = policy, documents
         self.owner_id = policy.config.student.trusted_user_id
         self.directory, self.transport = directory / self.owner_id, transport
@@ -57,7 +57,7 @@ class AccountFeed:
         self.feed = None
         self.lock = asyncio.Lock()
         self.feed_factory = feed_factory
-        self.my_du = my_du
+        self.classes = classes
         self.recovery = recovery
 
     def make(self, url):
@@ -136,20 +136,27 @@ class AccountFeed:
                 await self.restore()
             if self.feed is None:
                 sources = SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
-                    calendar=(f'Сейчас {self.my_du.clock().isoformat()}. Часовой пояс: {self.policy.config.student.timezone}.'
-                              if self.my_du is not None else 'Текущее время не передано.',
+                    calendar=(f'Сейчас {self.classes.clock().isoformat()}. Часовой пояс: {self.policy.config.student.timezone}.'
+                              if self.classes is not None else 'Текущее время не передано.',
                               'Личные свободные часы неизвестны. Уточни доступное время.'))
             else:
                 sources = await CalendarChatProjection(self.feed, self.policy).project(context, run=run, plan=plan)
-        if self.my_du is not None:
-            lines = await self.my_du.calendar_lines(context)
-            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines)
+        if self.classes is not None:
+            lines, schedule = await self.classes.calendar_context(context)
+            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines,
+                                  class_schedule=schedule)
         if self.recovery is not None and run is not None and plan is not None and run.verification_status is not None:
             from ..storage.plans import plan_reference
             evidence = await self.recovery.stored_evidence(context, plan_reference(plan))
             if evidence.run_id == run.run_id:
-                sources = SafeSources(assignments=sources.assignments, calendar=sources.calendar, verification=evidence)
+                sources = SafeSources(assignments=sources.assignments, calendar=sources.calendar,
+                                      class_schedule=sources.class_schedule, verification=evidence)
         return sources
+
+    async def current_class_schedule(self, context):
+        """Read again after generation, so concurrent sync/disconnect is respected."""
+        self.authorize(context)
+        return None if self.classes is None else self.classes.planning_schedule(await self.classes.read(context))
 
 
 ACCOUNT_SCRIPT = r"""'use strict';
@@ -172,7 +179,7 @@ form.addEventListener('submit',async event=>{
 
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
-                         application=None, documents=None, feed_factory=None, my_du_transport=None,
+                         application=None, documents=None, feed_factory=None,
                          recovery_factory=None, recovery_chat_factory=None):
     environment = 'local' if application is None else 'cloud'
     if environment == 'cloud' and (documents is None or feed_factory is None or test_verifier is not None):
@@ -212,9 +219,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             recovery = None if recovery_factory is None else recovery_factory(principal, clock=clock)
             policy = (ResourcePolicy(account_config(principal, application), environment=environment)
                       if recovery is None else recovery.policy)
-            my_du = MyDuAccount(documents, policy, transport=my_du_transport, clock=clock)
+            classes = ManualSchedule(documents, policy, clock=clock)
             feed = AccountFeed(policy=policy, documents=documents, directory=directory / 'accounts', transport=transport,
-                               feed_factory=feed_factory, my_du=my_du, recovery=recovery)
+                               feed_factory=feed_factory, classes=classes, recovery=recovery)
             await feed.restore()
             selected_agent = (recovery_chat_factory if recovery is not None and recovery_chat_factory is not None
                               else agent_factory)
@@ -234,7 +241,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 install_recovery_planning_page(inner, auth=auth, inputs=recovery.planning)
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
-            install_my_du_routes(inner, auth=auth, account=my_du)
+            install_class_routes(inner, auth=auth, account=classes)
 
             @inner.get('/account', response_class=HTMLResponse)
             async def account(request: Request):
@@ -248,16 +255,19 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                     '<p>Ссылка даёт доступ к вашему календарю. Задания, отметки и переписка с Gemini '
                     'будут привязаны к этому Google-аккаунту. При составлении плана Gemini получает названия предметов, заданий и сроки. '
                     'Календарь не сообщает, сдали ли вы работу: выполненные задания отмечайте здесь.</p>'
+                    '<p>Moodle обновляется при открытии страницы и каждые 5 минут, пока вкладка открыта. '
+                    'В облачной версии также предусмотрено фоновое обновление каждые 15 минут. '
+                    'Отображаются события выбранного периода экспорта; изменения могут появляться с задержкой.</p>'
                     '<form id="connect-moodle"><label for="moodle-url">Ссылка календаря Moodle</label>'
                     '<input id="moodle-url" type="url" required autocomplete="off" maxlength="4096">'
                     '<button type="submit">Подключить мой Moodle</button></form>'
-                    '<p id="account-status" role="status"></p>' + ACCOUNT_MY_DU +
+                    '<p id="account-status" role="status"></p>' + ACCOUNT_CLASSES +
                     '</main><script src="/assets/account.js"></script></html>')
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):
                 await auth.load(request)
-                return Response(ACCOUNT_SCRIPT + MY_DU_SCRIPT, media_type='text/javascript')
+                return Response(ACCOUNT_SCRIPT + CLASSES_SCRIPT, media_type='text/javascript')
 
             @inner.post('/api/account/moodle')
             async def connect(request: Request):

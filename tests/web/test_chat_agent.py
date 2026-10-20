@@ -1,4 +1,5 @@
 """Actual installed ADK Runner, synthetic BaseLlm; no external Gemini calls."""
+import json
 import pytest
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
@@ -18,7 +19,10 @@ class SyntheticModel(BaseLlm):
         self._requests.append(llm_request)
         parts = [types.Part(text='private thought', thought=True)]
         if not self._only_thought:
-            parts.append(types.Part(text='Visible synthetic answer'))
+            answer = 'Visible synthetic answer'
+            if llm_request.config.response_schema:
+                answer = json.dumps({'kind': 'message', 'message': answer, 'blocks': []})
+            parts.append(types.Part(text=answer))
         yield LlmResponse(content=types.Content(role='model', parts=parts))
 
 
@@ -108,6 +112,15 @@ def test_calendar_advice_profile_can_plan_in_chat_without_recovery_buttons_or_to
         assert 'конкретные даты' in instruction and 'Moodle assignment due October 24' in instruction
         assert 'Прошедший срок не доказывает' in instruction
         assert 'Не направляй к кнопке' in instruction
+        assert request.config.response_schema is not None
+        # Exercise the real GenAI converter: the Developer API rejects this
+        # keyword even when false, while the server still rejects extra fields.
+        from google import genai
+        from google.genai import _transformers
+        with genai.Client(api_key='synthetic-unused-key') as sdk:
+            wire = _transformers.t_schema(sdk._api_client, request.config.response_schema)
+            assert 'additionalProperties' not in wire.model_dump_json(by_alias=True, exclude_none=True)
+            assert wire.properties['blocks'].items.properties['start'].type == 'STRING'
         assert not request.tools_dict
     run(scenario())
 
