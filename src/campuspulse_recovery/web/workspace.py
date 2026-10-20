@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Request
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
-from ..domain.models import Contract, canonical_hash
+from ..domain.models import Contract, Instant, canonical_hash
 from ..domain.ports import BindingConflict
 from ..observability.events import TechnicalId
 from ..security.context import AccessDenied
@@ -17,11 +17,16 @@ Title = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=8
 Revision = Annotated[int, Field(strict=True, ge=0, le=2**63 - 1)]
 
 
-class ChatEntry(Contract):
+class LegacyChatEntry(Contract):
     chat_id: ChatId
     title: Title
     folder_id: FolderId | None = None
     creation_digest: str | None = None
+
+
+class ChatEntry(LegacyChatEntry):
+    updated_at: Instant | None = None
+    auto_title: bool = False
 
 
 class FolderEntry(Contract):
@@ -36,10 +41,18 @@ class Receipt(Contract):
     item_id: str
 
 
+class LegacyChatWorkspace(Contract):
+    revision: Revision = 0
+    chats: Annotated[tuple[LegacyChatEntry, ...], Field(max_length=120)] = (
+        LegacyChatEntry(chat_id='default', title='Первый чат'),)
+    folders: Annotated[tuple[FolderEntry, ...], Field(max_length=40)] = ()
+    receipts: Annotated[tuple[Receipt, ...], Field(max_length=128)] = ()
+
+
 class ChatWorkspace(Contract):
     revision: Revision = 0
     chats: Annotated[tuple[ChatEntry, ...], Field(max_length=120)] = (
-        ChatEntry(chat_id='default', title='Первый чат'),)
+        ChatEntry(chat_id='default', title='Первый чат', auto_title=True),)
     folders: Annotated[tuple[FolderEntry, ...], Field(max_length=40)] = ()
     receipts: Annotated[tuple[Receipt, ...], Field(max_length=128)] = ()
 
@@ -88,15 +101,45 @@ class WorkspaceStore(_Repository):
     def path(self, context):
         return 'cp_chat_workspaces/' + self.scope_key(context)
 
+    @staticmethod
+    def decode(saved):
+        if saved is None:
+            return ChatWorkspace()
+        if saved.get('kind') == 'chat-workspace-v1':
+            legacy = _decode(saved, 'chat-workspace-v1', LegacyChatWorkspace)
+            return ChatWorkspace.model_validate(legacy.model_dump())
+        return _decode(saved, 'chat-workspace-v2', ChatWorkspace)
+
     async def read(self, context):
         saved = await self.documents.get(self.path(context))
-        return ChatWorkspace() if saved is None else _decode(saved, 'chat-workspace-v1', ChatWorkspace)
+        return self.decode(saved)
+
+    async def record_activity(self, context, chat_id, message, now):
+        path = self.path(context)
+        async def transact(tx):
+            current = self.decode(await tx.get(path))
+            chats = list(current.chats)
+            index = next((i for i, chat in enumerate(chats) if chat.chat_id == chat_id), None)
+            if index is None:
+                raise AccessDenied('chat_not_available')
+            chat = chats[index]
+            if chat.updated_at is not None and chat.updated_at >= now and not chat.auto_title:
+                return
+            update = {'updated_at': now}
+            if chat.auto_title:
+                title = ' '.join(message.split())
+                title = ''.join(c for c in title if ord(c) >= 32 and ord(c) != 127)[:80]
+                update.update(title=title or chat.title, auto_title=False)
+            chats[index] = chat.model_copy(update=update)
+            result = current.model_copy(update={'chats': tuple(chats), 'revision': current.revision + 1})
+            tx.set(path, _encode('chat-workspace-v2', result))
+        await self.documents.transact(transact)
 
     async def require_chat(self, context, chat_id):
         if not any(c.chat_id == chat_id for c in (await self.read(context)).chats):
             raise AccessDenied('chat_not_available')
 
-    async def change(self, context, value):
+    async def change(self, context, value, *, now=None):
         path = self.path(context)
         # Stable across retries, including a lost successful HTTP response.
         new_id = _key(self.scope_key(context), value.request_key)[:32]
@@ -104,7 +147,7 @@ class WorkspaceStore(_Repository):
 
         async def transact(tx):
             saved = await tx.get(path)
-            current = ChatWorkspace() if saved is None else _decode(saved, 'chat-workspace-v1', ChatWorkspace)
+            current = self.decode(saved)
             previous = next((r for r in current.receipts if r.request_key == value.request_key), None)
             if previous:
                 if previous.digest != digest:
@@ -126,7 +169,8 @@ class WorkspaceStore(_Repository):
             if value.action == 'create_chat':
                 if len(chats) >= 120:
                     raise BindingConflict('chat_count_limit')
-                chats.append(ChatEntry(chat_id=item_id, title=value.title, folder_id=value.folder_id, creation_digest=digest))
+                chats.append(ChatEntry(chat_id=item_id, title=value.title, folder_id=value.folder_id,
+                    creation_digest=digest, auto_title=value.title == 'Новый чат', updated_at=now))
             elif value.action == 'create_folder':
                 if len(folders) >= 40:
                     raise BindingConflict('folder_count_limit')
@@ -135,7 +179,7 @@ class WorkspaceStore(_Repository):
                 index = next((i for i, c in enumerate(chats) if c.chat_id == item_id), None)
                 if index is None:
                     raise AccessDenied('chat_not_available')
-                update = {'title': value.title} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
+                update = {'title': value.title, 'auto_title': False} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
                 chats[index] = chats[index].model_copy(update=update)
             else:
                 index = next((i for i, f in enumerate(folders) if f.folder_id == item_id), None)
@@ -144,7 +188,7 @@ class WorkspaceStore(_Repository):
                 folders[index] = folders[index].model_copy(update={'title': value.title})
             result = ChatWorkspace(revision=current.revision + 1, chats=tuple(chats), folders=tuple(folders),
                 receipts=(*current.receipts[-127:], Receipt(request_key=value.request_key, digest=digest, item_id=item_id)))
-            tx.set(path, _encode('chat-workspace-v1', result))
+            tx.set(path, _encode('chat-workspace-v2', result))
             return result, item_id
 
         return await self.documents.transact(transact)
@@ -160,7 +204,7 @@ def create_workspace_router(*, auth, documents, policy, owner_history=False):
 
     def view(workspace):
         return workspace.model_dump(mode='json', exclude={'receipts': True,
-            'chats': {'__all__': {'creation_digest'}}, 'folders': {'__all__': {'creation_digest'}}})
+            'chats': {'__all__': {'creation_digest', 'auto_title'}}, 'folders': {'__all__': {'creation_digest'}}})
 
     @router.get('/api/chat/workspace')
     async def read(request: Request):
@@ -179,7 +223,7 @@ def create_workspace_router(*, auth, documents, policy, owner_history=False):
             raise ValueError('workspace_selectors_forbidden')
         value = await body(request, WorkspaceChange)
         with auth.request_scope(credential) as context:
-            result, item_id = await store.change(context, value)
+            result, item_id = await store.change(context, value, now=auth.now())
             await fresh(request, credential)
             return _json({**view(result), 'item_id': item_id})
 

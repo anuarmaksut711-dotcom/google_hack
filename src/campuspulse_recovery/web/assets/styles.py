@@ -328,6 +328,9 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
   body[data-view=assistant] .view-heading { position: static; width: auto; height: auto; clip-path: none; }
 }
 
+#chat-limit { margin: 12px 18px; }
+#chat-limit p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 """
 STYLES += WORKSPACE_STYLES + ACCOUNT_STYLES

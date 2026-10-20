@@ -1,14 +1,15 @@
 """Chat navigation with native popovers and modal editing dialogs."""
 CHAT_NEW = '''<button id="chat-new" class="chat-new" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5H5v14h14v-8M15 3l6 6M10 14l2-5 6-6 3 3-6 6Z"/></svg>Новый чат</button>'''
-CHAT_NAV = '''<section id="chat-library" class="chat-library" aria-labelledby="chat-library-heading" hidden>
-<div class="chat-library-heading"><h2 id="chat-library-heading">Чаты</h2><button id="chat-folder-create" class="chat-icon-button" type="button" aria-label="Создать папку" title="Создать папку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5h6l2 2h10v13H3ZM12 10v7m-3-3h6"/></svg></button></div>
-<p id="chat-library-status" role="status" aria-live="polite"></p><div id="chat-library-list" aria-label="Ваши чаты"></div>
+CHAT_NAV = '''<section id="chat-library" class="chat-library" aria-label="Проекты и чаты" hidden>
+<div class="chat-library-heading"><h2 id="chat-projects-heading">Проекты</h2><button id="chat-folder-create" class="chat-icon-button" type="button" aria-label="Создать проект" title="Создать проект"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5h6l2 2h10v13H3ZM12 10v7m-3-3h6"/></svg></button></div>
+<p id="chat-library-status" role="status" aria-live="polite"></p><div id="chat-project-list" aria-labelledby="chat-projects-heading"></div>
+<div class="chat-library-heading chat-recents-heading"><h2 id="chat-library-heading">Чаты</h2></div><div id="chat-library-list" aria-labelledby="chat-library-heading"></div>
 <div id="chat-action-menu" class="chat-action-menu" popover="auto" role="group" aria-label="Действия с чатом"></div>
 <dialog id="chat-edit-dialog" class="chat-edit-dialog" aria-labelledby="chat-edit-heading">
 <form id="chat-edit-form"><h2 id="chat-edit-heading">Изменить название чата</h2>
 <label id="chat-edit-label" class="chat-edit-label" for="chat-edit-name">Название чата</label>
 <input id="chat-edit-name" maxlength="80" required autocomplete="off" autofocus>
-<label id="chat-move-label" class="chat-edit-label" for="chat-folder-select" hidden>Папка чата</label><select id="chat-folder-select" hidden></select>
+<label id="chat-move-label" class="chat-edit-label" for="chat-folder-select" hidden>Проект чата</label><select id="chat-folder-select" hidden></select>
 <p id="chat-edit-status" role="status" aria-live="polite"></p>
 <div class="chat-dialog-actions"><button id="chat-edit-cancel" type="button">Отмена</button><button id="chat-edit-save" type="submit">Изменить</button></div>
 </form></dialog></section>'''
@@ -23,6 +24,7 @@ WORKSPACE_STYLES = r'''
 .sidebar .chat-new svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .chat-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; padding-left: 12px; }
 .chat-library-heading h2 { margin: 0; font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: normal; }
+.chat-recents-heading { margin-top: 24px; margin-bottom: 8px; }
 .chat-library .chat-icon-button { flex-shrink: 0; width: 36px; min-height: 36px; padding: 8px; border-radius: 50%; background: transparent; color: var(--muted); }
 .chat-library .chat-icon-button:hover, .chat-library .chat-icon-button[aria-expanded=true] { background: var(--selected); color: var(--ink); }
 .chat-library svg, .chat-action-menu svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -46,6 +48,7 @@ WORKSPACE_STYLES = r'''
 .chat-folder-toggle .chat-chevron { width: 12px; height: 12px; flex-shrink: 0; transition: transform 140ms ease-out; }
 .chat-folder-toggle[aria-expanded=true] .chat-chevron { transform: rotate(90deg); }
 .chat-folder-heading > .chat-icon-button { opacity: 0; }
+.chat-folder-heading > .chat-project-new { opacity: 1; }
 .chat-folder-heading:hover > .chat-icon-button, .chat-folder-heading:focus-within > .chat-icon-button, .chat-folder-heading > .chat-icon-button[aria-expanded=true] { opacity: 1; }
 .chat-folder-content { padding-left: 16px; }
 .chat-folder-empty { margin: 8px 12px 12px; font-size: 12px; color: var(--muted); }
@@ -73,14 +76,14 @@ WORKSPACE_STYLES = r'''
 .conversation-navigation > summary { min-height: 40px; padding: 8px 10px; color: var(--muted); font-size: 12px; }
 .conversation-navigation .conversation-index { max-height: 200px; margin: 0; overflow-y: auto; }
 #view-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (hover: none), (pointer: coarse) { .chat-row > .chat-icon-button, .chat-folder-heading > .chat-icon-button { opacity: 1; } }
+@media (max-width: 760px), (hover: none), (pointer: coarse) { .chat-row > .chat-icon-button, .chat-folder-heading > .chat-icon-button { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .chat-folder-toggle .chat-chevron { transition: none; } }
 '''
 
 SCRIPT = r"""'use strict';
 window.CampusPulseChats = class {
-  constructor({api, selected, navigate, changed, blocked}) {
-    Object.assign(this, {api, selected, navigate, changed, blocked});
+  constructor({api, selected, navigate, changed, blocked, session}) {
+    Object.assign(this, {api, selected, navigate, changed, blocked, session});
     this.data = null; this.epoch = 0; this.mutating = false; this.openFolders = new Set(); this.pending = null; this.editing = null; this.menuTrigger = null;
     this.$ = id => document.getElementById(id);
     this.$('chat-new').addEventListener('click', () => this.change({action: 'create_chat', title: 'Новый чат', folder_id: null}));
@@ -110,6 +113,17 @@ window.CampusPulseChats = class {
     (original?.isConnected ? original : replacement || this.$('chat-new')).focus();
   }
   closeMenu() { const menu = this.$('chat-action-menu'); if (menu.matches(':popover-open')) menu.hidePopover(); }
+  folderState(save = false) {
+    if (!this.session()) return;
+    try {
+      const key = 'campuspulse-projects-v1:' + this.session();
+      if (save) sessionStorage.setItem(key, JSON.stringify([...this.openFolders]));
+      else {
+        const ids = JSON.parse(sessionStorage.getItem(key));
+        if (Array.isArray(ids)) this.openFolders = new Set(ids.filter(id => this.data.folders.some(folder => folder.folder_id === id)));
+      }
+    } catch { /* The navigation remains usable without browser storage. */ }
+  }
   message(text, error = false) {
     this.$('chat-library-status').textContent = text; this.$('chat-library-status').dataset.error = String(error);
     if (this.$('chat-edit-dialog').open) this.$('chat-edit-status').textContent = text;
@@ -117,7 +131,7 @@ window.CampusPulseChats = class {
   reset() {
     ++this.epoch; this.data = null; this.pending = null; this.mutating = false; this.openFolders.clear(); this.closeMenu();
     if (this.$('chat-edit-dialog').open) this.$('chat-edit-dialog').close();
-    this.$('chat-library-list').replaceChildren(); this.$('chat-edit-name').value = ''; this.$('chat-folder-select').replaceChildren(); this.$('chat-library').hidden = true;
+    this.$('chat-library-list').replaceChildren(); this.$('chat-project-list').replaceChildren(); this.$('chat-edit-name').value = ''; this.$('chat-folder-select').replaceChildren(); this.$('chat-library').hidden = true;
   }
   controls() {
     const disabled = !this.data || this.mutating || this.blocked();
@@ -135,10 +149,11 @@ window.CampusPulseChats = class {
     const epoch = this.epoch;
     try {
       const data = await (await this.api('/api/chat/workspace')).json(); if (epoch !== this.epoch) return;
-      this.data = data; this.$('chat-library').hidden = false; this.message(''); this.render();
+      this.data = data; this.folderState(); this.$('chat-library').hidden = false; this.message(''); this.render();
     } catch {
       if (epoch !== this.epoch) return; this.data = null; this.$('chat-library').hidden = false;
       this.$('chat-library-list').replaceChildren(); this.message('Список чатов недоступен. Нажмите «Обновить состояние».', true); this.controls();
+      this.$('chat-project-list').replaceChildren();
     }
   }
   async change(change) {
@@ -151,13 +166,14 @@ window.CampusPulseChats = class {
       this.pending = null; this.data = data;
       if (change.action === 'create_folder') this.openFolders.add(data.item_id);
       if (change.action === 'move_chat' && change.folder_id) this.openFolders.add(change.folder_id);
+      this.folderState(true);
       this.message(''); this.render(); this.changed();
       if (this.$('chat-edit-dialog').open) this.$('chat-edit-dialog').close();
       if (change.action === 'create_chat') this.navigate(data.item_id);
     } catch (error) {
       if (epoch !== this.epoch) return;
       if (error.status && error.status < 500) { this.pending = null; if (error.status === 409) await this.load(); }
-      this.message(error.status === 409 ? 'Список изменился или достигнут лимит: 120 чатов и 40 папок. Проверьте список перед повтором.' : 'Изменение не подтверждено. Повторите это же действие.', true);
+      this.message(error.status === 409 ? 'Список изменился или достигнут лимит: 120 чатов и 40 проектов. Проверьте список перед повтором.' : 'Изменение не подтверждено. Повторите это же действие.', true);
     } finally { if (epoch === this.epoch) { this.mutating = false; this.controls(); } }
   }
   icon(kind) {
@@ -178,7 +194,7 @@ window.CampusPulseChats = class {
   menu(item, folder, trigger) {
     const menu = this.$('chat-action-menu'), same = this.menuTrigger === trigger && menu.matches(':popover-open'); this.closeMenu(); if (same) return;
     this.menuTrigger = trigger; menu.replaceChildren(); menu.setAttribute('aria-label', 'Действия: ' + item.title);
-    const actions = folder ? [['create_chat', 'plus', 'Новый чат в папке'], ['rename_folder', 'rename', 'Переименовать']] : [['rename_chat', 'rename', 'Переименовать'], ['move_chat', 'move', 'Переместить в папку']];
+    const actions = folder ? [['create_chat', 'plus', 'Новый чат в проекте'], ['rename_folder', 'rename', 'Переименовать']] : [['rename_chat', 'rename', 'Переименовать'], ['move_chat', 'move', 'Переместить в проект']];
     for (const [action, icon, title] of actions) {
       const button = document.createElement('button'); button.type = 'button'; button.append(this.icon(icon), document.createTextNode(title));
       button.addEventListener('click', () => { this.closeMenu(); if (action === 'create_chat') this.change({action, title: 'Новый чат', folder_id: item.folder_id}); else this.edit(action, item, trigger); }); menu.append(button);
@@ -193,11 +209,11 @@ window.CampusPulseChats = class {
     if (!this.data || this.mutating || this.blocked()) return;
     this.editing = {action, item}; this.editTrigger = trigger;
     const move = action === 'move_chat', folder = action === 'rename_folder' || action === 'create_folder';
-    this.$('chat-edit-heading').textContent = move ? 'Переместить чат' : action === 'create_folder' ? 'Новая папка' : folder ? 'Изменить название папки' : 'Изменить название чата';
-    this.$('chat-edit-label').textContent = folder ? 'Название папки' : 'Название чата';
+    this.$('chat-edit-heading').textContent = move ? 'Переместить чат' : action === 'create_folder' ? 'Новый проект' : folder ? 'Изменить название проекта' : 'Изменить название чата';
+    this.$('chat-edit-label').textContent = folder ? 'Название проекта' : 'Название чата';
     this.$('chat-edit-name').hidden = move; this.$('chat-edit-name').required = !move; this.$('chat-edit-name').value = item?.title || '';
     this.$('chat-edit-label').hidden = move; this.$('chat-move-label').hidden = !move; this.$('chat-folder-select').hidden = !move;
-    this.$('chat-folder-select').replaceChildren(new Option('Без папки', ''));
+    this.$('chat-folder-select').replaceChildren(new Option('Без проекта', ''));
     for (const folder of this.data.folders) this.$('chat-folder-select').append(new Option(folder.title, folder.folder_id));
     this.$('chat-folder-select').value = move ? item.folder_id || '' : '';
     this.$('chat-edit-save').textContent = move ? 'Переместить' : action === 'create_folder' ? 'Создать' : 'Изменить';
@@ -206,7 +222,8 @@ window.CampusPulseChats = class {
   }
   list(entries) {
     const list = document.createElement('ul'); list.className = 'chat-list';
-    for (const chat of [...entries].reverse()) {
+    const recent = [...entries].reverse().sort((a, b) => (Date.parse(b.updated_at) || 0) - (Date.parse(a.updated_at) || 0));
+    for (const chat of recent) {
       const item = document.createElement('li'), link = document.createElement('a'), label = document.createElement('span'); item.className = 'chat-row';
       link.className = 'chat-link'; link.dataset.chatId = chat.chat_id; link.href = chat.chat_id === 'default' ? '#workspace' : '#chat/' + chat.chat_id;
       link.title = chat.title; label.textContent = chat.title; link.append(label); item.append(link, this.actionButton(chat)); list.append(item);
@@ -215,12 +232,13 @@ window.CampusPulseChats = class {
   }
   selection() {
     if (!this.data) return; const current = this.data.chats.find(chat => chat.chat_id === this.selected());
-    this.$('chat-library-list').querySelectorAll('.chat-link').forEach(link => {
+    this.$('chat-library').querySelectorAll('.chat-link').forEach(link => {
       if (link.dataset.chatId === this.selected()) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
     if (current?.folder_id) {
       this.openFolders.add(current.folder_id);
-      const folder = this.$('chat-library-list').querySelector('[data-folder-id="' + current.folder_id + '"]');
+      this.folderState(true);
+      const folder = this.$('chat-project-list').querySelector('[data-folder-id="' + current.folder_id + '"]');
       if (folder) { folder.querySelector('.chat-folder-content').hidden = false; folder.querySelector('.chat-folder-toggle').setAttribute('aria-expanded', 'true'); }
     }
   }
@@ -228,17 +246,25 @@ window.CampusPulseChats = class {
   render() {
     if (!this.data) return; this.closeMenu();
     const container = this.$('chat-library-list'); container.replaceChildren(this.list(this.data.chats.filter(chat => !chat.folder_id)));
+    const projects = this.$('chat-project-list'); projects.replaceChildren();
+    if (!this.data.folders.length) {
+      const empty = document.createElement('p'); empty.className = 'chat-folder-empty'; empty.textContent = 'Объедините чаты по предмету или задаче'; projects.append(empty);
+    }
     for (const folder of this.data.folders) {
       const section = document.createElement('div'), heading = document.createElement('div'), toggle = document.createElement('button'), label = document.createElement('span'), content = document.createElement('div');
       section.className = 'chat-folder'; section.dataset.folderId = folder.folder_id; heading.className = 'chat-folder-heading';
       toggle.type = 'button'; toggle.className = 'chat-folder-toggle'; toggle.setAttribute('aria-expanded', String(this.openFolders.has(folder.folder_id))); toggle.setAttribute('aria-controls', 'chat-folder-' + folder.folder_id);
-      label.textContent = folder.title; toggle.append(this.icon('chevron'), this.icon('folder'), label); heading.append(toggle, this.actionButton(folder, true));
+      label.textContent = folder.title; toggle.append(this.icon('chevron'), this.icon('folder'), label);
+      const create = document.createElement('button'); create.type = 'button'; create.className = 'chat-icon-button chat-project-new';
+      create.setAttribute('aria-label', 'Новый чат в проекте «' + folder.title + '»'); create.title = 'Новый чат в проекте'; create.append(this.icon('plus'));
+      create.addEventListener('click', () => this.change({action: 'create_chat', title: 'Новый чат', folder_id: folder.folder_id}));
+      heading.append(toggle, create, this.actionButton(folder, true));
       content.className = 'chat-folder-content'; content.id = 'chat-folder-' + folder.folder_id; content.hidden = !this.openFolders.has(folder.folder_id);
-      toggle.addEventListener('click', () => { content.hidden = !content.hidden; toggle.setAttribute('aria-expanded', String(!content.hidden)); if (content.hidden) this.openFolders.delete(folder.folder_id); else this.openFolders.add(folder.folder_id); });
+      toggle.addEventListener('click', () => { content.hidden = !content.hidden; toggle.setAttribute('aria-expanded', String(!content.hidden)); if (content.hidden) this.openFolders.delete(folder.folder_id); else this.openFolders.add(folder.folder_id); this.folderState(true); });
       const entries = this.data.chats.filter(chat => chat.folder_id === folder.folder_id);
       if (entries.length) content.append(this.list(entries));
       else { const empty = document.createElement('p'); empty.className = 'chat-folder-empty'; empty.textContent = 'Пока нет чатов'; content.append(empty); }
-      section.append(heading, content); container.append(section);
+      section.append(heading, content); projects.append(section);
     }
     this.selection(); this.controls();
   }

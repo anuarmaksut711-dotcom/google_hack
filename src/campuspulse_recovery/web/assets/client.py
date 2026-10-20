@@ -4,7 +4,7 @@ SCRIPT = r"""'use strict';
 (() => {
   const $ = id => document.getElementById(id);
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
-  let chatBusy = false, chatAvailable = false, chatWorking = false, pendingText = null;
+  let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
   let speechAvailable = false, voiceState = 'idle', recorder = null, voiceStream = null, voiceTimer = null;
   let voiceAudio = null, voiceFrame = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
@@ -21,7 +21,7 @@ SCRIPT = r"""'use strict';
   }
   function voiceControls() {
     const idle = voiceState === 'idle';
-    $('voice-toggle').disabled = !voiceMime || !speechAvailable || !scope || busy || chatBusy || chatWorking ||
+    $('voice-toggle').disabled = !voiceMime || !speechAvailable || !scope || busy || chatBusy || chatWorking || chatLimitReached ||
       (!idle && voiceState !== 'recording');
     $('voice-toggle').textContent = voiceState === 'recording' ? 'Остановить запись' :
       voiceState === 'transcribing' ? 'Распознаём…' : voiceState === 'requesting' ? 'Открываем микрофон…' : 'Голосовой ввод';
@@ -123,6 +123,7 @@ SCRIPT = r"""'use strict';
     }
   });
   window.addEventListener('pagehide', () => {
+    saveDraft();
     ++generation;
     if (recorder?.state === 'recording') recorder.stop();
     releaseMicrophone();
@@ -132,26 +133,56 @@ SCRIPT = r"""'use strict';
   let moodleRevision = 0, moodleBusy = false;
   let activeChat = /^#chat\/([a-f0-9]{32})$/.exec(location.hash)?.[1] || 'default', chatGeneration = 0;
   const chatDrafts = new Map();
-  const chats = new window.CampusPulseChats({api, selected: () => activeChat,
+  const chats = new window.CampusPulseChats({api, selected: () => activeChat, session: () => scope,
     navigate: id => { location.hash = id === 'default' ? 'workspace' : 'chat/' + id; },
-    changed: () => updateNavigation({preserveNavigation: true}), blocked: () => !scope || busy || chatBusy});
+    changed: () => updateNavigation({preserveNavigation: true}), blocked: () => !scope || busy || chatBusy || voiceState !== 'idle'});
+  $('chat-limit-new').addEventListener('click', () => $('chat-new').click());
   const pendingChatKey = () => activeChat === 'default' ? 'pending-chat' : 'pending-chat:' + activeChat;
-  function selectChat(id) {
-    if (id === activeChat) { chats.selection(); return; }
-    if (busy || chatBusy) {
-      history.replaceState(null, '', location.pathname + location.search + (activeChat === 'default' ? '#workspace' : '#chat/' + activeChat));
-      $('chat-status').textContent = 'Дождитесь завершения текущего запроса, затем откройте другой чат.';
-      return;
+  const draftPrefix = () => 'campuspulse-draft-v1:' + scope + ':';
+  function saveDraft() {
+    if (!scope) return;
+    const draft = {text: $('recovery-message').value, pendingText};
+    chatDrafts.set(activeChat, draft);
+    try {
+      if (draft.text || draft.pendingText !== null) sessionStorage.setItem(draftPrefix() + activeChat, JSON.stringify(draft));
+      else sessionStorage.removeItem(draftPrefix() + activeChat);
+    } catch { /* Keep the in-memory draft when browser storage is unavailable. */ }
+  }
+  function restoreDraft(id) {
+    let draft = chatDrafts.get(id);
+    if (!draft && scope) {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(draftPrefix() + id));
+        if (saved && typeof saved.text === 'string' && saved.text.length <= 4000 &&
+            (saved.pendingText === null || typeof saved.pendingText === 'string' && saved.pendingText.length <= 4000)) draft = saved;
+      } catch { /* An invalid saved draft must not prevent opening a chat. */ }
     }
-    chatDrafts.set(activeChat, {text: $('recovery-message').value, pendingText});
-    activeChat = id; ++chatGeneration;
-    $('conversation-index')?.replaceChildren();
-    const draft = chatDrafts.get(id);
     pendingText = draft?.pendingText ?? null;
     $('recovery-message').value = draft?.text || '';
+  }
+  function clearDrafts() {
+    chatDrafts.clear();
+    if (!scope) return;
+    try {
+      const prefix = draftPrefix();
+      for (const key of Object.keys(sessionStorage)) if (key.startsWith(prefix)) sessionStorage.removeItem(key);
+    } catch { /* Storage can be disabled by browser policy. */ }
+  }
+  function selectChat(id) {
+    if (id === activeChat) { chats.selection(); return; }
+    if (busy || chatBusy || voiceState !== 'idle') {
+      history.replaceState(null, '', location.pathname + location.search + (activeChat === 'default' ? '#workspace' : '#chat/' + activeChat));
+      const status = voiceState !== 'idle' ? $('voice-status') : $('chat-status');
+      status.textContent = voiceState !== 'idle' ? 'Завершите голосовой ввод, затем откройте другой чат.' : 'Дождитесь завершения текущего запроса, затем откройте другой чат.';
+      return;
+    }
+    saveDraft();
+    activeChat = id; ++chatGeneration;
+    $('conversation-index')?.replaceChildren();
+    restoreDraft(id);
     $('chat-history').replaceChildren(); $('chat-history').hidden = true;
     $('workspace').classList.remove('has-chat');
-    chatAvailable = false; chatWorking = false; chats.selection(); controls();
+    chatAvailable = false; chatWorking = false; chatLimitReached = false; chats.selection(); controls();
     if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
   }
   const views = {
@@ -175,6 +206,8 @@ SCRIPT = r"""'use strict';
     document.body.dataset.view = view;
     if ($('view-title')) $('view-title').textContent = view === 'assistant' ? chats.title() : views[view][0];
     if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
+    const chatTarget = activeChat === 'default' ? '#workspace' : '#chat/' + activeChat;
+    document.querySelectorAll('.nav-link[data-view=assistant], .rail-link[data-view=assistant], .brand, .rail-brand').forEach(link => { link.href = chatTarget; });
     document.title = 'CampusPulse · ' + (view === 'assistant' ? chats.title() : views[view][0]);
     document.querySelectorAll('.nav-link, .rail-link').forEach(link => {
       const current = link.dataset.view === view;
@@ -220,6 +253,10 @@ SCRIPT = r"""'use strict';
       }
       const error = new Error(messages[response.status] || 'Не удалось получить результат. Обновите состояние.');
       error.status = response.status;
+      if (path === '/api/chat' && response.status === 409) {
+        const detail = await response.json().catch(() => ({}));
+        if (detail.error === 'chat_history_limit') error.code = detail.error;
+      }
       throw error;
     }
     return response;
@@ -409,9 +446,11 @@ SCRIPT = r"""'use strict';
     $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
     $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
-    $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || !scope || !chatAvailable || !$('recovery-message').value.trim();
+    $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || chatLimitReached || !scope || !chatAvailable || !$('recovery-message').value.trim();
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
+    $('chat-limit').hidden = !chatLimitReached;
+    $('chat-limit-new').disabled = !scope || busy || chatBusy || !chats.data || chats.mutating;
     chats.controls();
   }
   // Small, deliberately limited Markdown subset. Model text never becomes HTML.
@@ -467,6 +506,7 @@ SCRIPT = r"""'use strict';
     }
   }
   function showChat(chat) {
+    chatLimitReached = chat.limit_reached === true;
     speechAvailable = chat.speech_available === true;
     chatAvailable = chat.available;
     chatWorking = chat.turns.some(turn => turn.status === 'working');
@@ -527,8 +567,12 @@ SCRIPT = r"""'use strict';
       if (revision !== generation || session !== scope || selection !== chatGeneration) return;
       showChat(chat);
       const pending = stored(pendingChatKey());
-      if (pending && chat.turns.some(turn => turn.request_key === pending)) {
+      const accepted = pending && chat.turns.find(turn => turn.request_key === pending);
+      if (accepted && accepted.status !== 'working') {
+        if (accepted.status === 'completed' && $('recovery-message').value.trim() === accepted.message.trim())
+          $('recovery-message').value = '';
         stored(pendingChatKey(), null); pendingText = null;
+        saveDraft();
       }
     } catch (error) {
       if (revision !== generation || session !== scope || selection !== chatGeneration) return;
@@ -549,13 +593,22 @@ SCRIPT = r"""'use strict';
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
       const request_key = keyFor(pendingChatKey()); pendingText = message;
+      saveDraft();
       const chat = await (await api('/api/chat', {request_key, message, chat_id: activeChat})).json();
       stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
+      saveDraft();
       showChat(chat);
+      await chats.load();
+      updateNavigation({preserveNavigation: true});
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
+      if (error.code === 'chat_history_limit') {
+        chatLimitReached = true; pendingText = null; stored(pendingChatKey(), null);
+        $('chat-status').textContent = 'Этот диалог заполнен. Начните новый диалог — история сохранена.';
+        return;
+      }
       $('chat-status').textContent = 'Не удалось получить ответ. Текст сохранён в поле. ' + error.message + ' Нажмите «Обновить состояние», чтобы проверить историю.';
     } finally { chatBusy = false; controls(); $('recovery-message').focus({preventScroll: true}); }
   }
@@ -568,8 +621,9 @@ SCRIPT = r"""'use strict';
     $('trace-health').textContent = 'Загрузите журнал выбранного запуска. Обновление не подтверждает результат.';
     try {
       const session = await (await api('/auth/session')).json();
-      if (scope !== session.session_id) { chats.reset(); chatDrafts.clear(); pendingText = null; }
+      if (scope !== session.session_id) { chats.reset(); clearDrafts(); pendingText = null; }
       scope = session.session_id;
+      restoreDraft(activeChat);
       const selector = new URLSearchParams(location.search);
       activeRun = selector.get('run_id') || stored('run');
       const query = new URLSearchParams();
@@ -596,8 +650,9 @@ SCRIPT = r"""'use strict';
       }
     } catch (error) {
       if (revision === generation) {
-        scope = null; activeRun = null; chatAvailable = false; chatWorking = false;
-        chats.reset(); chatDrafts.clear(); ++chatGeneration;
+        if (error.status === 403) clearDrafts(); else chatDrafts.clear();
+        scope = null; activeRun = null; chatAvailable = false; chatWorking = false; chatLimitReached = false;
+        chats.reset(); ++chatGeneration;
         $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
         $('workspace').classList.remove('has-chat');
         $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
@@ -676,7 +731,7 @@ SCRIPT = r"""'use strict';
   }
   $('start').addEventListener('click', () => act('start'));
   $('chat-form').addEventListener('submit', sendMessage);
-  $('recovery-message').addEventListener('input', controls);
+  $('recovery-message').addEventListener('input', () => { saveDraft(); controls(); });
   window.addEventListener('resize', resizeComposer);
   $('recovery-message').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -728,7 +783,7 @@ SCRIPT = r"""'use strict';
   });
   updateNavigation();
   $('focus-composer')?.addEventListener('click', () => {
-    location.hash = 'workspace'; updateNavigation();
+    location.hash = activeChat === 'default' ? 'workspace' : 'chat/' + activeChat; updateNavigation();
     requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
   });
   $('reload').addEventListener('click', () => {
@@ -764,15 +819,15 @@ SCRIPT = r"""'use strict';
   $('trace-more').addEventListener('click', () => trace(false));
   $('signout').addEventListener('click', async () => {
     if (busy || chatBusy) return;
-    try { await api('/auth/signout', {}); ++generation; scope = null; activeRun = null;
-      chats.reset(); chatDrafts.clear(); activeChat = 'default'; ++chatGeneration;
+    try { await api('/auth/signout', {}); ++generation; clearDrafts(); scope = null; activeRun = null;
+      chats.reset(); clearDrafts(); activeChat = 'default'; ++chatGeneration;
       ++moodleRevision; moodleBusy = false;
       clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
       $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
       $('workspace').classList.remove('has-chat'); $('recovery-message').value = '';
-      chatAvailable = false; chatWorking = false; pendingText = null;
+      chatAvailable = false; chatWorking = false; chatLimitReached = false; pendingText = null;
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
       history.replaceState(null, '', '/'); updateNavigation();

@@ -44,6 +44,10 @@ class Conversation(Contract):
     turns: Annotated[tuple[ChatTurn, ...], Field(max_length=40)] = ()
 
 
+def history_limit_reached(chat):
+    return len(chat.turns) >= 40 or len(canonical_json(chat).encode()) > 180_000
+
+
 class ChatAgent(Protocol):
     async def reply(self, *, history: tuple[ChatTurn, ...], message: str,
                     user_id: str, session_id: str, sources: dict) -> str: ...
@@ -76,7 +80,7 @@ class ChatStore(_Repository):
                 if previous.message != value.message:
                     raise BindingConflict('chat_request_changed')
                 return chat, False
-            if len(chat.turns) >= 40 or len(canonical_json(chat).encode()) > 180_000:
+            if history_limit_reached(chat):
                 raise BindingConflict('chat_history_limit')
             turns = []
             for turn in chat.turns:
@@ -128,7 +132,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
         for original, turn in zip(chat.turns, turns):
             if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=90):
                 turn['status'] = 'unknown'
-        result = {'available': agent is not None, 'turns': turns}
+        result = {'available': agent is not None, 'turns': turns,
+                  'limit_reached': history_limit_reached(chat)}
         if callable(getattr(agent, 'transcribe', None)):
             result['speech_available'] = True
         failure = getattr(agent, 'last_failure', None)
@@ -163,9 +168,18 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
         with auth.request_scope(credential) as context:
             if value.chat_id != 'default':
                 await workspace.require_chat(context, value.chat_id)
-            chat, claimed = await store.claim(context, value, auth.now())
+            try:
+                chat, claimed = await store.claim(context, value, auth.now())
+            except BindingConflict as error:
+                if str(error) != 'chat_history_limit':
+                    raise
+                await fresh(request, credential)
+                return _json({'error': 'chat_history_limit'}, 409)
             await fresh(request, credential)
             if not claimed:
+                turn = next(t for t in chat.turns if t.request_key == value.request_key)
+                await workspace.record_activity(context, value.chat_id, value.message, turn.created_at)
+                await fresh(request, credential)
                 return _json(view(chat))
             started = monotonic()
             response = None
@@ -202,6 +216,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             await fresh(request, credential)
             chat = await store.finish(context, value.request_key, response=response,
                                       duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id)
+            turn = next(t for t in chat.turns if t.request_key == value.request_key)
+            await workspace.record_activity(context, value.chat_id, value.message, turn.created_at)
             await fresh(request, credential)
             return _json(view(chat))
 

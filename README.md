@@ -7,7 +7,7 @@ CampusPulse помогает студенту собрать дедлайны Mo
 Gemini для диалога и Firestore для сохранения состояния. Отдельный recovery-агент
 строит проверяемый план через MCP и Google Calendar.
 
-**Приложение:** [открыть CampusPulse](https://campuspulse-585736102295.us-central1.run.app/login).
+**Приложение:** [открыть CampusPulse](https://campuspulse-403025736340.us-central1.run.app/login).
 
 Основной стек: Python 3.12, FastAPI, Google ADK, Gemini API для обычного чата,
 Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Firestore.
@@ -81,7 +81,7 @@ flowchart LR
 
 ## Быстрый запуск опубликованного приложения
 
-1. Откройте [CampusPulse](https://campuspulse-585736102295.us-central1.run.app/login)
+1. Откройте [CampusPulse](https://campuspulse-403025736340.us-central1.run.app/login)
    и войдите через Google.
 2. В Moodle AITU откройте **Календарь → Экспорт календаря**. Для полного источника
    планирования выберите **All events → Recent and next 60 days → Get calendar URL**.

@@ -183,3 +183,53 @@ def test_busy_chat_does_not_block_an_independent_chat():
             assert (await client.get('/api/chat')).json()['turns'][0]['message'] == 'Question 1'
             assert (await client.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == 'Independent'
     run(scenario())
+
+
+def test_first_message_names_new_chat_and_manual_name_survives_followups():
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            created = await change(client, headers, 'create_chat', 'auto-title', title='Новый чат', folder_id=None)
+            chat_id = created['item_id']
+            payload = {'request_key': 'first-message', 'message': '  Объясни\n  алгоритм Крускала  ', 'chat_id': chat_id}
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 200
+            catalog = (await client.get('/api/chat/workspace')).json()
+            entry = next(c for c in catalog['chats'] if c['chat_id'] == chat_id)
+            assert entry['title'] == 'Объясни алгоритм Крускала'
+            assert entry['updated_at'] == h.clock.value.isoformat().replace('+00:00', 'Z')
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 200
+            assert (await client.get('/api/chat/workspace')).json() == catalog
+            await change(client, headers, 'rename_chat', 'manual-name', item_id=chat_id, title='Мой учебный план')
+            from datetime import timedelta
+            h.clock.value += timedelta(minutes=1)
+            assert (await client.post('/api/chat', headers=headers, json={
+                **payload, 'request_key': 'followup-message', 'message': 'Продолжай'})).status_code == 200
+            entry = next(c for c in (await client.get('/api/chat/workspace')).json()['chats'] if c['chat_id'] == chat_id)
+            assert entry['title'] == 'Мой учебный план'
+            assert entry['updated_at'] == h.clock.value.isoformat().replace('+00:00', 'Z')
+    run(scenario())
+
+
+def test_existing_chat_titles_and_histories_are_preserved_on_catalog_upgrade():
+    import json
+    from campuspulse_recovery.domain.models import canonical_hash, canonical_json
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            chat_id = (await change(client, headers, 'create_chat', 'old-chat', title='Ручное название', folder_id=None))['item_id']
+            # Simulate the document written by the previous release, without new metadata.
+            for path, saved in h.documents.data.items():
+                if path.startswith('cp_chat_workspaces/'):
+                    previous = json.loads(saved['body'])
+                    for entry in previous['chats']:
+                        entry.pop('auto_title', None)
+                        entry.pop('updated_at', None)
+                    saved.update(kind='chat-workspace-v1', body=canonical_json(previous).encode(), digest=canonical_hash(previous))
+            assert (await client.post('/api/chat', headers=headers, json={
+                'chat_id': chat_id, 'request_key': 'after-upgrade', 'message': 'Новый вопрос'})).status_code == 200
+            entry = next(c for c in (await client.get('/api/chat/workspace')).json()['chats'] if c['chat_id'] == chat_id)
+            assert entry['title'] == 'Ручное название'
+            assert (await client.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == 'Новый вопрос'
+    run(scenario())

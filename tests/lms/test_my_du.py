@@ -251,7 +251,7 @@ async def test_concurrent_refresh_and_disconnect_fence(tmp_path):
 
 
 @run_async
-async def test_wrong_week_does_not_become_free_time_and_account_form(tmp_path):
+async def test_wrong_week_does_not_become_free_time_and_moodle_settings_stay_available(tmp_path):
     provider = Provider()
     provider.invalid_week = True
     app = application(tmp_path, provider)
@@ -260,10 +260,10 @@ async def test_wrong_week_does_not_become_free_time_and_account_form(tmp_path):
         response = await post(alice, '/api/account/my-du/connect', await connection(alice))
         assert response.json()['error'] == 'unavailable' and response.json()['snapshot'] is None
         page = await alice.get('/account')
-        assert 'Моё расписание занятий' in page.text and 'Войти через Microsoft' not in page.text
+        assert page.status_code == 200
+        assert 'id="moodle-url"' in page.text
+        assert 'Моё расписание занятий' not in page.text and 'Войти через Microsoft' not in page.text
         assert "script-src 'self'" in page.headers['content-security-policy']
-        script = await alice.get('/assets/account.js')
-        assert 'textContent = label' in script.text
 
 
 @run_async
