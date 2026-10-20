@@ -355,8 +355,9 @@ async function sampleReference(referenceUrl) {
 }
 
 
-export async function createParticleScene({ canvas, referenceUrl }) {
+export async function createParticleScene({ canvas, referenceUrl, onReferenceLoaded }) {
   const sampled = await sampleReference(referenceUrl);
+  onReferenceLoaded?.(sampled.sourceTexture.image);
   // The one-shot scene stops rendering after settling. Keep that final frame
   // across compositor/viewport resizes without a continuous animation ticker.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,

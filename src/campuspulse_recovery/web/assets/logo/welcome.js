@@ -98,6 +98,14 @@ try {
     scene = await createParticleScene({
       canvas,
       referenceUrl: new URL('./assets/g-reference.png', import.meta.url).href,
+      onReferenceLoaded({ data, width, height }) {
+        // Reuse the recovered alpha for a crisp still when WebGL is unavailable.
+        fallback.width = width; fallback.height = height;
+        const context = fallback.getContext('2d');
+        if (!context) return;
+        context.putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0);
+        fallback.dataset.prepared = 'true';
+      },
     });
   }
 
@@ -153,7 +161,7 @@ try {
 } catch {
   scene?.dispose();
   canvas.hidden = true;
-  fallback.hidden = false;
+  fallback.hidden = fallback.dataset.prepared !== 'true';
   if (!dismissed) {
     logo.dataset.state = 'fallback';
     logo.classList.add('is-settled');
