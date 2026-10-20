@@ -26,7 +26,6 @@ SCRIPT = r"""'use strict';
     $('voice-toggle').textContent = voiceState === 'recording' ? 'Остановить запись' :
       voiceState === 'transcribing' ? 'Распознаём…' : voiceState === 'requesting' ? 'Открываем микрофон…' : 'Голосовой ввод';
     $('voice-toggle').setAttribute('aria-pressed', String(voiceState === 'recording'));
-    $('voice-language').disabled = !idle;
   }
   $('voice-toggle').addEventListener('click', async () => {
     if (voiceState === 'recording') {
@@ -35,7 +34,6 @@ SCRIPT = r"""'use strict';
     if ($('voice-toggle').disabled) return;
     const revision = generation;
     let chunks = [], size = 0, tooLarge = false, signalFrames = 0, startedAt = 0;
-    const language = $('voice-language').value;
     voiceState = 'requesting'; controls();
     try {
       voiceStream = await navigator.mediaDevices.getUserMedia({audio: {
@@ -86,7 +84,7 @@ SCRIPT = r"""'use strict';
         try {
           const response = await fetch('/api/chat/transcribe', {method: 'POST', credentials: 'same-origin',
             cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
-            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': await csrf(), 'X-Speech-Language': language},
+            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': await csrf()},
             body: new Blob(chunks, {type: voiceMime})});
           if (!response.ok) {
             const error = new Error('transcription');

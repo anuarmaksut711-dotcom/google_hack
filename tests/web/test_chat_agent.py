@@ -56,11 +56,23 @@ def test_transcription_passes_audio_to_configured_model_without_tools_or_history
         assert request.contents[0].parts[0].inline_data.mime_type == 'audio/webm'
         assert not request.tools_dict
         assert 'Transcribe only' in request.config.system_instruction
-        assert 'spoken language is Russian' in request.config.system_instruction
+        assert 'Do not translate' in request.config.system_instruction
+        assert 'mixed' in request.config.system_instruction.lower()
+        assert 'Russian' in request.config.system_instruction and 'Kazakh' in request.config.system_instruction
+        assert 'spoken language is Russian' not in request.config.system_instruction
+        assert 'spoken language is Kazakh' not in request.config.system_instruction
     run(scenario())
 
 
-def test_gemini_api_uses_dedicated_asr_and_reads_transcription_parts(monkeypatch):
+@pytest.mark.parametrize('options,language_codes,transcript', [
+    ({}, [], 'Завтра у меня две пары.'),
+    ({}, [], 'Ертең менде екі сабақ бар.'),
+    ({}, [], 'Ертең емтихан, помоги составить план.'),
+    ({'language': 'auto'}, [], 'Ертең емтихан, помоги составить план.'),
+    ({'language': 'ru-RU'}, ['ru-RU'], 'Завтра у меня две пары.'),
+    ({'language': 'kk-KZ'}, ['kk-KZ'], 'Ертең менде екі сабақ бар.'),
+])
+def test_gemini_api_uses_dedicated_asr_and_reads_transcription_parts(monkeypatch, options, language_codes, transcript):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
 
@@ -68,16 +80,16 @@ def test_gemini_api_uses_dedicated_asr_and_reads_transcription_parts(monkeypatch
         response = types.GenerateContentResponse(candidates=[types.Candidate(
             finish_reason=types.FinishReason.STOP,
             content=types.Content(parts=[types.Part(
-                audio_transcription=types.Transcription(text='Завтра у меня две пары.'))]))])
+                audio_transcription=types.Transcription(text=transcript))]))])
         generate = AsyncMock(return_value=response)
         client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate),
             aclose=AsyncMock()), close=Mock())
         agent = AdkConversationAgent(ConversationTarget(provider='gemini_api', model='gemini-synthetic'))
         monkeypatch.setattr(agent, '_create_model', lambda: SimpleNamespace(api_client=client))
-        assert await agent.transcribe(audio=b'voice', mime_type='audio/mp4', language='ru-RU') == 'Завтра у меня две пары.'
+        assert await agent.transcribe(audio=b'voice', mime_type='audio/mp4', **options) == transcript
         values = generate.call_args.kwargs
         assert values['model'] == 'gemini-3.5-transcribe'
-        assert values['config'].audio_transcription_config.language_codes == ['ru-RU']
+        assert values['config'].audio_transcription_config.language_codes == language_codes
         assert values['contents'][0].parts[0].inline_data.data == b'voice'
         assert values['contents'][0].parts[0].inline_data.mime_type == 'audio/m4a'
         assert values['config'].system_instruction is None

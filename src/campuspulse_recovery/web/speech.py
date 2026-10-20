@@ -23,7 +23,7 @@ def create_speech_router(*, auth, agent):
         mime = request.headers.get('content-type', '').split(';', 1)[0].lower()
         if mime not in AUDIO_TYPES:
             return _json({'error': 'unsupported_audio'}, 415)
-        language = request.headers.get('x-speech-language', 'ru-RU')
+        language = request.headers.get('x-speech-language', 'auto')
         if language not in {'ru-RU', 'kk-KZ', 'auto'}:
             return _json({'error': 'unsupported_language'}, 400)
         if lock.locked():

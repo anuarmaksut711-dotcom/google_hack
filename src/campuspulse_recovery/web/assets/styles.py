@@ -114,8 +114,7 @@ body[data-view=journal] .recovery-home, body[data-view=journal] #moodle, body[da
 .voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; }
 #voice-status { flex: 1 1 200px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 #voice-toggle[aria-pressed="true"] { background: #a92d35; }
-.voice-language, #voice-level-wrap { font-size: 12px; color: var(--muted); }
-#voice-language { font: inherit; min-height: 44px; max-width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+#voice-level-wrap { font-size: 12px; color: var(--muted); }
 #voice-level { width: 100px; vertical-align: middle; }
 .chat-user > p, .chat-answer { font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
 .chat-answer > * + * { margin-top: 12px; }

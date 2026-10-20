@@ -201,14 +201,16 @@ class AdkConversationAgent:
                     await client.aio.aclose()
                 client.close()
 
-    async def transcribe(self, *, audio: bytes, mime_type: str, language: str = 'ru-RU') -> str:
+    async def transcribe(self, *, audio: bytes, mime_type: str, language: str = 'auto') -> str:
         """Reuse the configured provider, with no conversation history or tools."""
         from google.adk.models.llm_request import LlmRequest
         from google.genai import types
 
         hints = {'ru-RU': 'The spoken language is Russian. Do not translate into another language.',
                  'kk-KZ': 'The spoken language is Kazakh. Do not translate into another language.',
-                 'auto': 'Preserve the spoken language. Do not translate.'}
+                 'auto': 'Automatically detect all spoken languages, including Russian and Kazakh. '
+                     'Preserve mixed-language speech and transcribe each segment in its original language. '
+                     'Do not translate.'}
         if language not in hints:
             raise ValueError('unsupported_speech_language')
         model = (self.model_factory or self._create_model)()
