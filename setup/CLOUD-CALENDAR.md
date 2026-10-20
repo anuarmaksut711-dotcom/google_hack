@@ -1,9 +1,29 @@
 # Moodle calendar + Gemini in Google Cloud
 
-Current source replaces My DU with [manual weekly classes](MANUAL-SCHEDULE.md).
+The deployed application replaces My DU with [manual weekly classes](MANUAL-SCHEDULE.md).
 Moodle refreshes every five minutes in the visible workspace; the existing
-cloud scheduler configuration runs every fifteen minutes. Deployment records
-below describe earlier releases and do not confirm deployment of these changes.
+cloud scheduler runs every fifteen minutes, including when the browser is closed.
+
+## Manual schedule release — 20 October 2026
+
+- Source: `0a6db24a81031ba28ec241760692292355eed972`, pushed to `main`.
+- Cloud Build: `22e0b323-0c6e-4986-a71c-0526057aecce`, `SUCCESS`.
+- Image digest: `sha256:bca22f837dc285dc2fc7404938e5c9e9691df793c2b81d9f3445899039a7bc90`.
+- Cloud Run revision: `campuspulse-manual-0a6db24`, serving 100% of traffic.
+- Private smoke execution: `campuspulse-check-5brch`, successful. It refreshed
+  Moodle using the deployed credentials and Firestore, then checked a real Gemini
+  structured plan against synthetic class intervals.
+- [Complete Linux CI](https://github.com/anuarmaksut711-dotcom/google_hack/actions/runs/39432441129)
+  passed for this source commit.
+- Browser verification: the published authenticated account page loads the
+  manual schedule form with no console errors. Desktop and mobile form behavior,
+  save/reload, invalid times and overlap rejection were checked using an isolated
+  synthetic account running the same application. The user's live schedule was
+  not changed during QA.
+- Live `/health` and `/login` return 200; anonymous `/api/account/classes`
+  returns 403.
+
+The records later in this document describe earlier releases.
 
 This is the deployed version of the local calendar application, not the separate
 Sheets/Calendar recovery agent or Agent Engine runtime.
