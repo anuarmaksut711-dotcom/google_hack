@@ -24,6 +24,7 @@ from ..security.resources import ResourcePolicy
 from ..storage.plans import _decode
 from ..storage.sqlite_documents import SqliteDocuments
 from ..web.app import SignInBody, _set, body
+from ..web.account import render_moodle_settings
 from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
     GoogleSignInVerifier, WebAuth, WebSession, digest)
 from ..web.passwords import (EMAIL_ISSUER, EmailCredentials, EmailRegistrationUnavailable,
@@ -65,6 +66,7 @@ class AccountFeed:
         self.directory, self.transport = directory / self.owner_id, transport
         self.record = 'cp_moodle_accounts/' + self.owner_id
         self.feed = None
+        self._configured_url = None
         self.lock = asyncio.Lock()
         self.feed_factory = feed_factory
         self.my_du = my_du
@@ -90,10 +92,21 @@ class AccountFeed:
 
     async def restore(self):
         saved = await self.documents.get(self.record)
-        if saved is not None:
-            if set(saved) != {'owner_id', 'url'} or saved['owner_id'] != self.owner_id:
-                raise AccessDenied('moodle_account_binding_mismatch')
+        if saved is None:
+            self.feed, self._configured_url = None, None
+            return
+        if set(saved) != {'owner_id', 'url'} or saved['owner_id'] != self.owner_id:
+            raise AccessDenied('moodle_account_binding_mismatch')
+        if self.feed is None or saved['url'] != self._configured_url:
             self.feed = self.make(saved['url'])
+            self._configured_url = saved['url']
+
+    async def connected(self, context):
+        """Saved account binding, independent of a Moodle fetch or snapshot age."""
+        self.authorize(context)
+        async with self.lock:
+            await self.restore()
+            return self.feed is not None
 
     def authorize(self, context):
         self.policy.require_context(context)
@@ -102,8 +115,7 @@ class AccountFeed:
     async def read(self, context):
         self.authorize(context)
         async with self.lock:
-            if self.feed_factory is not None:
-                await self.restore()
+            await self.restore()
             if self.feed and hasattr(self.feed, 'load'):
                 await self.feed.load()
             return self.feed.state() if self.feed else FeedState(owner_id=self.owner_id,
@@ -112,16 +124,14 @@ class AccountFeed:
     async def refresh(self, context):
         self.authorize(context)
         async with self.lock:
-            if self.feed_factory is not None:
-                await self.restore()
+            await self.restore()
             if self.feed:
                 await self.feed.refresh()
 
     async def status(self, context, task_id, done):
         self.authorize(context)
         async with self.lock:
-            if self.feed_factory is not None:
-                await self.restore()
+            await self.restore()
             if self.feed is None:
                 raise ValueError('moodle_not_connected')
             await self.feed.set_local_status(task_id, done)
@@ -138,12 +148,12 @@ class AccountFeed:
                 tx.set(self.record, {'owner_id': self.owner_id, 'url': url})
             await self.documents.transact(save)
             self.feed = candidate
+            self._configured_url = url
 
     async def project(self, context, *, run, plan):
         self.authorize(context)
         async with self.lock:
-            if self.feed_factory is not None:
-                await self.restore()
+            await self.restore()
             if self.feed is None:
                 sources = SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
                     calendar=(f'Сейчас {self.my_du.clock().isoformat()}. Часовой пояс: {self.policy.config.student.timezone}.'
@@ -245,7 +255,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 runs_factory=None if recovery is None else recovery.runs,
                 approval_store=None if recovery is None else recovery.approvals,
                 planning_url=None if recovery is None else '/planning',
-                owner_chat_history=True, account_url='/account', email_credentials=email_credentials)
+                owner_chat_history=True, account_url='/settings', email_credentials=email_credentials)
             auth = inner.state.web_auth
             if recovery is not None:
                 from ..web.moodle_planning import install_planning_routes
@@ -257,22 +267,14 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             install_my_du_routes(inner, auth=auth, account=my_du)
 
             @inner.get('/account', response_class=HTMLResponse)
+            @inner.get('/settings', response_class=HTMLResponse)
             async def account(request: Request):
-                await auth.load(request)
-                return ('<!doctype html><html lang="ru"><meta charset="utf-8">'
-                    '<meta name="viewport" content="width=device-width,initial-scale=1">'
-                    '<title>Моё подключение · CampusPulse</title><link rel="stylesheet" href="/assets/login.css">'
-                    '<main><a href="/">К заданиям и плану</a><h1>Мой Moodle</h1>'
-                    '<p>Откройте Moodle AITU → Календарь → Экспорт календаря. Выберите все события, '
-                    'нажмите Get calendar URL и вставьте полученную ссылку сюда.</p>'
-                    '<p>Ссылка даёт доступ к вашему календарю. Задания, отметки и переписка с Gemini '
-                    'будут привязаны к этому аккаунту. При составлении плана Gemini получает названия предметов, заданий и сроки. '
-                    'Календарь не сообщает, сдали ли вы работу: выполненные задания отмечайте здесь.</p>'
-                    '<form id="connect-moodle"><label for="moodle-url">Ссылка календаря Moodle</label>'
-                    '<input id="moodle-url" type="url" required autocomplete="off" maxlength="4096">'
-                    '<button type="submit">Подключить мой Moodle</button></form>'
-                    '<p id="account-status" role="status"></p>' + ACCOUNT_MY_DU +
-                    '</main><script src="/assets/account.js"></script></html>')
+                credential = await auth.load(request)
+                with auth.request_scope(credential) as context:
+                    connected = await feed.connected(context)
+                if (await auth.load(request)).session != credential.session:
+                    raise AccessDenied('account_session_changed')
+                return render_moodle_settings(connected=connected, my_du_html=ACCOUNT_MY_DU)
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):
@@ -292,7 +294,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             @inner.middleware('http')
             async def account_headers(request, call_next):
                 response = await call_next(request)
-                if request.url.path == '/account':
+                if request.url.path in ('/account', '/settings'):
                     response.headers['Content-Security-Policy'] = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
                 return response
 
@@ -374,7 +376,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             inner = await scoped_app(session.principal_id)
             await inner.state.web_auth.load(request)
         except Exception:
-            response = RedirectResponse('/login') if request.method == 'GET' and request.url.path in ('/', '/account') else JSONResponse({'error': 'access_denied'}, status_code=403)
+            response = RedirectResponse('/login') if request.method == 'GET' and request.url.path in ('/', '/account', '/settings') else JSONResponse({'error': 'access_denied'}, status_code=403)
             await response(scope, receive, send)
             return
         if request.method == 'GET' and request.url.path == '/':

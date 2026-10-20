@@ -96,7 +96,8 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <a class="nav-link" data-view="journal" href="#journal-heading" aria-label="Журнал агента"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="nav-label">Журнал агента</span></a>'''
     if advice:
         plan_nav = '<details class="workspace-tools"><summary>Инструменты</summary>' + plan_nav + '</details>'
-    account_link = f'<a class="account-link" href="{e(account_url)}" aria-label="Моё подключение" title="Моё подключение"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>Моё подключение</span></a>' if account_url else ''
+    account_label = 'Настройки' if account_url == '/settings' else 'Моё подключение'
+    account_link = f'<a class="account-link" href="{e(account_url)}" aria-label="{account_label}" title="{account_label}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>{account_label}</span></a>' if account_url else ''
     sources_nav = f'<a class="nav-link" data-view="tasks" href="{sources_target}" aria-label="{sources_title}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8 11h8M8 15h5"/></svg><span class="nav-label">{sources_title}</span><span class="nav-short" aria-hidden="true">Задания</span></a>' if moodle_enabled else ''
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>
