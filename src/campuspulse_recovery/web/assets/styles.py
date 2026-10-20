@@ -104,7 +104,6 @@ summary:hover { color: var(--accent); }
 .chat-message details { margin-top: 14px; font-size: 12px; color: var(--muted); }
 .chat-message details p { font-size: 12px; }
 .has-chat .intro, .has-chat .prompt-suggestions { display: none; }
-.has-chat .command-bar { margin-top: auto; }
 .has-chat .recovery-home { padding-top: 12px; }
 body[data-view=assistant] #moodle, body[data-view=assistant] #panel, body[data-view=assistant] .journal,
 body[data-view=tasks] .recovery-home, body[data-view=tasks] #panel, body[data-view=tasks] .journal,
@@ -226,6 +225,23 @@ footer p { max-width: 65ch; }
   .moodle-task-list > li { padding-block: 20px; }
   .skip { left: 16px; }
   footer { gap: 4px 12px; font-size: 10px; padding-block: 12px; }
+}
+/* Only the assistant owns a viewport-sized shell; other views scroll normally. */
+body[data-view=assistant] { display: flow-root; height: 100dvh; overflow: hidden; }
+body[data-view=assistant] .app-content { height: calc(100dvh - 20px); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+body[data-view=assistant] .topbar { flex-shrink: 0; }
+body[data-view=assistant] #workspace { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+body[data-view=assistant] .recovery-home { flex: 1; min-height: 0; overflow: hidden; padding: 0; }
+.conversation-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; display: flex; flex-direction: column; align-items: center; padding: 20px 8px 12px; }
+.conversation-scroll > * { flex-shrink: 0; }
+.composer-dock { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; width: 100%; padding: 12px 0 max(8px, env(safe-area-inset-bottom)); background: var(--surface); }
+body[data-view=assistant] #feedback, body[data-view=assistant] footer { flex-shrink: 0; }
+body[data-view=assistant] #feedback { margin-top: 0; }
+body[data-view=assistant] #recovery-message { max-height: min(200px, 20dvh); }
+@media (max-width: 760px) {
+  body[data-view=assistant] .app-content { height: 100dvh; }
+  .conversation-scroll { padding: 16px 4px 8px; }
+  .composer-dock { padding-top: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 """

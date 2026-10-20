@@ -114,20 +114,21 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <div class="sidebar-bottom">{account_link}<button id="signout" type="button" hidden aria-label="Выйти" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H5v14h4M10 12h10m-4-4 4 4-4 4"/></svg><span>Выйти из аккаунта</span></button></div>
 </aside>
 <div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваше учебное пространство</span></div><button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></header>
-<main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading">{notice}<div class="intro">
+<main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <img id="welcome-fallback" src="/assets/logo/assets/g-reference.png" alt="" width="409" height="413" hidden>
 <canvas id="welcome-canvas"></canvas></div><h1 id="home-heading">{greeting}</h1><p>{introduction}</p></div>
 <div id="chat-history" class="chat-history" role="log" aria-label="Диалог с CampusPulse" aria-live="polite" aria-relevant="additions" hidden></div>
-<div class="command-bar">
+<div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}</div>
+<div class="recovery-controls"{' hidden' if advice else ''}><div><h2>Проверим ваше расписание?</h2><p>Сначала просмотр изменений. Затем ваше согласование и применение.</p></div><button id="start" type="button" disabled><span>Проверить расписание</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div>
+</div><div class="composer-dock"><div class="command-bar">
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение CampusPulse</label>
 <textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="{'Когда вы свободны и что нужно успеть?' if advice else 'Задайте вопрос об учебном плане…'}" aria-describedby="message-hint chat-status"></textarea>
 <div class="chat-submit"><p id="message-hint">Enter — отправить · Shift+Enter — новая строка</p><button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
 <p id="chat-status" role="status">Проверяем подключение чата…</p></form>
-</div><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}</div>
-<div class="recovery-controls"{' hidden' if advice else ''}><div><h2>Проверим ваше расписание?</h2><p>Сначала просмотр изменений. Затем ваше согласование и применение.</p></div><button id="start" type="button" disabled><span>Проверить расписание</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div>
+</div>
 <p class="consent-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>{consent_note}</span></p>
-</section>
+</div></section>
 <noscript>Для действий включите JavaScript. Загрузка страницы не согласует и не применяет план.</noscript>
 <div id="panel" tabindex="-1" aria-busy="true"><p>Загружаем сохранённый план…</p></div>
 <section class="journal" aria-labelledby="journal-heading"><div class="section-heading"><h2 id="journal-heading">Журнал запуска</h2>

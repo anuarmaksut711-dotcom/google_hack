@@ -331,7 +331,8 @@ SCRIPT = r"""'use strict';
       stored('pending-chat', null); pendingText = null;
       $('recovery-message').value = '';
       showChat(chat);
-      $('chat-history').lastElementChild?.scrollIntoView({block: 'nearest', behavior: 'instant'});
+      const conversation = $('conversation-scroll');
+      conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
       $('chat-status').textContent = 'Не удалось получить ответ. Текст сохранён в поле. ' + error.message + ' Нажмите «Обновить состояние», чтобы проверить историю.';
     } finally { chatBusy = false; controls(); $('recovery-message').focus({preventScroll: true}); }
