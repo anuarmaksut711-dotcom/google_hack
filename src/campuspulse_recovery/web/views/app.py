@@ -19,6 +19,7 @@ from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
 from ..chat import create_chat_router
+from ..workspace import create_workspace_router
 from ..runs import RecoveryRuns, RunView, create_runs_router
 from ..assets.client import SCRIPT
 from ..assets.styles import STYLES
@@ -73,6 +74,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
         agent=chat_agent, projection=projection, owner_history=owner_chat_history))
+    app.include_router(create_workspace_router(auth=auth, documents=documents, policy=policy,
+        owner_history=owner_chat_history))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:
