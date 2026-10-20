@@ -1,5 +1,6 @@
 """Self-hosted dark study workspace. No external fonts or build step."""
 from .workspace import WORKSPACE_STYLES
+from .account_styles import ACCOUNT_STYLES
 STYLES = r"""
 :root {
   color-scheme: dark;
@@ -329,4 +330,4 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 """
-STYLES += WORKSPACE_STYLES
+STYLES += WORKSPACE_STYLES + ACCOUNT_STYLES
