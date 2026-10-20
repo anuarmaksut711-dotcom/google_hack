@@ -1,9 +1,11 @@
 """Authenticated My DU setup; provider credentials never reach the browser."""
+import json
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from ..domain.models import Contract
-from ..lms.my_du import ConnectMyDu
+from ..lms.my_du import ConnectMyDu, MyDuLoginError, MyDuUnavailable
 from .app import body
 
 
@@ -48,8 +50,9 @@ MY_DU_SCRIPT = r'''
     }
     const response=await fetch('/api/account/my-du'+action,options);
     if(response.status===403){location.replace('/login');throw Error();}
-    if(!response.ok)throw Error();
-    return await response.json();
+    const value=await response.json();
+    if(!response.ok){const error=new Error();error.code=value.error;throw error;}
+    return value;
   }
   function show(value){
     list.replaceChildren();refresh.hidden=disconnect.hidden=!value.connected;
@@ -72,7 +75,13 @@ MY_DU_SCRIPT = r'''
   }
   async function action(button, task, failure){
     button.disabled=true;status.textContent='Загружаем расписание…';
-    try{await task();}catch{status.textContent=failure;}finally{button.disabled=false;}
+    const messages={
+      my_du_login_expired:'Этот запрос входа уже использован или истёк. Начните вход через Microsoft заново.',
+      my_du_callback_invalid:'Вставьте полный адрес страницы My DU после входа, включая часть после #.',
+      my_du_login_rejected:'My DU не принял вход. Начните вход через Microsoft заново и сразу подключите расписание.',
+      my_du_unavailable:'Не удалось связаться с My DU. Попробуйте подключиться позже.'
+    };
+    try{await task();}catch(error){status.textContent=messages[error.code]||failure;}finally{button.disabled=false;}
   }
   document.getElementById('my-du-start').addEventListener('click',event=>action(event.currentTarget,async()=>{
     const value=await api('/start',{});
@@ -100,6 +109,18 @@ MY_DU_SCRIPT = r'''
 
 
 def install_my_du_routes(app, *, auth, account):
+    @app.exception_handler(MyDuLoginError)
+    async def login_error(request, error):
+        return JSONResponse({'error': error.reason}, status_code=400)
+
+    @app.exception_handler(MyDuUnavailable)
+    async def provider_error(request, error):
+        # Only fixed diagnostic categories; never log provider bodies or credentials.
+        print(json.dumps({'event': 'my_du_login_failed', 'reason': error.reason,
+                          'provider_status': error.provider_status}), flush=True)
+        code = 'my_du_login_rejected' if error.reason == 'provider_rejected' else 'my_du_unavailable'
+        return JSONResponse({'error': code}, status_code=502)
+
     async def invoke(request, operation=None, contract=Contract):
         credential = await auth.load(request, mutation=operation is not None)
         if request.query_params:
