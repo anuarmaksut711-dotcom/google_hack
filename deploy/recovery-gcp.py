@@ -55,6 +55,13 @@ def gcloud(*args, raw=False, input_text=None):
 
 
 def token(identity=None, audience=None):
+    if identity:
+        operation = 'generateIdToken' if audience else 'generateAccessToken'
+        body = {'audience':audience,'includeEmail':True} if audience else {
+            'scope':['https://www.googleapis.com/auth/cloud-platform'],'lifetime':'3600s'}
+        result = request(f'https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{identity}:{operation}',
+                         body=body,access=token())
+        return result['token'] if audience else result['accessToken']
     args = ['auth', 'print-identity-token' if audience else 'print-access-token']
     if identity:
         args += [f'--impersonate-service-account={identity}']
@@ -276,6 +283,15 @@ def check(resource, as_backend=False):
         raise RuntimeError('remote rejection smoke returned unexpected envelope')
     emit(status='remote_custom_operation_rejection_verified', output=output, recovery_success=False,
          caller=BACKEND if as_backend else 'deployer')
+    # Valid-shaped synthetic grant, invalid service token: this additionally
+    # starts the real ASGI worker and rejects at its service-identity boundary.
+    # No grant can be claimed and no Calendar/source operation can dispatch.
+    worker = request(url + ':query', access=access, body={'class_method':'async_query',
+        'input':{'invocation':'0' * 43,'service_token':'invalid-smoke'}}).get('output',{})
+    if worker != {'status_code':403,'payload':{'error':'service_or_invocation_rejected'}}:
+        raise RuntimeError('worker startup/service-identity rejection not confirmed')
+    emit(status='remote_worker_service_identity_rejection_verified', output=worker,
+         personal_data=False, grants_created=False, calendar_writes=False)
 
 
 def authorize_backend(resource):
@@ -292,9 +308,25 @@ def authorize_backend(resource):
     else:
         gcloud('iam', 'roles', 'create', role_id, '--title=CampusPulse recovery caller',
                '--permissions=' + ','.join(permissions), '--stage=GA')
-    gcloud('projects', 'add-iam-policy-binding', PROJECT,
-           f'--member=serviceAccount:{BACKEND}', f'--role=projects/{PROJECT}/roles/{role_id}',
-           f'--condition=expression=resource.name==\'{resource}\',title=campuspulse-recovery-engine')
+    url = f'https://{REGION}-aiplatform.googleapis.com/v1/{resource}'
+    policy = request(url + ':getIamPolicy',body={})
+    role = f'projects/{PROJECT}/roles/{role_id}'
+    member = f'serviceAccount:{BACKEND}'
+    binding = next((b for b in policy.get('bindings',[]) if b['role'] == role and not b.get('condition')),None)
+    if binding is None:
+        binding = {'role':role,'members':[]}
+        policy.setdefault('bindings',[]).append(binding)
+    if member not in binding['members']:
+        binding['members'].append(member)
+        request(url + ':setIamPolicy',body={'policy':policy})
+    # Remove only this script's earlier project conditional grant, if present.
+    project_policy = gcloud('projects','get-iam-policy',PROJECT)
+    old = next((b for b in project_policy['bindings'] if b['role'] == role
+        and member in b.get('members',[]) and b.get('condition',{}).get('title') == 'campuspulse-recovery-engine'
+        and b['condition']['expression'] == f"resource.name=='{resource}'"),None)
+    if old:
+        gcloud('projects','remove-iam-policy-binding',PROJECT,f'--member={member}',f'--role={role}',
+            f'--condition=expression=resource.name==\'{resource}\',title=campuspulse-recovery-engine')
     emit(status='backend_query_authorized', backend=BACKEND, resource=resource, permissions=permissions)
 
 
@@ -314,16 +346,20 @@ def check_mcp():
             headers = {'Authorization':'Bearer ' + value, 'X-Serverless-Authorization':'Bearer ' + value}
         try:
             with urllib.request.urlopen(urllib.request.Request(MCP_ORIGIN + path, headers=headers),timeout=30) as r:
-                return r.status
+                return r.status, None
         except urllib.error.HTTPError as e:
-            return e.code
-    anonymous = probe('/mcp')
-    signed_health = probe('/healthz', AGENT)
-    missing_grant = probe('/mcp', AGENT)
-    if (anonymous,signed_health,missing_grant) != (403,200,403):
+            payload = None
+            if e.headers.get_content_type() == 'application/json':
+                payload = json.loads(e.read()).get('error')
+            return e.code, payload
+    anonymous,_ = probe('/mcp')
+    signed_health,_ = probe('/healthz', AGENT)
+    missing_grant,code = probe('/mcp', AGENT)
+    if (anonymous,missing_grant,code) != (403,403,'service_or_invocation_rejected'):
         raise RuntimeError('MCP ingress/identity/grant checks failed')
     emit(status='private_mcp_checks_passed', anonymous=anonymous,
-         agent_signed_health=signed_health, signed_missing_grant=missing_grant, tool_execution_verified=False)
+         agent_signed_health=signed_health, signed_missing_grant=missing_grant,
+         application_rejection=code, tool_execution_verified=False)
 
 
 def check_storage():

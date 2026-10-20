@@ -94,15 +94,18 @@ python deploy/recovery-gcp.py check-storage
 ```
 
 `authorize-backend` creates/reuses a two-permission custom role (`get`, `query`)
-with a condition restricted to the exact engine resource. It does not grant
+bound on the exact engine's resource IAM policy. It does not grant
 backend project-wide Vertex administrator/user access.
 
 The check reads actual remote operation schema and calls `async_query` with
 deliberately invalid synthetic input, expecting the runtime's 403 envelope.
 This proves remote custom-operation dispatch and rejection, not successful
-recovery or tool execution. `model-smoke` separately makes one synthetic Vertex
-request as the agent service account. `check-mcp` checks anonymous denial,
-signed-agent health and signed requests denied without grants.
+recovery or tool execution. A second valid-shaped synthetic grant with an invalid
+service token verifies actual ASGI worker startup and service-identity rejection.
+`model-smoke` separately makes one synthetic Vertex request as the agent service
+account. `check-mcp` checks anonymous denial and the application JSON rejection
+of signed requests without grants. It records health separately: this project's
+Cloud Run frontend returns 404 for `/healthz`, which is not used as acceptance.
 
 Local identity impersonation requires `iam.serviceAccounts.getAccessToken` /
 `getOpenIdToken` on the specific account. If unavailable, use a narrowly scoped,
@@ -127,5 +130,6 @@ Calendar to every user. Full propose/approval/apply/verify acceptance is separat
 from infrastructure smoke and requires a separately authorized test calendar.
 
 References: [Google deployment](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent),
+[resource IAM](https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/share-agent),
 [existing runtime contract](AGENT-ENGINE.md). Runtime operation compatibility is
 verified against the repository's pinned SDK, not inferred from newer docs.
