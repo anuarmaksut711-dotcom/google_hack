@@ -1,4 +1,28 @@
-# Chat pages and saved Moodle connection: deployed 20 October 2026
+# Gemini-style chat actions: deployed 20 October 2026
+
+- Site: https://campuspulse-403025736340.us-central1.run.app/
+- Serving revision: `campuspulse-sidebar-3babaca`, 100% of traffic, read back at
+  `2026-10-20T14:26:57Z` (serving revision checked separately from preview revisions).
+- Source: `3babaca`; build: `65c07475-86f7-4511-8430-4a65630c264e`, SUCCESS.
+- Immutable image: `us-central1-docker.pkg.dev/project-e25873c6-e889-40bb-86d/campuspulse/calendar-pages@sha256:c3a2243fcbbdae7c61a74e68418ae009f90d65f140f690589869a5250eea206c`.
+
+The sidebar uses per-row action popovers and native modal editing dialogs, matching
+the observed Gemini rename flow. New chat is at the top; folder creation, folder
+renaming and moving chats remain reachable without persistent sidebar forms.
+Existing histories, saved Moodle configuration, the newer growing composer, and
+the response instructions from the previously deployed prompt release are preserved.
+
+Validation: 434 web/Moodle tests passed, one emulator test skipped; eight chat/agent
+tests passed after preserving the deployed instructions. Local browser tests used
+synthetic identities/data at desktop and 390x844: create/rename/move, folder chat
+creation, Enter, Escape, focus restoration, disabled unchanged input, and no
+horizontal overflow or console errors. Public health/login returned 200, private
+anonymous APIs 403 and settings redirected to login. Candidate health confirmed an
+actual Firestore read before promotion. Fresh production Google sign-in could not
+be completed because browser automation timed out at the account chooser; the
+authenticated interaction evidence is local, not production SSO proof.
+
+## Earlier chat pages and saved Moodle connection release
 
 - Site: https://campuspulse-403025736340.us-central1.run.app/
 - Settings: https://campuspulse-403025736340.us-central1.run.app/settings
