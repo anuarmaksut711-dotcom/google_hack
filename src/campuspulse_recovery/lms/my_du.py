@@ -52,10 +52,18 @@ class ScheduleSnapshot(Contract):
     classes: tuple[ClassMeeting, ...] = Field(max_length=500)
 
 
+class MyDuLoginError(ValueError):
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
 class MyDuUnavailable(ValueError):
-    def __init__(self, reconnect=False):
+    def __init__(self, reconnect=False, *, reason='unavailable', provider_status=None):
         super().__init__('my_du_reconnect' if reconnect else 'my_du_unavailable')
         self.reconnect = reconnect
+        self.reason = reason
+        self.provider_status = provider_status
 
 
 def credentials(value):
@@ -117,9 +125,9 @@ class MyDuClient:
                 async with client.stream('GET' if data is None else 'POST', ORIGIN + '/api' + path,
                         params={'lang': 'en'}, headers=headers, **({} if data is None else {'json': data})) as response:
                     if response.status_code in (401, 403):
-                        raise MyDuUnavailable(reconnect=True)
-                    if response.status_code != 200:
-                        raise MyDuUnavailable()
+                        raise MyDuUnavailable(reconnect=True, reason='provider_rejected', provider_status=response.status_code)
+                    if not 200 <= response.status_code < 300:
+                        raise MyDuUnavailable(reason='provider_rejected', provider_status=response.status_code)
                     raw = bytearray()
                     async for chunk in response.aiter_bytes():
                         raw.extend(chunk)
@@ -127,7 +135,7 @@ class MyDuClient:
                             raise MyDuUnavailable()
                     return json.loads(raw)
         except (httpx.HTTPError, json.JSONDecodeError, UnicodeError):
-            raise MyDuUnavailable() from None
+            raise MyDuUnavailable(reason='transport_or_response') from None
 
     async def exchange(self, code):
         return credentials(await self.request('/auth/external-login', data={
@@ -168,7 +176,7 @@ class MyDuAccount:
         await self.documents.transact(save)
         query = urlencode({'client_id': '9f15860b-4243-4610-845e-428dc4ae43a8',
             'response_type': 'code', 'redirect_uri': ORIGIN + '/login', 'response_mode': 'fragment',
-            'scope': 'offline_access user.read', 'state': state})
+            'scope': 'offline_access user.read mail.read', 'state': state})
         return {'url': 'https://login.microsoftonline.com/158f15f3-83e0-4906-824c-69bdc50d9d61/oauth2/v2.0/authorize?' + query}
 
     async def connect(self, context, value):
@@ -183,7 +191,7 @@ class MyDuAccount:
                     or len(code) > 10000 or any(len(v) != 1 for v in fields.values())):
                 raise ValueError()
         except (KeyError, IndexError, ValueError):
-            raise ValueError('my_du_callback_invalid') from None
+            raise MyDuLoginError('my_du_callback_invalid') from None
         attempt = secrets.token_hex(16)
         async def consume(tx):
             record = await self.load(tx)
@@ -197,7 +205,7 @@ class MyDuAccount:
         # Return a domain rejection outside the transaction: the Firestore port
         # intentionally treats unexpected callback exceptions as unknown writes.
         if not await self.documents.transact(consume):
-            raise ValueError('my_du_login_expired')
+            raise MyDuLoginError('my_du_login_expired')
         tokens = await self.client.exchange(code)
         settings = TermSettings(study_year=value.study_year, term=value.term, first_week_start=value.first_week_start)
         async def save(tx):

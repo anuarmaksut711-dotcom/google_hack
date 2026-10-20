@@ -281,3 +281,28 @@ async def test_outdated_term_is_not_a_successful_empty_schedule(tmp_path):
         response = await post(alice, '/api/account/my-du/connect', value)
         assert response.json()['error'] == 'unavailable'
         assert response.json()['snapshot'] is None
+
+
+@run_async
+async def test_login_accepts_created_credentials_and_reports_safe_rejections(tmp_path, capsys):
+    provider = Provider()
+    reject = False
+    async def transport(request):
+        if request.url.path.endswith('/external-login'):
+            if reject:
+                return httpx.Response(401, text='secret-auth-code-and-provider-body')
+            return httpx.Response(201, json={'access_token': 'created-access', 'refresh_token': 'created-refresh'})
+        return await provider(request)
+    app = application(tmp_path, transport)
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        value = await connection(alice)
+        response = await post(alice, '/api/account/my-du/connect', value)
+        assert response.status_code == 200 and response.json()['connected']
+        assert (await post(alice, '/api/account/my-du/connect', value)).json()['error'] == 'my_du_login_expired'
+        reject = True
+        response = await post(alice, '/api/account/my-du/connect', await connection(alice))
+        assert response.status_code == 502 and response.json() == {'error': 'my_du_login_rejected'}
+        output = capsys.readouterr().out
+        assert 'provider_rejected' in output and '401' in output
+        assert 'secret-' not in output and 'secret-' not in response.text
