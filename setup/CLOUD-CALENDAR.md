@@ -90,3 +90,20 @@ for the deployed job, Scheduler dispatch, or a real browser sign-in check.
 
 These checks confirm the deployed calendar/chat path. They do not claim Moodle
 grade access, Google Calendar writes or a deployed Agent Engine.
+
+## My DU release — 20 October 2026
+
+- Source commit: `9c98d09` (My DU release, independent of ongoing chat-plan work).
+- Cloud Build: `ad3bc18e-17e6-4c48-aae0-a9bab0f76c0c`, SUCCESS.
+- Image digest: `sha256:f8c84f6ccce1229046834bfef30637158da9a30da9dca8480b9baa6fbbdbd822`.
+- Serving revision: `campuspulse-00003-sfb`, 100% of traffic.
+- `/health` and `/login`: HTTP 200; anonymous My DU read/start and scheduled sync: HTTP 403.
+- Cloud smoke execution `campuspulse-check-p6k6w`: completed successfully (Moodle, Firestore, real Gemini).
+- 22 scoped checks passed against the archived release source: My DU, multiuser,
+  cloud calendar, chat and chat agent. A broader LMS/web collection was blocked by
+  missing local `httplib2`; it was not counted as passed.
+
+Each signed-in user can connect a personal My DU schedule on `/account`, following
+[the My DU instructions](MY-DU.md). Real Microsoft/My DU sign-in still requires a
+student to complete the flow and compare the imported classes with their schedule;
+the cloud smoke job does not exercise that provider flow.
