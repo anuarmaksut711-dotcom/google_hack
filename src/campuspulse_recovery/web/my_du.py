@@ -17,7 +17,9 @@ CampusPulse сохранит сессию My DU для обновления ра
 Если указать другую дату, пары попадут на неверные дни.</p>
 <button id="my-du-start" type="button">Войти через Microsoft AITU</button>
 <div id="my-du-login" hidden><p><a id="my-du-link" target="_blank" rel="noopener noreferrer">Открыть вход Microsoft</a>.
-После входа дождитесь перехода на my-du.astanait.edu.kz/login и скопируйте полный адрес страницы из адресной строки.
+Сначала заполните параметры триместра ниже, затем откройте вход Microsoft.
+После перехода на my-du.astanait.edu.kz/login скопируйте полный адрес страницы, включая часть после #.
+Не ждите окончания загрузки My DU: сразу вернитесь сюда с адресом.
 Вернитесь сюда и вставьте его ниже. Ссылка действует 10 минут; не отправляйте её другим людям.</p>
 <form id="connect-my-du">
 <label for="my-du-callback">Адрес страницы после входа</label>
@@ -76,15 +78,23 @@ MY_DU_SCRIPT = r'''
   async function action(button, task, failure){
     button.disabled=true;status.textContent='Загружаем расписание…';
     const messages={
-      my_du_login_expired:'Этот запрос входа уже использован или истёк. Начните вход через Microsoft заново.',
+      my_du_login_expired:'Запрос входа истёк. Нажмите «Войти через Microsoft AITU» и откройте новую ссылку.',
+      my_du_login_mismatch:'Эта ссылка относится к другому запросу входа. Начните вход здесь заново и скопируйте адрес из новой вкладки Microsoft.',
+      my_du_login_used:'Эта ссылка уже отправлена. Если пары не появились, начните вход через Microsoft заново.',
       my_du_callback_invalid:'Вставьте полный адрес страницы My DU после входа, включая часть после #.',
       my_du_login_rejected:'My DU не принял вход. Начните вход через Microsoft заново и сразу подключите расписание.',
       my_du_unavailable:'Не удалось связаться с My DU. Попробуйте подключиться позже.'
     };
-    try{await task();}catch(error){status.textContent=messages[error.code]||failure;}finally{button.disabled=false;}
+    try{await task();}catch(error){
+      status.textContent=messages[error.code]||failure;
+      if(['my_du_login_expired','my_du_login_mismatch','my_du_login_used','my_du_login_rejected','my_du_unavailable'].includes(error.code)){
+        document.getElementById('my-du-callback').value='';
+      }
+    }finally{button.disabled=false;}
   }
   document.getElementById('my-du-start').addEventListener('click',event=>action(event.currentTarget,async()=>{
     const value=await api('/start',{});
+    document.getElementById('my-du-callback').value='';
     document.getElementById('my-du-link').href=value.url;
     document.getElementById('my-du-login').hidden=false;
     status.textContent='Откройте вход Microsoft по ссылке выше и вернитесь с адресом страницы после входа.';
@@ -111,6 +121,7 @@ MY_DU_SCRIPT = r'''
 def install_my_du_routes(app, *, auth, account):
     @app.exception_handler(MyDuLoginError)
     async def login_error(request, error):
+        print(json.dumps({'event': 'my_du_login_validation_failed', 'reason': error.reason}), flush=True)
         return JSONResponse({'error': error.reason}, status_code=400)
 
     @app.exception_handler(MyDuUnavailable)

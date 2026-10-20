@@ -30,6 +30,7 @@ class Provider:
         data = json.loads(request.content) if request.content else None
         if path.endswith('/external-login'):
             assert data['provider'] == 'microsoft'
+            assert data['device_info'] == {'platform': 'web', 'device_id': None}
             return httpx.Response(200, json={'access_token': 'secret-access-' + data['token'], 'refresh_token': 'secret-refresh'})
         if path.endswith('/auth/refresh'):
             if self.refresh_rejected:
@@ -299,10 +300,96 @@ async def test_login_accepts_created_credentials_and_reports_safe_rejections(tmp
         value = await connection(alice)
         response = await post(alice, '/api/account/my-du/connect', value)
         assert response.status_code == 200 and response.json()['connected']
-        assert (await post(alice, '/api/account/my-du/connect', value)).json()['error'] == 'my_du_login_expired'
+        assert (await post(alice, '/api/account/my-du/connect', value)).json()['error'] == 'my_du_login_used'
         reject = True
         response = await post(alice, '/api/account/my-du/connect', await connection(alice))
         assert response.status_code == 502 and response.json() == {'error': 'my_du_login_rejected'}
         output = capsys.readouterr().out
         assert 'provider_rejected' in output and '401' in output
         assert 'secret-' not in output and 'secret-' not in response.text
+
+
+@run_async
+async def test_new_login_does_not_invalidate_another_fresh_tab(tmp_path):
+    provider = Provider()
+    app = application(tmp_path, provider)
+    async with client(app) as alice, client(app) as second_tab, client(app) as bob:
+        await login(alice, 'alice')
+        await login(second_tab, 'alice')
+        await login(bob, 'bob')
+        first = await connection(alice, 'first-code')
+        second = await connection(second_tab, 'second-code')
+        assert (await post(bob, '/api/account/my-du/connect', first)).status_code == 400
+        # Both callbacks still belong to the same authenticated owner.
+        assert (await post(alice, '/api/account/my-du/connect', first)).json()['connected']
+        assert (await post(second_tab, '/api/account/my-du/connect', second)).json()['connected']
+        count = len(provider.calls)
+        assert (await post(alice, '/api/account/my-du/connect', first)).json()['error'] == 'my_du_login_used'
+        assert len(provider.calls) == count
+
+
+@run_async
+async def test_failed_exchange_preserves_reason_and_fresh_login_can_succeed(tmp_path):
+    provider = Provider()
+    rejected = True
+    exchanges = 0
+    async def transport(request):
+        nonlocal exchanges
+        if request.url.path.endswith('/external-login'):
+            exchanges += 1
+            assert json.loads(request.content)['device_info']['platform'] == 'web'
+            if rejected:
+                return httpx.Response(401, text='private-provider-response')
+        return await provider(request)
+    app = application(tmp_path, transport)
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        value = await connection(alice)
+        assert (await post(alice, '/api/account/my-du/connect', value)).json()['error'] == 'my_du_login_rejected'
+        response = await post(alice, '/api/account/my-du/connect', value)
+        assert response.status_code == 400 and response.json()['error'] == 'my_du_login_rejected'
+        assert exchanges == 1  # no retry of a potentially consumed provider code
+        rejected = False
+        assert (await post(alice, '/api/account/my-du/connect', await connection(alice))).json()['connected']
+        assert exchanges == 2
+
+
+@run_async
+async def test_login_requests_are_bounded_expire_and_reject_unknown_state(tmp_path):
+    provider, now = Provider(), NOW
+    app = application(tmp_path, provider, clock=lambda: now)
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        callbacks = [await connection(alice, str(i)) for i in range(6)]
+        response = await post(alice, '/api/account/my-du/connect', callbacks[0])
+        assert response.json()['error'] == 'my_du_login_mismatch'
+        assert not provider.calls
+        unknown = dict(callbacks[-1])
+        unknown['callback_url'] = unknown['callback_url'].replace('state=', 'state=unrelated-')
+        assert (await post(alice, '/api/account/my-du/connect', unknown)).json()['error'] == 'my_du_login_mismatch'
+        assert not provider.calls
+        now += timedelta(minutes=11)
+        assert (await post(alice, '/api/account/my-du/connect', callbacks[-1])).json()['error'] == 'my_du_login_expired'
+        assert not provider.calls
+
+
+@run_async
+async def test_pending_login_survives_previous_revision_and_restart(tmp_path):
+    provider = Provider()
+    app = application(tmp_path, provider)
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        value = await connection(alice)
+    documents = app.state.documents
+    record, = await documents.scan('cp_my_du_accounts')
+    request, = record.pop('login_requests')
+    record['pending'] = {key: request[key] for key in ('state', 'expires_at')}
+    async def save(tx):
+        tx.set('cp_my_du_accounts/' + record['owner_id'], record)
+    await documents.transact(save)
+    replica = application(tmp_path, provider)
+    async with client(replica) as alice:
+        await login(alice, 'alice')
+        # A fresh tab on the new version must not erase the old in-flight login.
+        await connection(alice, 'another-code')
+        assert (await post(alice, '/api/account/my-du/connect', value)).json()['connected']

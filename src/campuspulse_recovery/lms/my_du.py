@@ -140,7 +140,7 @@ class MyDuClient:
     async def exchange(self, code):
         return credentials(await self.request('/auth/external-login', data={
             'provider': 'microsoft', 'token': code, 'email': None,
-            'device_info': {'platform': 'ios', 'device_id': None},
+            'device_info': {'platform': 'web', 'device_id': None},
             'avatar_url': None, 'first_name': None, 'last_name': None}))
 
 
@@ -166,12 +166,24 @@ class MyDuAccount:
             raise AccessDenied('my_du_owner_mismatch')
         return saved
 
+    def login_requests(self, record):
+        requests = [dict(item) for item in record.get('login_requests', [])]
+        # Accept requests issued by the previous server revision during rollout.
+        legacy = record.get('pending')
+        if legacy and not any(item['state'] == legacy['state'] for item in requests):
+            requests.append({**legacy, 'status': 'pending'})
+        return [item for item in requests
+                if self.clock() < datetime.fromisoformat(item['expires_at'])][-5:]
+
     async def start(self, context):
         self.authorize(context)
         state = secrets.token_urlsafe(32)
         async def save(tx):
             record = dict(await self.load(tx) or {'owner_id': self.owner})
-            record['pending'] = {'state': state, 'expires_at': (self.clock() + timedelta(minutes=10)).isoformat()}
+            requests = self.login_requests(record)
+            requests.append({'state': state, 'expires_at': (self.clock() + timedelta(minutes=10)).isoformat(),
+                             'status': 'pending'})
+            record.update(pending=None, login_requests=requests[-5:])
             tx.set(self.path, record)
         await self.documents.transact(save)
         query = urlencode({'client_id': '9f15860b-4243-4610-845e-428dc4ae43a8',
@@ -195,26 +207,54 @@ class MyDuAccount:
         attempt = secrets.token_hex(16)
         async def consume(tx):
             record = await self.load(tx)
-            pending = (record or {}).get('pending')
-            if (not pending or not secrets.compare_digest(pending['state'], state)
-                    or self.clock() >= datetime.fromisoformat(pending['expires_at'])):
-                return False
-            record.update(pending=None, connecting=attempt)
+            if not record:
+                return 'my_du_login_expired'
+            requests = self.login_requests(record)
+            pending = next((item for item in requests if secrets.compare_digest(item['state'], state)), None)
+            if pending is None:
+                return 'my_du_login_mismatch' if requests else 'my_du_login_expired'
+            if pending['status'] != 'pending':
+                return pending.get('error', 'my_du_login_used')
+            pending['status'] = 'exchanging'
+            record.update(pending=None, login_requests=requests, connecting=attempt)
             tx.set(self.path, record)
-            return True
+            return None
         # Return a domain rejection outside the transaction: the Firestore port
         # intentionally treats unexpected callback exceptions as unknown writes.
-        if not await self.documents.transact(consume):
-            raise MyDuLoginError('my_du_login_expired')
-        tokens = await self.client.exchange(code)
+        error = await self.documents.transact(consume)
+        if error:
+            raise MyDuLoginError(error)
+        try:
+            tokens = await self.client.exchange(code)
+        except MyDuUnavailable as error:
+            # A code may already have been consumed by the provider. Never retry
+            # that exchange; retain its actual outcome instead of calling it expiry.
+            reason = ('my_du_login_rejected' if error.reason == 'provider_rejected'
+                      else 'my_du_unavailable')
+            async def failed(tx):
+                record = await self.load(tx)
+                if not record or record.get('connecting') != attempt:
+                    return
+                requests = self.login_requests(record)
+                for item in requests:
+                    if secrets.compare_digest(item['state'], state):
+                        item.update(status='failed', error=reason)
+                record.update(login_requests=requests, connecting=None)
+                tx.set(self.path, record)
+            await self.documents.transact(failed)
+            raise
         settings = TermSettings(study_year=value.study_year, term=value.term, first_week_start=value.first_week_start)
         async def save(tx):
             old = await self.load(tx)
             if not old or old.get('connecting') != attempt:
                 raise BindingConflict('my_du_connection_changed')
+            requests = self.login_requests(old)
+            for item in requests:
+                if secrets.compare_digest(item['state'], state):
+                    item['status'] = 'completed'
             tx.set(self.path, {'owner_id': self.owner, 'generation': attempt,
                 'tokens': tokens, 'settings': settings.model_dump(mode='json'), 'snapshot': None,
-                'last_attempt': None, 'error': None, 'pending': None})
+                'last_attempt': None, 'error': None, 'pending': None, 'login_requests': requests})
         await self.documents.transact(save)
         return await self.refresh(context)
 
