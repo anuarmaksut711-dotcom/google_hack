@@ -121,8 +121,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 {plan_nav}
 </nav>
 {CHAT_NAV}
-<details class="conversation-navigation"><summary>Сообщения чата</summary><div id="conversation-index" class="conversation-index" aria-label="Сообщения диалога"></div></details>
-<div class="sidebar-bottom"><footer><span>{e(timezone)}</span><details><summary>О расписании</summary><p>{'Ваш календарь под вашим контролем.' if advice else 'Вы решаете, какие изменения применить.'} Интервалы [начало, конец): конец не включён. Запланированное время не означает, что задание выполнено.</p></details></footer></div>
+<div id="conversation-index" hidden></div>
 </aside>
 <div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваше учебное пространство</span></div><div class="topbar-actions">{THEME_BUTTON}<button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></div></header>
 <main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
