@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONNOUSERSITE: "1"
+
+jobs:
+  verify:
+    name: Python tests, evaluations and package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      CI_OUTPUT_DIR: .validation/ci
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate GitHub Actions workflow
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/test.lock
+
+      - name: Set up Node.js for Firebase CLI
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up Java for Firestore Emulator
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Require PowerShell 7 for deployment tests
+        shell: pwsh
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 7) {
+            throw 'PowerShell 7 is required for the complete test suite.'
+          }
+
+      - name: Install hash-pinned test dependencies and product package
+        run: |
+          python -m pip install --require-hashes -r requirements/test.lock
+          python -m pip install --no-deps --no-build-isolation .
+          npm install --global firebase-tools@15.34.0
+
+      - name: Run the complete Linux verification gate
+        run: >-
+          python deploy/run-rollout-checks.py
+          --source-sha "$SOURCE_SHA"
+          --output "$CI_OUTPUT_DIR"
+
+      - name: Keep verification reports and built packages
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verification-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          # Only these synthetic test/build outputs may leave the runner.
+          include-hidden-files: true
+          path: |
+            .validation/ci/qa-summary.json
+            .validation/ci/pytest.xml
+            .validation/ci/*.log
+            .validation/ci/voice-report.json
+            .validation/ci/recovery-evaluation/compatibility.json
+            .validation/ci/recovery-evaluation/local-summary.json
+            .validation/ci/recovery-evaluation/guards.json
+            .validation/ci/recovery-evaluation/runtime-origins.json
+            .validation/ci/recovery-evaluation/junit.xml
+            .validation/ci/dist/*.whl
+            .validation/ci/dist/*.tar.gz
+
+      - name: Write verification summary
+        if: always()
+        run: |
+          {
+            printf '## CampusPulse verification\n\n'
+            printf 'Source SHA: %s\n\n' "$SOURCE_SHA"
+            if [ -f "$CI_OUTPUT_DIR/qa-summary.json" ]; then
+              printf 'The verification gate completed with zero failed or skipped tests.\n\n'
+              printf 'External services were synthetic or emulated; this is not a live API check.\n\n```json\n'
+              cat "$CI_OUTPUT_DIR/qa-summary.json"
+              printf '\n```\n'
+            else
+              printf 'The verification gate did not complete. Inspect the failed step and available logs.\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
