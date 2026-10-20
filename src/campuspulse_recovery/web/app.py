@@ -116,11 +116,24 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
 
     @app.get("/auth/session")
     async def session(request: Request):
-        credential = await auth.load(request)
+        csrf, repaired = None, False
+        if request.headers.get("x-csrf-bootstrap") is not None:
+            credential, csrf, repaired = await auth.bootstrap_session(request)
+        else:
+            credential = await auth.load(request)
         with auth.request_scope(credential) as context:
             policy.require_context(context)
-            return _json({"status": "authenticated", "session_id": context.session_id,
-                "run_id": context.trusted.run_id, "expires_at": credential.session.expires_at.isoformat()})
+            value = {"status": "authenticated", "session_id": context.session_id,
+                "run_id": context.trusted.run_id, "expires_at": credential.session.expires_at.isoformat()}
+            if csrf is not None:
+                value["csrf_token"] = csrf
+            response = _json(value)
+            if repaired:
+                age = int((credential.session.expires_at - auth.now()).total_seconds())
+                if age < 1:
+                    raise AccessDenied("session_rejected")
+                _set(response, CSRF_COOKIE, csrf, age, httponly=False)
+            return response
 
     @app.post("/auth/signout")
     async def signout(request: Request):

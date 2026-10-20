@@ -267,11 +267,8 @@ class WebAuth(_Repository):
         await self.documents.transact(create)
         return cookie, csrf, session
 
-    async def load(self, request, *, mutation=False):
-        self.check_request(request, mutation=mutation)
-        path = "cp_web_sessions/" + digest(self._cookie(request, SESSION_COOKIE))
+    def _validate_session(self, session):
         try:
-            session = _decode(await self.documents.get(path), "web_session", WebSession)
             now = self.now()
             self.policy.require_principal("backend", session.principal_id)
             self.policy.require_binding(session.binding, session_id=session.binding.session_id,
@@ -282,11 +279,50 @@ class WebAuth(_Repository):
                 raise ValueError()
         except Exception:
             raise AccessDenied("session_rejected") from None
+
+    async def load(self, request, *, mutation=False):
+        self.check_request(request, mutation=mutation)
+        path = "cp_web_sessions/" + digest(self._cookie(request, SESSION_COOKIE))
+        try:
+            session = _decode(await self.documents.get(path), "web_session", WebSession)
+        except Exception:
+            raise AccessDenied("session_rejected") from None
+        self._validate_session(session)
         if mutation:
 
             self._cookie(request, CSRF_COOKIE)
             self.check_csrf(request, session.csrf_digest)
         return SessionCredential(session, self._authority)
+
+    async def bootstrap_session(self, request):
+        if (request.headers.getlist("x-csrf-bootstrap") != ["1"]
+                or request.headers.get("sec-fetch-mode") not in (None, "cors", "same-origin")
+                or request.headers.get("sec-fetch-dest") not in (None, "empty")):
+            raise AccessDenied("session_bootstrap_rejected")
+        credential = await self.load(request)
+        session = credential.session
+        if CSRF_COOKIE in request.cookies:
+            csrf = self._cookie(request, CSRF_COOKIE)
+            if csrf.isascii() and hmac.compare_digest(digest(csrf), session.csrf_digest):
+                return credential, csrf, False
+        csrf = secrets.token_urlsafe(32)
+        repaired = session.model_copy(update={"csrf_digest": digest(csrf)})
+        path = "cp_web_sessions/" + digest(self._cookie(request, SESSION_COOKIE))
+
+        async def repair(tx):
+            try:
+                latest = _decode(await tx.get(path), "web_session", WebSession)
+            except Exception:
+                raise AccessDenied("session_rejected") from None
+            self._validate_session(latest)
+            if latest != session:
+                raise BindingConflict("session_changed")
+            if (latest.expires_at - self.now()).total_seconds() < 1:
+                raise AccessDenied("session_rejected")
+            tx.set(path, _encode("web_session", repaired))
+
+        await self.documents.transact(repair)
+        return SessionCredential(repaired, self._authority), csrf, True
 
     @contextmanager
     def request_scope(self, credential):

@@ -86,7 +86,7 @@ SCRIPT = r"""'use strict';
         try {
           const response = await fetch('/api/chat/transcribe', {method: 'POST', credentials: 'same-origin',
             cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
-            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': csrf(), 'X-Speech-Language': language},
+            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': await csrf(), 'X-Speech-Language': language},
             body: new Blob(chunks, {type: voiceMime})});
           if (!response.ok) {
             const error = new Error('transcription');
@@ -238,21 +238,42 @@ SCRIPT = r"""'use strict';
     $('feedback').textContent = message;
     $('feedback').dataset.error = String(error);
   };
-  const csrf = () => {
-    const values = document.cookie.split(';').map(x => x.trim()).filter(x => x.startsWith('__Host-cp-csrf='));
-    if (values.length !== 1) {
-      const error = new Error('Сессия входа недействительна. Войдите заново.');
-      error.status = 403;
-      error.code = 'session_required';
+  const csrf = async () => {
+    const sessionId = scope, revision = generation;
+    try {
+      for (let attempt = 0; attempt < 2; ++attempt) {
+        const response = await fetch('/auth/session', {credentials: 'same-origin', cache: 'no-store',
+          redirect: 'error', signal: AbortSignal.timeout(15000), headers: {'X-CSRF-Bootstrap': '1'}});
+        if (response.status === 409 && attempt === 0) continue;
+        if (!response.ok) {
+          const error = new Error();
+          error.status = response.status;
+          throw error;
+        }
+        const session = await response.json();
+        if (!sessionId || scope !== sessionId || session.session_id !== sessionId) {
+          const error = new Error();
+          error.status = 403;
+          throw error;
+        }
+        if (generation !== revision) throw new Error();
+        if (typeof session.csrf_token !== 'string' || !/^[A-Za-z0-9_-]{20,256}$/.test(session.csrf_token))
+          throw new Error();
+        return session.csrf_token;
+      }
+    } catch (cause) {
+      const error = new Error(cause.status === 403 ? 'Сессия входа недействительна. Войдите заново.' :
+        'Не удалось проверить вход. Повторите попытку.');
+      error.status = cause.status;
+      error.code = cause.status === 403 ? 'session_required' : 'request_not_sent';
       throw error;
     }
-    return decodeURIComponent(values[0].slice('__Host-cp-csrf='.length));
   };
   async function api(path, payload) {
     const options = {credentials: 'same-origin', cache: 'no-store', redirect: 'error'};
     if (path.startsWith('/api/moodle')) options.signal = AbortSignal.timeout(110000);
     if (payload !== undefined) Object.assign(options, {method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf()}, body: JSON.stringify(payload)});
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': await csrf()}, body: JSON.stringify(payload)});
     const response = await fetch(path, options);
     if (!response.ok) {
       const messages = {403: 'Сессия недействительна или действие отклонено. Войдите через настроенный вход.',
@@ -600,6 +621,7 @@ SCRIPT = r"""'use strict';
       $('chat-status').textContent = 'Ответ предыдущего запроса неизвестен. Нажмите «Обновить состояние» перед новым сообщением.';
       return;
     }
+    const hadPending = !!stored(pendingChatKey());
     chatBusy = true; controls();
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
@@ -615,7 +637,7 @@ SCRIPT = r"""'use strict';
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
-      if (error.code === 'session_required') {
+      if (!hadPending && (error.code === 'session_required' || error.code === 'request_not_sent')) {
         pendingText = null; stored(pendingChatKey(), null); saveDraft();
       }
       if (error.status === 403) {
@@ -836,7 +858,7 @@ SCRIPT = r"""'use strict';
   });
   $('trace').addEventListener('click', () => trace(true));
   $('trace-more').addEventListener('click', () => trace(false));
-  $('signout').addEventListener('click', async () => {
+  async function signOut() {
     if (busy || chatBusy) return;
     try { await api('/auth/signout', {}); ++generation; clearDrafts(); scope = null; activeRun = null;
       chats.reset(); clearDrafts(); activeChat = 'default'; ++chatGeneration;
@@ -852,8 +874,16 @@ SCRIPT = r"""'use strict';
       history.replaceState(null, '', '/'); updateNavigation();
       feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
       if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
-    } catch (error) { feedback(error.message, true); }
-  });
+    } catch (error) {
+      if (error.status === 403 && document.body.dataset.signinUrl === '/login') {
+        saveDraft();
+        window.location.assign('/login');
+        return;
+      }
+      feedback(error.message, true);
+    }
+  }
+  $('signout').addEventListener('click', signOut);
 
   loadMoodle();
   refresh().catch(error => feedback(error.message, true));

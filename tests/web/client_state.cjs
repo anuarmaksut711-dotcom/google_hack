@@ -30,23 +30,27 @@ function harness() {
     getOwnPropertyDescriptor: () => ({enumerable: true, configurable: true}),
   });
   const sandbox = {
-    $, sessionStorage, URLSearchParams, document: {cookie: ''},
+    $, sessionStorage, URLSearchParams, AbortSignal, document: {cookie: '', body: {dataset: {signinUrl: '/login'}}},
+    window: {location: {assign(url) { sandbox.destination = url; }}},
     location: {search: '', hash: '#workspace'}, history: {replaceState() {}},
     chats: {reset() {}, async load() {}},
-    controls() {}, showChat() {}, updateNavigation() {}, feedback() {},
+    controls() {}, showChat() {}, updateNavigation() {}, feedback() {}, clearMoodle() {},
     stored(name, value) {if (value !== undefined) pending.set(name, value); return pending.get(name) ?? null;},
   };
   vm.createContext(sandbox);
   vm.runInContext(`
     let scope='session-1', activeChat='default', pendingText=null, generation=0,
       chatGeneration=0, activeRun=null, cursor=0, chatAvailable=true,
-      chatWorking=false, chatLimitReached=false, chatBusy=false;
+      chatWorking=false, chatLimitReached=false, chatBusy=false, busy=false,
+      moodleEnabled=false, moodleRevision=0, moodleBusy=false;
     const chatDrafts=new Map();
     ${between('  const csrf = ', '  async function api(')}
+    ${between('  async function api(', '  function clearMoodle(')}
     ${between('  const pendingChatKey', '  function selectChat')}
     ${between('  async function loadChat()', '  async function sendMessage')}
     ${between('  async function sendMessage(', '  async function refresh()')}
     ${between('  async function refresh()', '  async function act(')}
+    ${between('  async function signOut()', "  $('signout').addEventListener")}
     function snapshot() { return {scope, pendingText, composer: $('recovery-message').value}; }
   `, sandbox);
   return {sandbox, data, pending, $, run: text => vm.runInContext(text, sandbox)};
@@ -134,16 +138,119 @@ async function refreshDuringSendRetainsIdempotencyKey() {
   assert.equal(h.pending.get('pending-chat'), 'request-1');
 }
 
-async function missingCsrfDoesNotTrapDraft() {
+async function expiredSessionDoesNotTrapDraft() {
   const h = harness();
   h.$('recovery-message').value = 'My question';
   h.sandbox.keyFor = () => 'request-1';
-  h.sandbox.api = async () => h.run('csrf()');
+  h.sandbox.fetch = async () => ({ok: false, status: 403});
   await h.run('sendMessage({preventDefault() {}})');
   assert.equal(h.run('snapshot().pendingText'), null);
   assert.equal(h.run('snapshot().composer'), 'My question');
   assert.match(h.$('chat-status').textContent, /Войдите заново/);
   assert.equal(h.pending.get('pending-chat'), null);
+}
+
+async function failedBootstrapPreservesAmbiguousEarlierSend() {
+  const h = harness();
+  h.$('recovery-message').value = 'My question';
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='My question'");
+  h.sandbox.keyFor = () => 'request-1';
+  h.sandbox.fetch = async () => { throw new Error('Network unavailable'); };
+  await h.run('sendMessage({preventDefault() {}})');
+  assert.equal(h.run('snapshot().pendingText'), 'My question');
+  assert.equal(h.pending.get('pending-chat'), 'request-1');
+}
+
+async function bootstrapRecoversWithoutJavascriptCookie() {
+  const h = harness(), requests = [];
+  const token = 'recovered_session_token_123456789';
+  h.sandbox.fetch = async (url, options) => {
+    requests.push({url, options});
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: token})} :
+      {ok: true, status: 200};
+  };
+  await h.run("api('/api/chat', {request_key:'request-1', message:'Hello'})");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].options.headers['X-CSRF-Bootstrap'], '1');
+  assert.equal(requests[1].options.headers['X-CSRF-Token'], token);
+  assert.equal(requests[1].options.method, 'POST');
+  assert.equal(h.sandbox.document.cookie, '');
+}
+
+async function switchedSessionNeverSendsMutation() {
+  const h = harness(), requests = [];
+  h.sandbox.fetch = async url => {
+    requests.push(url);
+    return {ok: true, status: 200, json: async () => ({
+      session_id: 'another-session', csrf_token: 'another_session_token_123456789',
+    })};
+  };
+  await assert.rejects(h.run("api('/api/chat', {message:'Private draft'})"), error => error.status === 403);
+  assert.deepEqual(requests, ['/auth/session']);
+}
+
+async function refreshedPageDoesNotReportExpiredSession() {
+  const h = harness(), requests = [];
+  h.sandbox.fetch = async url => {
+    requests.push(url);
+    h.run('++generation');
+    return {ok: true, status: 200, json: async () => ({
+      session_id: 'session-1', csrf_token: 'valid_session_token_123456789',
+    })};
+  };
+  await assert.rejects(h.run("api('/api/chat', {message:'Hello'})"),
+    error => error.code === 'request_not_sent' && error.status !== 403);
+  assert.deepEqual(requests, ['/auth/session']);
+}
+
+async function rejectedMutationIsNeverAutomaticallyReplayed() {
+  const h = harness(), requests = [];
+  h.sandbox.fetch = async url => {
+    requests.push(url);
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: 'valid_session_token_123456789'})} :
+      {ok: false, status: 403};
+  };
+  await assert.rejects(h.run("api('/api/chat', {message:'Hello'})"), error => error.status === 403);
+  assert.deepEqual(requests, ['/auth/session', '/api/chat']);
+}
+
+async function concurrentRepairRetriesOnlyBootstrap() {
+  const h = harness(), requests = [];
+  h.sandbox.fetch = async url => {
+    requests.push(url);
+    if (requests.length === 1) return {ok: false, status: 409};
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: 'valid_session_token_123456789'})} :
+      {ok: true, status: 200};
+  };
+  await h.run("api('/api/chat', {message:'Hello'})");
+  assert.deepEqual(requests, ['/auth/session', '/auth/session', '/api/chat']);
+}
+
+async function expiredSignoutReachesLogin() {
+  const h = harness();
+  h.$('recovery-message').value = 'Unsent draft';
+  h.sandbox.fetch = async () => ({ok: false, status: 403});
+  await h.run('signOut()');
+  assert.equal(h.sandbox.destination, '/login');
+  assert.equal(h.run('snapshot().composer'), 'Unsent draft');
+}
+
+async function validSignoutRevokesBeforeNavigating() {
+  const h = harness(), requests = [];
+  h.sandbox.fetch = async url => {
+    requests.push(url);
+    assert.equal(h.sandbox.destination, undefined);
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: 'valid_session_token_123456789'})} :
+      {ok: true, status: 200};
+  };
+  await h.run('signOut()');
+  assert.deepEqual(requests, ['/auth/session', '/auth/signout']);
+  assert.equal(h.sandbox.destination, '/login');
 }
 
 async function staleRefreshDoesNotClearNewRequest() {
@@ -165,7 +272,7 @@ async function staleRefreshDoesNotClearNewRequest() {
 
 (async () => {
   let failures = 0;
-  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, missingCsrfDoesNotTrapDraft, staleRefreshDoesNotClearNewRequest]) {
+  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }
