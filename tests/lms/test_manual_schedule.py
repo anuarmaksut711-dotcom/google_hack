@@ -28,7 +28,9 @@ async def test_saved_weekly_classes_owner_restart_chat_and_removed_mydu(tmp_path
         assert (await anonymous.get('/api/account/classes')).status_code == 403
         await login(alice, 'alice'); await login(bob, 'bob')
         page = (await alice.get('/account')).text
-        assert 'Моё расписание занятий' in page and 'Microsoft' not in page and 'My DU' not in page
+        assert 'Моё расписание занятий' not in page and 'Microsoft' not in page and 'My DU' not in page
+        assert 'classes-fields' not in page
+        assert '/api/account/classes' not in (await alice.get('/assets/account.js')).text
         assert (await alice.get('/api/account/my-du')).status_code == 404
         assert (await alice.post('/api/account/classes', json=VALUE)).status_code == 403
         assert (await post(alice, '/api/account/classes', {**VALUE, 'owner_id': 'bob'})).status_code == 400

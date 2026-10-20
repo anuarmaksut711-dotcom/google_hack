@@ -30,7 +30,7 @@ from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
 from ..web.passwords import (EMAIL_ISSUER, EmailCredentials, EmailRegistrationUnavailable,
     InvalidCredentials, PasswordRateLimited, PasswordValidationError)
 from ..web.moodle import install_moodle_routes
-from ..web.manual_schedule import ACCOUNT_CLASSES, CLASSES_SCRIPT, install_class_routes
+from ..web.manual_schedule import install_class_routes
 from ..web.views.app import SafeSources, create_ui_app
 from .calendar_feed import CalendarFeed, FeedState, validate_feed_url
 from .calendar_projection import CalendarChatProjection
@@ -281,12 +281,12 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                     connected = await feed.connected(context)
                 if (await auth.load(request)).session != credential.session:
                     raise AccessDenied('account_session_changed')
-                return render_moodle_settings(connected=connected, classes_html=ACCOUNT_CLASSES)
+                return render_moodle_settings(connected=connected, classes_html='')
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):
                 await auth.load(request)
-                return Response(ACCOUNT_SCRIPT + CLASSES_SCRIPT, media_type='text/javascript')
+                return Response(ACCOUNT_SCRIPT, media_type='text/javascript')
 
             @inner.post('/api/account/moodle')
             async def connect(request: Request):
