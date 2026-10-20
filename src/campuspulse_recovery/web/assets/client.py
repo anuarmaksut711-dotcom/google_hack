@@ -134,7 +134,7 @@ SCRIPT = r"""'use strict';
   const chatDrafts = new Map();
   const chats = new window.CampusPulseChats({api, selected: () => activeChat,
     navigate: id => { location.hash = id === 'default' ? 'workspace' : 'chat/' + id; },
-    changed: updateNavigation, blocked: () => !scope || busy || chatBusy});
+    changed: () => updateNavigation({preserveNavigation: true}), blocked: () => !scope || busy || chatBusy});
   const pendingChatKey = () => activeChat === 'default' ? 'pending-chat' : 'pending-chat:' + activeChat;
   function selectChat(id) {
     if (id === activeChat) { chats.selection(); return; }
@@ -164,7 +164,7 @@ SCRIPT = r"""'use strict';
     document.body.dataset.navOpen = String(open);
     $('mobile-nav-toggle')?.setAttribute('aria-expanded', String(open));
   }
-  function updateNavigation() {
+  function updateNavigation(options = {}) {
     const selector = new URLSearchParams(location.search);
     const selected = location.hash || (selector.has('plan_id') && selector.has('version') ? '#panel' : '#workspace');
     const chatMatch = /^#chat\/([a-f0-9]{32})$/.exec(selected);
@@ -186,7 +186,7 @@ SCRIPT = r"""'use strict';
         if (group) group.open = true;
       }
     });
-    setNavigationOpen(false);
+    if (!options.preserveNavigation) setNavigationOpen(false);
     requestAnimationFrame(resizeComposer);
   }
   function focusPanel() {
@@ -694,6 +694,7 @@ SCRIPT = r"""'use strict';
     });
   });
   document.addEventListener('keydown', event => {
+    if (document.querySelector('dialog[open], [popover]:popover-open')) return;
     if (event.key === 'Escape' && document.body.dataset.navOpen === 'true') {
       setNavigationOpen(false);
       $('mobile-nav-toggle')?.focus();

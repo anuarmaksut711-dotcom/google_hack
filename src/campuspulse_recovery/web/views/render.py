@@ -57,7 +57,7 @@ def interval(value, timezone):
 
 
 def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None, planning_url=None):
-    from ..assets.workspace import CHAT_NAV
+    from ..assets.workspace import CHAT_NAV, CHAT_NEW
     notice = ''
     if demo_mode:
         from ...demo import NOTICE
@@ -114,9 +114,9 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 </nav>
 <aside id="sidebar" class="sidebar" aria-label="Навигация CampusPulse">
 <a class="brand" href="#workspace" aria-label="CampusPulse — к ассистенту"><span>CampusPulse</span></a>
-<a class="write-link" href="#workspace" id="focus-composer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5-10 10-5 1 1-5Z"/></svg>Написать ассистенту</a>
+{CHAT_NEW}
 <nav aria-label="Разделы плана">
-<a class="nav-link current" data-view="assistant" href="#workspace" aria-label="Ассистент" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 10h8M7 14h5"/></svg><span class="nav-label">Ассистент</span></a>
+<a id="focus-composer" class="nav-link current" data-view="assistant" href="#workspace" aria-label="Ассистент" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 10h8M7 14h5"/></svg><span class="nav-label">Ассистент</span></a>
 {sources_nav}
 {plan_nav}
 </nav>
