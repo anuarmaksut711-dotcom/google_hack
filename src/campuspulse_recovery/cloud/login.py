@@ -33,9 +33,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     loading.hidden = true; provider.hidden = true; retry.hidden = false;
     message(text);
   };
+  if (form) {
+    const showFieldError = field => {
+      const error = document.getElementById(field.id + '-error');
+      if (!error) return;
+      const invalid = !field.validity.valid;
+      field.toggleAttribute('aria-invalid', invalid);
+      if (invalid) field.setAttribute('aria-invalid', 'true');
+      error.textContent = invalid ? field.validationMessage : '';
+      error.hidden = !invalid;
+    };
+    form.addEventListener('invalid', event => {
+      event.preventDefault();
+      showFieldError(event.target);
+      if (event.target === form.querySelector(':invalid')) event.target.focus();
+    }, true);
+    form.addEventListener('input', event => {
+      if (event.target.hasAttribute('aria-invalid')) showFieldError(event.target);
+    });
+    form.addEventListener('reset', () => {
+      form.querySelectorAll('[aria-invalid]').forEach(field => field.removeAttribute('aria-invalid'));
+      form.querySelectorAll('.auth-field-error').forEach(error => {
+        error.textContent = ''; error.hidden = true;
+      });
+    });
+  }
   if (form) form.addEventListener('submit', async event => {
     event.preventDefault();
-    if (submitting || !challenge || !form.reportValidity()) return;
+    if (submitting || !challenge || !form.checkValidity()) return;
     busy(true); message(signup ? 'Создаём аккаунт…' : 'Проверяем вход…', 'working');
     try {
       const result = await fetch(signup ? '/auth/email/register' : '/auth/email/signin', {
@@ -158,7 +183,9 @@ body.auth-page {
 .auth-page .auth-field::placeholder{color:#c3c3c3;opacity:1}
 .auth-page .auth-field:hover{background:#3d3d3d}
 .auth-page .auth-field:focus-visible{outline:2px solid var(--auth-focus);outline-offset:3px}
-.auth-page .auth-field:user-invalid{border-color:#e6a69c}
+.auth-page .auth-field:user-invalid,.auth-page .auth-field[aria-invalid=true]{border-color:#e6a69c}
+.auth-page .auth-field-error{display:flex;align-items:flex-start;gap:10px;margin:-4px 0 16px;padding:12px 14px;border:1px solid #e6a69c30;border-radius:14px;background:#ffffff05;color:#f0b6ab;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.auth-page .auth-field-error::before{content:'!';display:grid;place-items:center;flex:0 0 18px;height:18px;margin-top:1px;border:1px solid currentColor;border-radius:50%;font-size:12px;font-weight:600;line-height:1}
 .auth-page .auth-field:-webkit-autofill{-webkit-text-fill-color:#f5f5f5;box-shadow:0 0 0 100px #373737 inset}
 .auth-page .auth-field-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .auth-page .auth-password-hint{margin:0 2px;color:var(--auth-muted);font-size:12px;line-height:1.6}
@@ -217,11 +244,13 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
         email_form = ('<form id="email-auth" class="auth-email-form" method="post">'
             '<label class="auth-field-label" for="auth-email">Электронная почта</label>'
             '<input class="auth-field" id="auth-email" name="email" type="email" placeholder="Электронная почта" '
-            'required maxlength="254" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false">'
+            'required maxlength="254" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" aria-describedby="auth-email-error">'
+            '<p id="auth-email-error" class="auth-field-error" role="alert" hidden></p>'
             '<label class="auth-field-label" for="auth-password">Пароль</label>'
             '<input class="auth-field" id="auth-password" name="password" type="password" placeholder="Пароль" '
             f'required maxlength="128" minlength="{15 if signup else 1}" autocomplete="{"new-password" if signup else "current-password"}"'
-            + (' aria-describedby="password-hint"' if signup else '') + '>' + hint +
+            + f' aria-describedby="auth-password-error{" password-hint" if signup else ""}">'
+            '<p id="auth-password-error" class="auth-field-error" role="alert" hidden></p>' + hint +
             f'<button id="email-submit" type="submit" disabled>{"Создать аккаунт" if signup else "Войти"}</button></form>')
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
