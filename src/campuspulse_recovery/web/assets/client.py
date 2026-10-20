@@ -979,3 +979,5 @@ SCRIPT = r"""'use strict';
 })();
 """
 SCRIPT = WORKSPACE_SCRIPT + SCRIPT
+from .sidebar import SCRIPT as SIDEBAR_SCRIPT
+SCRIPT = SIDEBAR_SCRIPT + SCRIPT

@@ -82,7 +82,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     greeting = 'Над чем поработаем?'
     introduction = ('Разберём дедлайны, найдём время на задания и соберём понятный план.' if advice else
         'Агент сверит задания и календарь, найдёт конфликты и предложит новый план.')
-    consent_note = ('Агент предлагает расписание в чате. Запись в Google Calendar в этом режиме недоступна.' if advice else
+    consent_note = ('' if advice else
         'Календарь изменится только после согласования точной версии плана и отдельного нажатия «Применить».')
     prompts = ('По будням свободен с 18:00 до 21:00. Помоги распределить задания.',
                'Помоги оценить, сколько времени нужно на каждое задание.',
@@ -141,10 +141,10 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
 <div class="voice-input">
 <label id="voice-level-wrap" hidden for="voice-level">Уровень микрофона <meter id="voice-level" min="0" max="100" value="0"></meter></label>
-<p id="voice-status" role="status" aria-live="polite">Запись до 1 минуты. Аудио отправляется в Gemini для распознавания.</p></div>
+<p id="voice-status" role="status" aria-live="polite"></p></div>
 </form>
 </div>
-<p class="consent-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>{consent_note}</span></p>
+<p class="consent-note"{' hidden' if advice else ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>{consent_note}</span></p>
 </div></section>
 <noscript>Для действий включите JavaScript. Загрузка страницы не согласует и не применяет план.</noscript>
 <div id="panel" tabindex="-1" aria-busy="true"><p>Загружаем сохранённый план…</p></div>

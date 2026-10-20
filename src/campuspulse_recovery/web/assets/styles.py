@@ -76,7 +76,7 @@ summary:hover { color: var(--accent); }
 @keyframes prompt-border-turn { to { --pb-angle: 360deg; } }
 @keyframes voice-pulse { from { box-shadow: 0 0 0 0 #ed727544; } to { box-shadow: 0 0 0 9px #ed727500; } }
 .command-bar { --pb-angle: 0deg; width: 100%; max-width: 880px; border: 2px solid transparent; border-radius: 24px; background: linear-gradient(#1d1e22, #1d1e22) padding-box, conic-gradient(from var(--pb-angle), #303239 0deg 285deg, #676970 308deg, #f5f5f7 325deg, #676970 342deg, #303239 360deg) border-box; box-shadow: 0 18px 50px -24px #000a; animation: prompt-border-turn 7s linear infinite; }
-.command-bar:focus-within { outline: 2px solid var(--focus); outline-offset: 3px; }
+.command-bar:focus-within { outline: none; }
 .command-body { padding: 18px 20px 14px; }
 .message-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 #recovery-message { display: block; width: 100%; min-height: 56px; max-height: min(360px, 42dvh); margin: 0; padding: 0; resize: none; overflow-y: hidden; border: 0; background: transparent; color: var(--ink); font-size: 16px; line-height: 1.7; caret-color: var(--accent); }
@@ -127,6 +127,7 @@ body[data-view=journal] .recovery-home, body[data-view=journal] #moodle, body[da
 #panel, .moodle, .journal { min-height: calc(100svh - 195px); padding: 34px 0 32px; }
 .voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
 #voice-status { flex: 1 1 200px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+#voice-status:empty, .voice-input:not(:has(#voice-level-wrap:not([hidden]))):has(#voice-status:empty) { display: none; }
 #voice-level-wrap { font-size: 12px; color: var(--muted); }
 #voice-level { width: 100px; vertical-align: middle; }
 .chat-user > p, .chat-answer { font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
@@ -348,3 +349,5 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } .command-bar, #voice-toggle { animation: none !important; } }
 """
 STYLES += WORKSPACE_STYLES + ACCOUNT_STYLES
+from .sidebar import STYLES as SIDEBAR_STYLES
+STYLES += SIDEBAR_STYLES
