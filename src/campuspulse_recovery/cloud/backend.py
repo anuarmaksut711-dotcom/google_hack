@@ -38,6 +38,9 @@ class CloudConversation:
     async def reply(self, **kwargs):
         return await self.agent.reply(**kwargs)
 
+    async def suggest_title(self, **kwargs):
+        return await self.agent.suggest_title(**kwargs)
+
 
 class CloudBackend:
     def __init__(self, settings, policy, documents, *, worker=None, clock=None):

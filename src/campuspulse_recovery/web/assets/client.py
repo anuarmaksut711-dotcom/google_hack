@@ -137,10 +137,14 @@ SCRIPT = r"""'use strict';
   if (!voiceMime) $('voice-status').textContent = 'Голосовой ввод недоступен в этом браузере. Используйте современный браузер и HTTPS.';
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
   let moodleRevision = 0, moodleBusy = false;
-  let activeChat = /^#chat\/([a-f0-9]{32})$/.exec(location.hash)?.[1] || 'default', chatGeneration = 0;
+  const draftChat = id => /^draft(?:-[a-f0-9]{32})?$/.test(id);
+  const chatHash = id => id === 'default' ? '#workspace' : draftChat(id) ? '#new' + (id === 'draft' ? '' : '/' + id.slice(6)) : '#chat/' + id;
+  const hashChat = hash => /^#chat\/([a-f0-9]{32})$/.exec(hash)?.[1] ||
+    (/^#new(?:\/([a-f0-9]{32}))?$/.test(hash) ? 'draft' + (hash.slice(5) ? '-' + hash.slice(5) : '') : 'default');
+  let activeChat = hashChat(location.hash), chatGeneration = 0;
   const chatDrafts = new Map();
   const chats = new window.CampusPulseChats({api, selected: () => activeChat, session: () => scope,
-    navigate: id => { location.hash = id === 'default' ? 'workspace' : 'chat/' + id; },
+    navigate: id => { location.hash = chatHash(id); if (id === activeChat) $('recovery-message').focus({preventScroll: true}); },
     changed: () => updateNavigation({preserveNavigation: true}), blocked: () => !scope || busy || chatBusy || voiceState !== 'idle'});
   $('chat-limit-new').addEventListener('click', () => $('chat-new').click());
   const pendingChatKey = () => activeChat === 'default' ? 'pending-chat' : 'pending-chat:' + activeChat;
@@ -177,7 +181,7 @@ SCRIPT = r"""'use strict';
   function selectChat(id) {
     if (id === activeChat) { chats.selection(); return; }
     if (busy || chatBusy || voiceState !== 'idle') {
-      history.replaceState(null, '', location.pathname + location.search + (activeChat === 'default' ? '#workspace' : '#chat/' + activeChat));
+      history.replaceState(null, '', location.pathname + location.search + chatHash(activeChat));
       const status = voiceState !== 'idle' ? $('voice-status') : $('chat-status');
       status.textContent = voiceState !== 'idle' ? 'Завершите голосовой ввод, затем откройте другой чат.' : 'Дождитесь завершения текущего запроса, затем откройте другой чат.';
       return;
@@ -205,14 +209,14 @@ SCRIPT = r"""'use strict';
     const selector = new URLSearchParams(location.search);
     const selected = location.hash || (selector.has('plan_id') && selector.has('version') ? '#panel' : '#workspace');
     const chatMatch = /^#chat\/([a-f0-9]{32})$/.exec(selected);
-    if (chatMatch || selected === '#workspace') selectChat(chatMatch?.[1] || 'default');
+    if (chatMatch || selected === '#workspace' || /^#new(?:\/[a-f0-9]{32})?$/.test(selected)) selectChat(hashChat(selected));
     let view = {'#workspace': 'assistant', '#moodle': 'tasks', '#sources': 'plan',
       '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal'}[selected] || 'assistant';
     if (view === 'tasks' && !moodleEnabled) view = 'plan';
     document.body.dataset.view = view;
     if ($('view-title')) $('view-title').textContent = view === 'assistant' ? chats.title() : views[view][0];
     if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
-    const chatTarget = activeChat === 'default' ? '#workspace' : '#chat/' + activeChat;
+    const chatTarget = chatHash(activeChat);
     document.querySelectorAll('.nav-link[data-view=assistant], .rail-link[data-view=assistant], .brand, .rail-brand').forEach(link => { link.href = chatTarget; });
     document.title = 'CampusPulse · ' + (view === 'assistant' ? chats.title() : views[view][0]);
     document.querySelectorAll('.nav-link, .rail-link').forEach(link => {
@@ -447,8 +451,9 @@ SCRIPT = r"""'use strict';
   function stored(name, value) {
     if (!scope) throw new Error('Сначала требуется вход.');
     const key = 'campuspulse-ui-v1:' + scope + ':' + name;
-    if (value !== undefined) localStorage.setItem(key, JSON.stringify(value));
-    const raw = localStorage.getItem(key);
+    const storage = name.startsWith('pending-chat:draft') ? sessionStorage : localStorage;
+    if (value !== undefined) storage.setItem(key, JSON.stringify(value));
+    const raw = storage.getItem(key);
     return raw === null ? null : JSON.parse(raw);
   }
   function keyFor(name) {
@@ -594,6 +599,11 @@ SCRIPT = r"""'use strict';
   }
   async function loadChat() {
     const revision = generation, session = scope, chatId = activeChat, selection = chatGeneration;
+    if (draftChat(chatId)) {
+      showChat({available: chats.data?.chat_available === true,
+        speech_available: chats.data?.speech_available === true, turns: [], limit_reached: false});
+      return;
+    }
     const pending = stored(pendingChatKey());
     try {
       const chat = await (await api('/api/chat?chat_id=' + chatId)).json();
@@ -627,6 +637,17 @@ SCRIPT = r"""'use strict';
     try {
       const request_key = keyFor(pendingChatKey()); pendingText = message;
       saveDraft();
+      if (draftChat(activeChat)) {
+        const draftId = activeChat;
+        const chatId = await chats.materialize(draftId === 'draft' ? null : draftId.slice(6), request_key);
+        stored(pendingChatKey(), null);
+        activeChat = chatId; ++chatGeneration;
+        stored(pendingChatKey(), request_key); saveDraft();
+        chatDrafts.delete(draftId);
+        try { sessionStorage.removeItem(draftPrefix() + draftId); } catch { /* Browser storage is optional. */ }
+        history.replaceState(null, '', location.pathname + location.search + chatHash(chatId));
+        chats.selection(); updateNavigation({preserveNavigation: true});
+      }
       const chat = await (await api('/api/chat', {request_key, message, chat_id: activeChat})).json();
       stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
@@ -637,6 +658,7 @@ SCRIPT = r"""'use strict';
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
+      if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
       if (!hadPending && (error.code === 'session_required' || error.code === 'request_not_sent')) {
         pendingText = null; stored(pendingChatKey(), null); saveDraft();
       }
@@ -807,7 +829,7 @@ SCRIPT = r"""'use strict';
     }
     const entry = event.target.closest('[data-chat-entry]');
     if (entry) {
-      location.hash = activeChat === 'default' ? 'workspace' : 'chat/' + activeChat; updateNavigation();
+      location.hash = chatHash(activeChat); updateNavigation();
       requestAnimationFrame(() => $(entry.dataset.chatEntry)?.scrollIntoView({block: 'start'}));
     }
     const link = event.target.closest('.nav-link, .chat-link');
@@ -824,7 +846,7 @@ SCRIPT = r"""'use strict';
   });
   updateNavigation();
   $('focus-composer')?.addEventListener('click', () => {
-    location.hash = activeChat === 'default' ? 'workspace' : 'chat/' + activeChat; updateNavigation();
+    location.hash = chatHash(activeChat); updateNavigation();
     requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
   });
   $('reload').addEventListener('click', () => {

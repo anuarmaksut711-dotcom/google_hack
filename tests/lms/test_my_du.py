@@ -284,11 +284,13 @@ async def test_real_adk_runner_receives_classes_and_exclusion_instruction(tmp_pa
         count = len(provider.calls)
         response = await post(alice, '/api/chat', {'request_key': 'adk-plan', 'message': 'План на день с парами'})
         assert response.json()['turns'][0]['status'] == 'completed'
-        request, = model._requests
+        request, title_request = model._requests
         instruction = str(request.config.system_instruction)
         assert '2026-10-20T12:00:00+05:00' in instruction and 'Algorithms' in instruction
         assert 'не должны пересекаться с парами' in instruction
         assert 'secret-access' not in instruction and not request.tools_dict
+        assert 'Algorithms' not in str(title_request.config.system_instruction)
+        assert len(title_request.contents) == 1 and not title_request.tools_dict
         assert len(provider.calls) == count  # recent successful schedule is reused
 
 

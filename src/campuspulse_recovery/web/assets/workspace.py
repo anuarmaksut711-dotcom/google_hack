@@ -86,7 +86,7 @@ window.CampusPulseChats = class {
     Object.assign(this, {api, selected, navigate, changed, blocked, session});
     this.data = null; this.epoch = 0; this.mutating = false; this.openFolders = new Set(); this.pending = null; this.editing = null; this.menuTrigger = null;
     this.$ = id => document.getElementById(id);
-    this.$('chat-new').addEventListener('click', () => this.change({action: 'create_chat', title: 'Новый чат', folder_id: null}));
+    this.$('chat-new').addEventListener('click', () => this.startChat());
     this.$('chat-folder-create').addEventListener('click', event => this.edit('create_folder', null, event.currentTarget));
     this.$('chat-edit-cancel').addEventListener('click', () => this.$('chat-edit-dialog').close());
     this.$('chat-edit-dialog').addEventListener('close', () => { this.editing = null; this.restoreFocus(); });
@@ -156,6 +156,32 @@ window.CampusPulseChats = class {
       this.$('chat-project-list').replaceChildren();
     }
   }
+  startChat(folderId = null) {
+    if (!this.data || this.mutating || this.blocked()) return;
+    this.navigate(folderId ? 'draft-' + folderId : 'draft');
+  }
+  async materialize(folderId, requestKey) {
+    if (!this.data || this.mutating || this.pending) throw new Error('Обновите список чатов перед отправкой.');
+    this.mutating = true; this.controls();
+    const epoch = this.epoch;
+    try {
+      const change = {action: 'create_chat', title: 'Новый чат', folder_id: folderId,
+        revision: this.data.revision, request_key: 'draft-' + requestKey};
+      let data;
+      try { data = await (await this.api('/api/chat/workspace', change)).json(); }
+      catch (error) {
+        if (error.status !== 409) throw error;
+        await this.load();
+        if (epoch !== this.epoch || !this.data) throw error;
+        data = await (await this.api('/api/chat/workspace', {...change, revision: this.data.revision})).json();
+      }
+      if (epoch !== this.epoch) throw new Error('Сессия изменилась. Войдите снова.');
+      this.data = data;
+      if (folderId) this.openFolders.add(folderId);
+      this.folderState(true); this.render();
+      return data.item_id;
+    } finally { if (epoch === this.epoch) { this.mutating = false; this.controls(); } }
+  }
   async change(change) {
     if (!this.data || this.mutating || this.blocked()) return;
     if (this.pending && JSON.stringify(change) !== JSON.stringify(this.pending.change)) { this.message('Предыдущее изменение не подтверждено. Повторите то же действие.', true); return; }
@@ -197,7 +223,7 @@ window.CampusPulseChats = class {
     const actions = folder ? [['create_chat', 'plus', 'Новый чат в проекте'], ['rename_folder', 'rename', 'Переименовать']] : [['rename_chat', 'rename', 'Переименовать'], ['move_chat', 'move', 'Переместить в проект']];
     for (const [action, icon, title] of actions) {
       const button = document.createElement('button'); button.type = 'button'; button.append(this.icon(icon), document.createTextNode(title));
-      button.addEventListener('click', () => { this.closeMenu(); if (action === 'create_chat') this.change({action, title: 'Новый чат', folder_id: item.folder_id}); else this.edit(action, item, trigger); }); menu.append(button);
+      button.addEventListener('click', () => { this.closeMenu(); if (action === 'create_chat') this.startChat(item.folder_id); else this.edit(action, item, trigger); }); menu.append(button);
     }
     menu.showPopover(); trigger.setAttribute('aria-expanded', 'true');
     const rect = trigger.getBoundingClientRect(), bounds = menu.getBoundingClientRect();
@@ -242,7 +268,7 @@ window.CampusPulseChats = class {
       if (folder) { folder.querySelector('.chat-folder-content').hidden = false; folder.querySelector('.chat-folder-toggle').setAttribute('aria-expanded', 'true'); }
     }
   }
-  title() { return this.data?.chats.find(chat => chat.chat_id === this.selected())?.title || 'Ассистент'; }
+  title() { return this.data?.chats.find(chat => chat.chat_id === this.selected())?.title || (this.selected().startsWith('draft') ? 'Новый чат' : 'Ассистент'); }
   render() {
     if (!this.data) return; this.closeMenu();
     const container = this.$('chat-library-list'); container.replaceChildren(this.list(this.data.chats.filter(chat => !chat.folder_id)));
@@ -257,7 +283,7 @@ window.CampusPulseChats = class {
       label.textContent = folder.title; toggle.append(this.icon('chevron'), this.icon('folder'), label);
       const create = document.createElement('button'); create.type = 'button'; create.className = 'chat-icon-button chat-project-new';
       create.setAttribute('aria-label', 'Новый чат в проекте «' + folder.title + '»'); create.title = 'Новый чат в проекте'; create.append(this.icon('plus'));
-      create.addEventListener('click', () => this.change({action: 'create_chat', title: 'Новый чат', folder_id: folder.folder_id}));
+      create.addEventListener('click', () => this.startChat(folder.folder_id));
       heading.append(toggle, create, this.actionButton(folder, true));
       content.className = 'chat-folder-content'; content.id = 'chat-folder-' + folder.folder_id; content.hidden = !this.openFolders.has(folder.folder_id);
       toggle.addEventListener('click', () => { content.hidden = !content.hidden; toggle.setAttribute('aria-expanded', String(!content.hidden)); if (content.hidden) this.openFolders.delete(folder.folder_id); else this.openFolders.add(folder.folder_id); this.folderState(true); });

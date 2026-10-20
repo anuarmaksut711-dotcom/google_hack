@@ -80,7 +80,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
         agent=chat_agent, projection=projection, owner_history=owner_chat_history,
         structured_advice=chat_mode == 'calendar_advice'))
     app.include_router(create_workspace_router(auth=auth, documents=documents, policy=policy,
-        owner_history=owner_chat_history))
+        owner_history=owner_chat_history, chat_available=chat_agent is not None,
+        speech_available=callable(getattr(chat_agent, 'transcribe', None))))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:

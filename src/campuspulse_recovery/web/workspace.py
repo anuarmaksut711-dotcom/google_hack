@@ -27,6 +27,7 @@ class LegacyChatEntry(Contract):
 class ChatEntry(LegacyChatEntry):
     updated_at: Instant | None = None
     auto_title: bool = False
+    manual_title: bool = False
 
 
 class FolderEntry(Contract):
@@ -114,7 +115,14 @@ class WorkspaceStore(_Repository):
         saved = await self.documents.get(self.path(context))
         return self.decode(saved)
 
-    async def record_activity(self, context, chat_id, message, now):
+    @staticmethod
+    def automatic_title(chat):
+        return not chat.manual_title and (chat.auto_title or chat.title in ('Новый чат', 'Первый чат'))
+
+    async def needs_title(self, context, chat_id):
+        return any(chat.chat_id == chat_id and self.automatic_title(chat) for chat in (await self.read(context)).chats)
+
+    async def record_activity(self, context, chat_id, message, now, *, title=None):
         path = self.path(context)
         async def transact(tx):
             current = self.decode(await tx.get(path))
@@ -123,13 +131,16 @@ class WorkspaceStore(_Repository):
             if index is None:
                 raise AccessDenied('chat_not_available')
             chat = chats[index]
-            if chat.updated_at is not None and chat.updated_at >= now and not chat.auto_title:
+            fallback = ' '.join(message.split())
+            fallback = ''.join(c for c in fallback if ord(c) >= 32 and ord(c) != 127)[:80]
+            automatic = self.automatic_title(chat) or (title is not None and not chat.manual_title and chat.title == fallback)
+            if chat.updated_at is not None and chat.updated_at >= now and not automatic:
                 return
-            update = {'updated_at': now}
-            if chat.auto_title:
-                title = ' '.join(message.split())
-                title = ''.join(c for c in title if ord(c) >= 32 and ord(c) != 127)[:80]
-                update.update(title=title or chat.title, auto_title=False)
+            update = {'updated_at': max(chat.updated_at, now) if chat.updated_at else now}
+            if automatic:
+                suggested = ' '.join(title.split()).strip('"«»“”') if isinstance(title, str) else ''
+                valid = 0 < len(suggested) <= 80 and all(ord(c) >= 32 and ord(c) != 127 for c in suggested)
+                update.update(title=(suggested if valid else fallback) or chat.title, auto_title=False)
             chats[index] = chat.model_copy(update=update)
             result = current.model_copy(update={'chats': tuple(chats), 'revision': current.revision + 1})
             tx.set(path, _encode('chat-workspace-v2', result))
@@ -179,7 +190,7 @@ class WorkspaceStore(_Repository):
                 index = next((i for i, c in enumerate(chats) if c.chat_id == item_id), None)
                 if index is None:
                     raise AccessDenied('chat_not_available')
-                update = {'title': value.title, 'auto_title': False} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
+                update = {'title': value.title, 'auto_title': False, 'manual_title': True} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
                 chats[index] = chats[index].model_copy(update=update)
             else:
                 index = next((i for i, f in enumerate(folders) if f.folder_id == item_id), None)
@@ -194,7 +205,7 @@ class WorkspaceStore(_Repository):
         return await self.documents.transact(transact)
 
 
-def create_workspace_router(*, auth, documents, policy, owner_history=False):
+def create_workspace_router(*, auth, documents, policy, owner_history=False, chat_available=False, speech_available=False):
     router = APIRouter()
     store = WorkspaceStore(documents, policy, owner_history=owner_history)
 
@@ -203,8 +214,9 @@ def create_workspace_router(*, auth, documents, policy, owner_history=False):
             raise AccessDenied('workspace_session_changed')
 
     def view(workspace):
-        return workspace.model_dump(mode='json', exclude={'receipts': True,
-            'chats': {'__all__': {'creation_digest', 'auto_title'}}, 'folders': {'__all__': {'creation_digest'}}})
+        return {**workspace.model_dump(mode='json', exclude={'receipts': True,
+            'chats': {'__all__': {'creation_digest', 'auto_title', 'manual_title'}}, 'folders': {'__all__': {'creation_digest'}}}),
+            'chat_available': chat_available, 'speech_available': speech_available}
 
     @router.get('/api/chat/workspace')
     async def read(request: Request):

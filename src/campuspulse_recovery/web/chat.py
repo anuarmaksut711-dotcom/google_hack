@@ -178,7 +178,7 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             await fresh(request, credential)
             if not claimed:
                 turn = next(t for t in chat.turns if t.request_key == value.request_key)
-                await workspace.record_activity(context, value.chat_id, value.message, turn.created_at)
+                await workspace.record_activity(context, value.chat_id, chat.turns[0].message, turn.created_at)
                 await fresh(request, credential)
                 return _json(view(chat))
             started = monotonic()
@@ -217,7 +217,15 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             chat = await store.finish(context, value.request_key, response=response,
                                       duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id)
             turn = next(t for t in chat.turns if t.request_key == value.request_key)
-            await workspace.record_activity(context, value.chat_id, value.message, turn.created_at)
+            title = None
+            if await workspace.needs_title(context, value.chat_id) and callable(getattr(agent, 'suggest_title', None)):
+                try:
+                    async with asyncio.timeout(8):
+                        title = await agent.suggest_title(message=chat.turns[0].message)
+                except Exception:
+                    pass  # A title failure must not hide an already saved reply.
+            await fresh(request, credential)
+            await workspace.record_activity(context, value.chat_id, chat.turns[0].message, turn.created_at, title=title)
             await fresh(request, credential)
             return _json(view(chat))
 

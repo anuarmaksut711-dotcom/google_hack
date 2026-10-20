@@ -48,6 +48,9 @@ class CalendarConversation:
     async def reply(self, **kwargs):
         return await self.agent.reply(**kwargs)
 
+    async def suggest_title(self, **kwargs):
+        return await self.agent.suggest_title(**kwargs)
+
     async def transcribe(self, **kwargs):
         return await self.agent.transcribe(**kwargs)
 

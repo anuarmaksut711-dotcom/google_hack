@@ -17,7 +17,7 @@ function harness() {
   const $ = id => {
     if (!elements.has(id)) elements.set(id, {
       value: '', textContent: '', hidden: false,
-      replaceChildren() {}, setAttribute() {}, focus() {}, classList: {remove() {}},
+      replaceChildren() {}, setAttribute() {}, focus() {}, scrollTo() {}, classList: {remove() {}},
     });
     return elements.get(id);
   };
@@ -32,9 +32,10 @@ function harness() {
   const sandbox = {
     $, sessionStorage, URLSearchParams, AbortSignal, document: {cookie: '', body: {dataset: {signinUrl: '/login'}}},
     window: {location: {assign(url) { sandbox.destination = url; }}},
-    location: {search: '', hash: '#workspace'}, history: {replaceState() {}},
-    chats: {reset() {}, async load() {}},
-    controls() {}, showChat() {}, updateNavigation() {}, feedback() {}, clearMoodle() {},
+    location: {pathname: '/', search: '', hash: '#workspace'}, history: {replaceState() {}},
+    chats: {data: {chat_available: true, speech_available: true}, reset() {}, selection() {}, async load() {}},
+    controls() {}, showChat(chat) { sandbox.lastChat = chat; }, updateNavigation() {}, feedback() {}, clearMoodle() {},
+    keyFor(name) { if (!pending.get(name)) pending.set(name, 'stable-first-send'); return pending.get(name); },
     stored(name, value) {if (value !== undefined) pending.set(name, value); return pending.get(name) ?? null;},
   };
   vm.createContext(sandbox);
@@ -44,6 +45,7 @@ function harness() {
       chatWorking=false, chatLimitReached=false, chatBusy=false, busy=false,
       moodleEnabled=false, moodleRevision=0, moodleBusy=false;
     const chatDrafts=new Map();
+    ${between('  const draftChat', '  let activeChat')}
     ${between('  const csrf = ', '  async function api(')}
     ${between('  async function api(', '  function clearMoodle(')}
     ${between('  const pendingChatKey', '  function selectChat')}
@@ -54,6 +56,99 @@ function harness() {
     function snapshot() { return {scope, pendingText, composer: $('recovery-message').value}; }
   `, sandbox);
   return {sandbox, data, pending, $, run: text => vm.runInContext(text, sandbox)};
+}
+
+async function openingDraftDoesNotReadOrCreateServerChat() {
+  const h = harness();
+  h.run("activeChat='draft'");
+  h.sandbox.api = async () => { throw new Error('A blank draft must not contact the conversation API'); };
+  await h.run('loadChat()');
+  assert.equal(h.sandbox.lastChat?.turns.length, 0, 'New chat must show an empty local conversation');
+  assert.equal(h.sandbox.lastChat?.available, true);
+  assert.equal(h.sandbox.lastChat?.speech_available, true, 'Opening a draft must preserve voice input capability');
+  assert.equal(h.run('chatAvailable'), true);
+}
+
+async function firstDraftSendCreatesOneChatAndMovesPendingState() {
+  const h = harness();
+  const folder = 'a'.repeat(32), realId = 'b'.repeat(32);
+  h.run(`activeChat='draft-${folder}'`);
+  h.$('recovery-message').value = 'Объясни алгоритм Крускала';
+  const created = [], sent = [];
+  h.sandbox.chats.materialize = async (folderId, requestKey) => {
+    created.push([folderId, requestKey]); return realId;
+  };
+  h.sandbox.api = async (url, payload) => {
+    sent.push([url, payload]);
+    assert.equal(payload.chat_id, realId, 'Only a registered chat ID may reach the message API');
+    return {json: async () => ({available: true, turns: [{request_key: payload.request_key,
+      message: payload.message, status: 'completed'}]})};
+  };
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(created, [[folder, 'stable-first-send']], 'Register the draft once, on first send');
+  assert.equal(sent.length, 1);
+  assert.equal(h.run('activeChat'), realId);
+  assert.equal(h.$('recovery-message').value, '');
+  assert.equal(h.pending.get('pending-chat:' + realId), null);
+  assert.equal(h.pending.get('pending-chat:draft-' + folder), null);
+  assert.equal(h.data.has('campuspulse-draft-v1:session-1:draft-' + folder), false);
+}
+
+async function failedDraftCreationKeepsTextAndStableRetryKey() {
+  const h = harness();
+  h.run("activeChat='draft'");
+  h.$('recovery-message').value = 'Несохранённый вопрос';
+  const keys = [];
+  h.sandbox.chats.materialize = async (folder, key) => {keys.push(key); throw new Error('Temporary creation failure');};
+  await h.run('sendMessage({preventDefault(){}})');
+  h.$('recovery-message').value = 'Исправленный вопрос';
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(keys, ['stable-first-send', 'stable-first-send']);
+  assert.equal(h.run('activeChat'), 'draft');
+  assert.equal(h.$('recovery-message').value, 'Исправленный вопрос');
+  assert.equal(JSON.parse(h.data.get('campuspulse-draft-v1:session-1:draft')).text, 'Исправленный вопрос');
+}
+
+async function repeatedNewChatButtonsNeverWriteCatalog() {
+  const workspaceSource = fs.readFileSync(path.join(root, 'src/campuspulse_recovery/web/assets/workspace.py'), 'utf8');
+  const script = workspaceSource.split('SCRIPT = r"""')[1].split('"""')[0];
+  const elements = new Map(), opened = [];
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, {events: {}, addEventListener(name, callback) {this.events[name] = callback;}});
+      return elements.get(id);
+    },
+    querySelector() { return null; },
+  };
+  const sandbox = {window: {addEventListener() {}}, document};
+  vm.createContext(sandbox); vm.runInContext(script, sandbox);
+  const chats = new sandbox.window.CampusPulseChats({
+    api() {throw new Error('Opening a draft must never write the catalog');},
+    selected: () => 'draft', navigate: id => opened.push(id), changed() {}, blocked: () => false, session: () => 'session-1',
+  });
+  chats.data = {revision: 0, folders: [], chats: []};
+  for (let index=0; index<5; index++) elements.get('chat-new').events.click();
+  chats.startChat('a'.repeat(32)); chats.startChat('a'.repeat(32));
+  assert.deepEqual(opened, ['draft', 'draft', 'draft', 'draft', 'draft', 'draft-' + 'a'.repeat(32), 'draft-' + 'a'.repeat(32)]);
+  assert.equal(chats.data.chats.length, 0);
+}
+
+async function draftKeysAreIsolatedBetweenTabsAndStableAfterReload() {
+  const shared = new Map(), tabOne = new Map(), tabTwo = new Map();
+  const storage = data => ({getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value)});
+  let sequence = 0;
+  function tab(session) {
+    const sandbox = {sessionStorage: storage(session), localStorage: storage(shared),
+      crypto: {randomUUID: () => String(++sequence)}};
+    vm.createContext(sandbox);
+    vm.runInContext(`let scope='session-1'; ${between('  function stored(', '  function reference(')}`, sandbox);
+    return name => vm.runInContext(`keyFor(${JSON.stringify(name)})`, sandbox);
+  }
+  const one = tab(tabOne), two = tab(tabTwo);
+  const first = one('pending-chat:draft'), second = two('pending-chat:draft');
+  assert.notEqual(first, second, 'Independent tabs must not merge their first messages into the same chat');
+  assert.equal(tab(tabOne)('pending-chat:draft'), first, 'A reload in the original tab must retain its creation key');
+  assert.equal(one('pending-chat:registered'), two('pending-chat:registered'), 'Existing chat recovery remains shared');
 }
 
 async function transientRefreshRetainsDrafts() {
@@ -272,7 +367,7 @@ async function staleRefreshDoesNotClearNewRequest() {
 
 (async () => {
   let failures = 0;
-  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating]) {
+  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }

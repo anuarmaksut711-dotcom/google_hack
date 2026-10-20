@@ -19,7 +19,8 @@ class SyntheticModel(BaseLlm):
         self._requests.append(llm_request)
         parts = [types.Part(text='private thought', thought=True)]
         if not self._only_thought:
-            answer = 'Visible synthetic answer'
+            answer = ('Алгоритм Крускала' if 'conversation title' in str(llm_request.config.system_instruction)
+                      else 'Visible synthetic answer')
             if llm_request.config.response_schema:
                 answer = json.dumps({'kind': 'message', 'message': answer, 'blocks': []})
             parts.append(types.Part(text=answer))
@@ -29,6 +30,18 @@ class SyntheticModel(BaseLlm):
 def adapter(model):
     return AdkConversationAgent(ConversationTarget(project_id='campus-test-42',
         location='us-central1', model='gemini-synthetic'), model_factory=lambda: model)
+
+
+def test_topic_title_uses_only_message_without_sources_history_or_tools():
+    async def scenario():
+        model = SyntheticModel(model='gemini-synthetic')
+        title = await adapter(model).suggest_title(message='Объясни алгоритм Крускала на примере')
+        assert title == 'Алгоритм Крускала'
+        request, = model._requests
+        assert [(c.role, c.parts[0].text) for c in request.contents] == [
+            ('user', 'Объясни алгоритм Крускала на примере')]
+        assert not request.tools_dict and request.config.max_output_tokens <= 128
+    run(scenario())
 
 
 def test_transcription_passes_audio_to_configured_model_without_tools_or_history():

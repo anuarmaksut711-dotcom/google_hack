@@ -226,10 +226,98 @@ def test_existing_chat_titles_and_histories_are_preserved_on_catalog_upgrade():
                     for entry in previous['chats']:
                         entry.pop('auto_title', None)
                         entry.pop('updated_at', None)
+                        entry.pop('manual_title', None)
                     saved.update(kind='chat-workspace-v1', body=canonical_json(previous).encode(), digest=canonical_hash(previous))
             assert (await client.post('/api/chat', headers=headers, json={
                 'chat_id': chat_id, 'request_key': 'after-upgrade', 'message': 'Новый вопрос'})).status_code == 200
             entry = next(c for c in (await client.get('/api/chat/workspace')).json()['chats'] if c['chat_id'] == chat_id)
             assert entry['title'] == 'Ручное название'
             assert (await client.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == 'Новый вопрос'
+    run(scenario())
+
+
+def test_topic_title_uses_first_message_and_never_overwrites_manual_title():
+    class TopicAgent(FakeAgent):
+        def __init__(self):
+            super().__init__()
+            self.title_messages = []
+
+        async def suggest_title(self, *, message):
+            self.title_messages.append(message)
+            return 'Алгоритм Крускала'
+
+    async def scenario():
+        h, agent = Setup(), TopicAgent()
+        async with h.client(app(h, agent)) as client:
+            headers = await login(client)
+            chat_id = (await change(client, headers, 'create_chat', 'topic-chat',
+                title='Новый чат', folder_id=None))['item_id']
+            message = 'Помоги мне разобраться, как работает алгоритм Крускала на примере графа'
+            payload = {'chat_id': chat_id, 'request_key': 'topic-first', 'message': message}
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 200
+            catalog = (await client.get('/api/chat/workspace')).json()
+            assert next(c for c in catalog['chats'] if c['chat_id'] == chat_id)['title'] == 'Алгоритм Крускала'
+            assert agent.title_messages == [message]
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 200
+            await change(client, headers, 'rename_chat', 'manual-placeholder', item_id=chat_id, title='Новый чат')
+            assert (await client.post('/api/chat', headers=headers, json={
+                **payload, 'request_key': 'topic-followup', 'message': 'Ещё один пример'})).status_code == 200
+            catalog = (await client.get('/api/chat/workspace')).json()
+            assert next(c for c in catalog['chats'] if c['chat_id'] == chat_id)['title'] == 'Новый чат'
+            assert agent.title_messages == [message]
+    run(scenario())
+
+
+def test_placeholder_title_from_previous_release_is_repaired_from_first_turn():
+    async def scenario():
+        h, agent = Setup(), FakeAgent()
+        async with h.client(app(h, agent)) as client:
+            headers = await login(client)
+            # v2 upgraded a legacy placeholder with auto_title=False.
+            chat_id = (await change(client, headers, 'create_chat', 'legacy-placeholder',
+                title='Новый чат', folder_id=None))['item_id']
+            from campuspulse_recovery.storage.plans import _decode, _encode
+            from campuspulse_recovery.web.workspace import ChatWorkspace
+            for path, saved in list(h.documents.data.items()):
+                if path.startswith('cp_chat_workspaces/'):
+                    catalog = _decode(saved, 'chat-workspace-v2', ChatWorkspace)
+                    catalog = catalog.model_copy(update={'chats': tuple(
+                        c.model_copy(update={'auto_title': False}) for c in catalog.chats)})
+                    h.documents.data[path] = _encode('chat-workspace-v2', catalog)
+            assert (await client.post('/api/chat', headers=headers, json={
+                'chat_id': chat_id, 'request_key': 'legacy-first', 'message': 'Подготовка к экзамену по ОС'})).status_code == 200
+            entry = next(c for c in (await client.get('/api/chat/workspace')).json()['chats'] if c['chat_id'] == chat_id)
+            assert entry['title'] == 'Подготовка к экзамену по ОС'
+    run(scenario())
+
+
+def test_title_provider_failure_does_not_fail_message_or_repeat_title_request():
+    class FailedTitleAgent(FakeAgent):
+        async def suggest_title(self, *, message):
+            raise RuntimeError('synthetic title provider failure')
+
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FailedTitleAgent())) as client:
+            headers = await login(client)
+            response = await client.post('/api/chat', headers=headers, json={
+                'request_key': 'title-failure', 'message': 'План на завтра'})
+            assert response.status_code == 200 and response.json()['turns'][0]['status'] == 'completed'
+            assert (await client.get('/api/chat/workspace')).json()['chats'][0]['title'] == 'План на завтра'
+    run(scenario())
+
+
+def test_draft_capabilities_come_from_configured_agent_without_creating_history():
+    class SpeechAgent(FakeAgent):
+        async def transcribe(self, **kwargs):
+            return 'Тест'
+
+    async def scenario():
+        for agent, chat, speech in ((SpeechAgent(), True, True), (FakeAgent(), True, False), (None, False, False)):
+            h = Setup()
+            async with h.client(app(h, agent)) as client:
+                await login(client)
+                result = (await client.get('/api/chat/workspace')).json()
+                assert result['chat_available'] is chat and result['speech_available'] is speech
+                assert not any(path.startswith('cp_conversations/') for path in h.documents.data)
     run(scenario())
