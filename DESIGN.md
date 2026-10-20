@@ -10,7 +10,7 @@ The empty conversation follows the supplied reference geometry: a small monochro
 
 ## Color and type
 
-Ground #101010; rail #0d0e10; sidebar #141518; composer #1d1e22; separators #2b2d33. Text #e3e4e9, supporting text #a2a5af, links #a6bcff, action #3559cd, focus #91acff. A broad, low-contrast blue radial background belongs to the empty working surface. It is a pinned reference effect, not a status signal.
+Ground #101010; rail #0d0e10; sidebar #141518; composer #1d1e22; separators #2b2d33. Text #e3e4e9, supporting text #a2a5af, links #a6bcff, action #3559cd, focus #91acff. The blue radial background appears only on the untouched empty working surface. Any text in the composer or an existing conversation switches the workspace to solid #101010, including while an answer is pending. It is a pinned reference effect, not a status signal.
 
 Use Segoe UI/system sans, 14px base, 15px conversation, 16px input, and a fluid 28–40px empty heading. Technical identifiers remain Consolas. Buttons retain visible focus, pending and disabled states. Success, warning and error use dark semantic pairs, always with their existing labels.
 
