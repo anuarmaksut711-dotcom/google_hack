@@ -310,7 +310,7 @@ body[data-view=assistant] .topbar { justify-content: flex-end; }
 .consent-note { max-width: 880px; font-size: 11px; color: #9fa5b5; }
 body[data-view=assistant] #feedback:not([data-error=true]) { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip-path: inset(50%); }
 body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; font-size: 10px; color: #9a9da8; }
-.conversation-scroll:focus-visible { outline-offset: -3px; }
+.conversation-scroll:focus, .conversation-scroll:focus-visible { outline: none; }
 .composer-options, .chat-help { position: relative; }
 .composer-options > summary, .chat-help > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; }
 .composer-options > summary::-webkit-details-marker, .chat-help > summary::-webkit-details-marker { display: none; }
