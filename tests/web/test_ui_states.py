@@ -339,7 +339,10 @@ def test_resources_csp_and_missing_runtime_fail_closed():
             assert 'script-src \'self\'' in shell.headers["content-security-policy"]
             assert 'unsafe-inline' not in shell.headers["content-security-policy"]
             assert 'role="status"' in shell.text and 'aria-busy="true"' in shell.text
-            assert "не означает, что задание выполнено" in shell.text
+            assert 'data-timezone="Asia/Qyzylorda"' in shell.text
+            assert 'id="conversation-index" hidden' in shell.text
+            assert 'Сообщения чата' not in shell.text and 'О расписании' not in shell.text
+            assert '<div class="sidebar-bottom">' not in shell.text
             for path, expected, mime in (("/assets/campuspulse.css",STYLES,"text/css"),("/assets/campuspulse.js",SCRIPT,"text/javascript")):
                 response = await c.get(path)
                 assert response.text == expected and mime in response.headers["content-type"]
