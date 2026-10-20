@@ -36,7 +36,9 @@ The reserved owner must never be used for real users; per-user integration must
 replace this configuration before enabling recovery in the website.
 No Google subject, Calendar ID, feed URL or user credentials are copied to Git.
 
-The MCP configuration version is explicitly pinned to `:1` in the initial deploy.
+The MCP configuration version defaults to `:1` for a new initial deploy.
+This project's actual corrected configuration is version `2`: use
+`--settings-version 2` with `deploy-mcp`. See the handoff for the final receipt.
 For future configurations, validate settings, create a new Secret Manager version
 and explicitly review/update the pinned version; do not silently replace `latest`.
 
@@ -86,7 +88,9 @@ regional engine/operation list before another create.
 ```sh
 python deploy/recovery-gcp.py authorize-backend --resource ACTUAL_RESOURCE_ID
 python deploy/recovery-gcp.py check --resource ACTUAL_RESOURCE_ID
+python deploy/recovery-gcp.py check --resource ACTUAL_RESOURCE_ID --as-backend
 python deploy/recovery-gcp.py model-smoke
+python deploy/recovery-gcp.py check-storage
 ```
 
 `authorize-backend` creates/reuses a two-permission custom role (`get`, `query`)
@@ -105,6 +109,11 @@ Local identity impersonation requires `iam.serviceAccounts.getAccessToken` /
 time-limited deployer `roles/iam.serviceAccountTokenCreator` binding for smoke
 and remove that binding afterwards. Do not grant the deployer key creation.
 Runtime-to-MCP authentication uses platform credentials, not that temporary grant.
+
+To update an existing engine deliberately, prepare a new validated bundle in a
+new private directory and use `update-engine --bundle NEW_BUNDLE --resource ID`.
+Update MCP's pinned settings version to the same configuration. Wait for the
+actual update operation to complete and rerun the remote schema/API checks.
 
 ## Acceptance boundary
 

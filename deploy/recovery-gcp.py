@@ -62,8 +62,9 @@ def token(identity=None, audience=None):
         args += [f'--audiences={audience}', '--include-email']
     value = gcloud(*args, raw=True).strip()
     if value.startswith('{'):
-        value = json.loads(value)['token']
-    if not re.fullmatch(r'[A-Za-z0-9._~-]+', value):
+        result = json.loads(value)
+        value = result.get('token') or result.get('idToken') or result.get('id_token')
+    if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9._~-]+', value):
         raise RuntimeError('unexpected credential response shape')
     return value
 
@@ -103,7 +104,8 @@ def provision():
         raise RuntimeError('billing not enabled; this script never links billing')
     required = {'aiplatform.googleapis.com', 'run.googleapis.com', 'cloudbuild.googleapis.com',
                 'artifactregistry.googleapis.com', 'firestore.googleapis.com', 'iam.googleapis.com',
-                'iamcredentials.googleapis.com', 'secretmanager.googleapis.com', 'storage.googleapis.com'}
+                'iamcredentials.googleapis.com', 'secretmanager.googleapis.com', 'storage.googleapis.com',
+                'calendar-json.googleapis.com', 'sheets.googleapis.com'}
     enabled = {s['config']['name'] for s in gcloud('services', 'list', '--enabled')}
     if required - enabled:
         gcloud('services', 'enable', *sorted(required - enabled))
@@ -155,7 +157,7 @@ def bootstrap_settings():
     app['student'] = dict(trusted_user_id='recovery-infrastructure-bootstrap',
         allowed_signin_principal='https://accounts.google.com#recovery-infrastructure-bootstrap',
         spreadsheet_id='recovery_infrastructure_bootstrap_no_resource',
-        assignments_a1_range='Assignments!A1:H100',
+        assignments_a1_range='Assignments!A1:F100',
         calendar_id='recovery-infrastructure-bootstrap.invalid', timezone='Asia/Qyzylorda')
     app['secrets'] = dict(oauth_client_secret_reference=None, oauth_refresh_token_secret_reference=None)
     settings = CloudSettings.model_validate(dict(application=app,
@@ -179,7 +181,8 @@ def build_mcp():
     stage = PRIVATE / ('source-' + uuid.uuid4().hex)
     stage.mkdir(parents=True)
     files = ['pyproject.toml', 'requirements/LICENSE', 'requirements/dev.lock',
-             'requirements/cloud-linux.lock', 'deploy/Dockerfile.recovery', 'deploy/prepare-agent-engine.py']
+             'requirements/cloud-linux.lock', 'deploy/Dockerfile.recovery', 'deploy/prepare-agent-engine.py',
+             'deploy/check-recovery-composition.py']
     files += [str(p.relative_to(ROOT)) for p in (ROOT / 'src').rglob('*')
               if p.is_file() and '__pycache__' not in p.parts and p.suffix in {'.py','.js','.png','.txt'}]
     files += [str(p.relative_to(ROOT)) for p in (ROOT / 'tests').rglob('*.py') if '__pycache__' not in p.parts]
@@ -198,7 +201,7 @@ def build_mcp():
     emit(build_id=result['id'], image_tag=tag, source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip())
 
 
-def deploy_mcp(image):
+def deploy_mcp(image, settings_version):
     if not re.fullmatch(rf'{REGION}-docker.pkg.dev/{PROJECT}/campuspulse/recovery-mcp@sha256:[a-f0-9]{{64}}', image):
         raise RuntimeError('immutable recovery MCP image required')
     # IAM remains private on creation and update. The application also validates
@@ -207,7 +210,7 @@ def deploy_mcp(image):
         f'--service-account={MCP}', '--no-allow-unauthenticated', '--ingress=all',
         '--min-instances=0', '--max-instances=2', '--memory=1Gi', '--cpu=1', '--timeout=180',
         '--set-env-vars=CAMPUSPULSE_ROLE=mcp,CAMPUSPULSE_CLOUD_SETTINGS=/var/run/campuspulse/settings.json',
-        f'--set-secrets=/var/run/campuspulse/settings.json={SECRET}:1')
+        f'--set-secrets=/var/run/campuspulse/settings.json={SECRET}:{settings_version}')
     gcloud('run', 'services', 'add-iam-policy-binding', MCP_SERVICE, f'--region={REGION}',
         f'--member=serviceAccount:{AGENT}', '--role=roles/run.invoker')
     policy = gcloud('run', 'services', 'get-iam-policy', MCP_SERVICE, f'--region={REGION}')
@@ -216,7 +219,7 @@ def deploy_mcp(image):
     emit(mcp_origin=MCP_ORIGIN, ready_revision=result['status']['latestReadyRevisionName'], iam=policy['bindings'])
 
 
-def deploy_engine(bundle):
+def deploy_engine(bundle, resource=None):
     logging.disable(logging.CRITICAL)
     from importlib.metadata import version
     if version('google-cloud-aiplatform') != '1.165.1':
@@ -227,7 +230,7 @@ def deploy_engine(bundle):
     import vertexai
     from vertexai import agent_engines
     found = [e for e in engines() if e.get('displayName') == 'campuspulse-recovery']
-    if found:
+    if found and not resource:
         emit(status='existing_resource_reused_no_create', resource_names=[e['name'] for e in found])
         return
     bundle = Path(bundle).resolve()
@@ -241,29 +244,38 @@ def deploy_engine(bundle):
     vertexai.init(project=PROJECT, location=REGION, staging_bucket='gs://' + BUCKET, credentials=Credentials(token()))
     cfg = json.loads((bundle / 'create-config.json').read_text())
     os.chdir(bundle)
-    remote = agent_engines.create(AgentEngineRuntime(settings), **cfg,
-        min_instances=0, max_instances=2, resource_limits={'cpu':'2','memory':'4Gi'}, container_concurrency=5)
+    if resource:
+        if not re.fullmatch(rf'projects/{NUMBER}/locations/{REGION}/reasoningEngines/[0-9]+',resource):
+            raise RuntimeError('explicit actual resource name required')
+        if resource not in [e['name'] for e in found]:
+            raise RuntimeError('update target not found in inspected recovery engines')
+        remote = agent_engines.get(resource).update(agent_engine=AgentEngineRuntime(settings), **cfg)
+    else:
+        remote = agent_engines.create(AgentEngineRuntime(settings), **cfg,
+            min_instances=0, max_instances=2, resource_limits={'cpu':'2','memory':'4Gi'}, container_concurrency=5)
     resource = remote.resource_name
     PRIVATE.mkdir(parents=True, exist_ok=True)
     (PRIVATE/'engine-resource.txt').write_text(resource, encoding='utf-8')
     emit(status='remote_deployment_completed', resource_name=resource, operation_schema=remote.operation_schemas())
 
 
-def check(resource):
+def check(resource, as_backend=False):
     if not re.fullmatch(rf'projects/{NUMBER}/locations/{REGION}/reasoningEngines/[0-9]+', resource):
         raise RuntimeError('explicit actual resource name required')
     url = f'https://{REGION}-aiplatform.googleapis.com/v1/{resource}'
-    engine = request(url)
+    access = token(BACKEND) if as_backend else token()
+    engine = request(url,access=access)
     emit(resource_name=engine['name'], service_account=engine['spec'].get('serviceAccount'),
          operation_schema=engine['spec'].get('classMethods', []))
     # Deliberately invalid input: runtime must reject before any source/calendar
     # IO, grant creation, session impersonation, or write. Not an end-to-end pass.
-    result = request(url + ':query', body={'class_method':'async_query',
+    result = request(url + ':query', access=access, body={'class_method':'async_query',
         'input': {'invocation':'invalid-smoke','service_token':'invalid-smoke'}})
     output = result.get('output', {})
     if output != {'status_code':403,'payload':{'error':'service_or_invocation_rejected'}}:
         raise RuntimeError('remote rejection smoke returned unexpected envelope')
-    emit(status='remote_custom_operation_rejection_verified', output=output, recovery_success=False)
+    emit(status='remote_custom_operation_rejection_verified', output=output, recovery_success=False,
+         caller=BACKEND if as_backend else 'deployer')
 
 
 def authorize_backend(resource):
@@ -314,16 +326,35 @@ def check_mcp():
          agent_signed_health=signed_health, signed_missing_grant=missing_grant, tool_execution_verified=False)
 
 
+def check_storage():
+    url = f'https://firestore.googleapis.com/v1/projects/{PROJECT}/databases/{DATABASE}/documents/cp_system/recovery_infrastructure_probe'
+    # Read a reserved nonexistent infrastructure document, never scan user data.
+    try:
+        request(url, access=token(AGENT))
+        status = 200
+    except RuntimeError as e:
+        if not str(e).startswith('API HTTP 404: NOT_FOUND:'):
+            raise
+        status = 404
+    emit(status='runtime_firestore_read_authorized', http_status=status,
+         database=DATABASE, document_contents_disclosed=False, writes=False)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('action', choices=['inspect','provision','bootstrap-settings','build-mcp','deploy-mcp','deploy-engine','check',
-                                     'authorize-backend','model-smoke','check-mcp'])
+                                     'authorize-backend','model-smoke','check-mcp','check-storage','update-engine'])
     p.add_argument('--image'); p.add_argument('--bundle'); p.add_argument('--resource')
+    p.add_argument('--settings-version',type=int,default=1)
+    p.add_argument('--as-backend',action='store_true')
     a = p.parse_args()
+    if a.settings_version < 1:
+        raise RuntimeError('positive pinned secret version required')
     actions = {'inspect':inspect, 'provision':provision, 'bootstrap-settings':bootstrap_settings, 'build-mcp':build_mcp,
-               'deploy-mcp':lambda:deploy_mcp(a.image or ''), 'deploy-engine':lambda:deploy_engine(a.bundle or ''),
-               'check':lambda:check(a.resource or ''), 'authorize-backend':lambda:authorize_backend(a.resource or ''),
-               'model-smoke':model_smoke, 'check-mcp':check_mcp}
+               'deploy-mcp':lambda:deploy_mcp(a.image or '',a.settings_version), 'deploy-engine':lambda:deploy_engine(a.bundle or ''),
+               'update-engine':lambda:deploy_engine(a.bundle or '',a.resource or 'invalid'),
+               'check':lambda:check(a.resource or '',a.as_backend), 'authorize-backend':lambda:authorize_backend(a.resource or ''),
+               'model-smoke':model_smoke, 'check-mcp':check_mcp, 'check-storage':check_storage}
     actions[a.action]()
 
 

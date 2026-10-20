@@ -7,9 +7,11 @@ COPY requirements/LICENSE requirements/cloud-linux.lock requirements/
 COPY src src
 COPY tests tests
 COPY deploy/prepare-agent-engine.py deploy/prepare-agent-engine.py
+COPY deploy/check-recovery-composition.py deploy/check-recovery-composition.py
 # Linux AF_UNIX socketpairs keep asyncio compatible with the tests' network fence.
 # External model, Calendar and credentials remain forbidden by these tests.
 RUN python -m pytest tests/agent_engine -q
+RUN python deploy/check-recovery-composition.py
 RUN python -m build --no-isolation --wheel --outdir /wheels
 
 FROM python:3.12.13-slim-bookworm
