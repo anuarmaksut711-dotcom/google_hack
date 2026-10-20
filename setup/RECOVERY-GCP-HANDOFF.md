@@ -1,5 +1,15 @@
 # Recovery GCP handoff
 
+Latest rollout checkpoint (20 October 2026):
+[RECOVERY-ROLLOUT-2026-10-20.md](RECOVERY-ROLLOUT-2026-10-20.md).
+The integrated candidate passed 2073 tests with Firestore Emulator and was built
+as an immutable image/wheel. The user confirmed that the two real private account
+bindings and dedicated test Calendars do not exist yet. Existing website/MCP/Engine
+serving versions were therefore preserved; no personal activation or Calendar
+apply/verify success is claimed. The checkpoint supersedes component-version and
+remaining-integration statements below; the earlier deployment receipts remain
+historical evidence.
+
 Status: Agent Engine deployment/update completed, private MCP Ready, remote
 custom-operation smoke verified as the actual backend identity. Full per-user
 recovery is NOT enabled: the application integration dependencies below remain.

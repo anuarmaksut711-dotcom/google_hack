@@ -1,5 +1,12 @@
 # Recovery website integration validation
 
+Later cloud checkpoint:
+[RECOVERY-ROLLOUT-2026-10-20.md](RECOVERY-ROLLOUT-2026-10-20.md) records 2073 passing
+tests (zero skips), 347 recovery checks, 53 voice checks, immutable artifacts,
+current resource/API checks and limited production browser/server smoke. It does
+not establish two-user recovery or Calendar apply/verify. The results below are
+the earlier source integration session and retain their original scope.
+
 Date: 2026-10-20. Delivery branch: `main`.
 Tested source merge: `9c2d16d6a8164e382207cf3024a1ed566c2b67a9`.
 It contains website integration `71bf31f` and Merey's final GCP branch `dca27c3`,

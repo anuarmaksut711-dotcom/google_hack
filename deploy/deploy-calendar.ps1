@@ -15,6 +15,7 @@ $image = $cfg.image_tag.Split(':')[0] + '@' + $build.results.images[0].digest
 $secrets = "/var/run/campuspulse/settings.json=campuspulse-calendar-settings:$($cfg.settings_version),GEMINI_API_KEY=campuspulse-calendar-gemini:$($cfg.gemini_version)"
 $environment = 'CAMPUSPULSE_CALENDAR_SETTINGS=/var/run/campuspulse/settings.json'
 $null = Gcp @('run','deploy','campuspulse',"--region=$($cfg.region)","--image=$image",
+    '--command=python','--args=-m,campuspulse_recovery.cloud.calendar_app',
     "--service-account=$($cfg.runtime)",'--execution-environment=gen2','--port=8080',
     '--cpu=1','--memory=1Gi','--concurrency=8','--min-instances=0','--max-instances=2',
     '--timeout=300','--ingress=all','--allow-unauthenticated','--invoker-iam-check',

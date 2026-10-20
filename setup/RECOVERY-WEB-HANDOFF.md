@@ -1,5 +1,13 @@
 # Recovery website integration handoff
 
+Current cloud verification/prepared rollout:
+[RECOVERY-ROLLOUT-2026-10-20.md](RECOVERY-ROLLOUT-2026-10-20.md).
+The serving website's product source matches `cb624cb`, with recovery disabled.
+The per-user candidate passed the full Linux gate; activation is blocked on the
+two real private bindings/authorized dedicated Calendars, which the user confirmed
+are unavailable. The existing transport and UI implementation require connection
+and acceptance, not reimplementation.
+
 Delivery branch: `main`. Website integration from `codex/recovery-web-integration`
 (`71bf31f`) and Merey's final `codex/gcp-recovery-deployment` (`dca27c3`) were
 combined in source merge `9c2d16d`. This document describes the implemented code

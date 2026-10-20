@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import tarfile
+import uuid
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,7 +49,7 @@ def build():
     sha = subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     if subprocess.check_output(['git','status','--porcelain','--untracked-files=no'],cwd=ROOT,text=True).strip():
         raise RuntimeError('commit_tracked_changes_before_source_snapshot')
-    stage = PRIVATE/('source-'+sha)
+    stage = PRIVATE/('source-'+sha+'-'+uuid.uuid4().hex[:8])
     stage.mkdir(parents=True,exist_ok=False)
     archive = subprocess.check_output(['git','archive','--format=tar',sha],cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
@@ -74,17 +75,15 @@ def build():
     cfg.write_text(json.dumps(config),encoding='utf-8')
     result = gcp.gcloud('builds','submit',str(stage),f'--config={cfg}',f'--region={gcp.REGION}',
         f'--gcs-source-staging-dir=gs://{gcp.PROJECT}-campuspulse-build/recovery-rollout-source','--async')
-    receipt = dict(source_sha=sha,build_id=result['id'],image_tag=tag,
+    receipt = dict(source_sha=sha,build_id=result['id'],image_tag=tag,source_directory=str(stage),
                    artifacts=f'gs://{gcp.PROJECT}-campuspulse-build/recovery-rollout/{sha}/')
     (PRIVATE/'build-receipt.json').write_text(json.dumps(receipt,indent=2),encoding='utf-8')
-    gcp.emit(status='release_build_submitted',**receipt)
+    gcp.emit(status='release_build_submitted',**{k:v for k,v in receipt.items() if k!='source_directory'})
 
 
 def prepare_settings(bindings,engine_file,calendar_file):
-    import sys
-    sys.path.insert(0,str(ROOT/'src'))
-    from campuspulse_recovery.cloud.settings import CloudSettings
-    from campuspulse_recovery.cloud.calendar_app import CalendarSettings
+    if not all((bindings,engine_file,calendar_file)):
+        raise RuntimeError('private_bindings_engine_calendar_paths_required')
     raw = json.loads(Path(bindings).read_text(encoding='utf-8-sig'))
     if not isinstance(raw,list) or len(raw)<2:
         raise RuntimeError('two_verified_private_account_bindings_required')
@@ -94,6 +93,10 @@ def prepare_settings(bindings,engine_file,calendar_file):
             or not account.get('calendar_id','').endswith('@group.calendar.google.com')
             or 'bootstrap' in json.dumps(account).lower()):
             raise RuntimeError('verified_subject_and_dedicated_test_calendar_required')
+    import sys
+    sys.path.insert(0,str(ROOT/'src'))
+    from campuspulse_recovery.cloud.settings import CloudSettings
+    from campuspulse_recovery.cloud.calendar_app import CalendarSettings
     engine = json.loads(Path(engine_file).read_text(encoding='utf-8-sig'))
     engine['calendar_feed_accounts'] = raw
     shared = CloudSettings.model_validate(engine)
@@ -104,10 +107,10 @@ def prepare_settings(bindings,engine_file,calendar_file):
         project_id=gcp.PROJECT,location=gcp.REGION,resource_name=ENGINE))
     website = CalendarSettings.model_validate(calendar)
     PRIVATE.mkdir(parents=True,exist_ok=True)
+    if any((PRIVATE/name).exists() for name in ('engine-personal.json','calendar-personal.json')):
+        raise RuntimeError('private_prepared_settings_exist_do_not_overwrite')
     for filename,value in [('engine-personal.json',shared),('calendar-personal.json',website)]:
         path=PRIVATE/filename
-        if path.exists():
-            raise RuntimeError('private_prepared_settings_exist_do_not_overwrite')
         path.write_text(value.model_dump_json(),encoding='utf-8')
     gcp.emit(status='private_settings_validated_not_deployed',accounts=len(raw),calendar_acl_verified=False,
              settings_sha256=hashlib.sha256(shared.model_dump_json().encode()).hexdigest())

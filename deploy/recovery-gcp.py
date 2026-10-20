@@ -209,7 +209,7 @@ def build_mcp():
 
 
 def deploy_mcp(image, settings_version):
-    if not re.fullmatch(rf'{REGION}-docker.pkg.dev/{PROJECT}/campuspulse/recovery-mcp@sha256:[a-f0-9]{{64}}', image):
+    if not re.fullmatch(rf'{REGION}-docker.pkg.dev/{PROJECT}/campuspulse/(?:recovery-mcp|recovery-rollout)@sha256:[a-f0-9]{{64}}', image):
         raise RuntimeError('immutable recovery MCP image required')
     # IAM remains private on creation and update. The application also validates
     # signed service identity AND a server-issued session-bound tool grant.
