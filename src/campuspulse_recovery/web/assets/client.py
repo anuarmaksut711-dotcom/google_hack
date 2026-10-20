@@ -5,11 +5,16 @@ SCRIPT = r"""'use strict';
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, pendingText = null;
   let speechAvailable = false, voiceState = 'idle', recorder = null, voiceStream = null, voiceTimer = null;
+  let voiceAudio = null, voiceFrame = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
     .find(type => MediaRecorder.isTypeSupported(type)) : null;
   function releaseMicrophone() {
     clearTimeout(voiceTimer);
+    cancelAnimationFrame(voiceFrame);
+    if (voiceAudio) voiceAudio.close().catch(() => {});
+    voiceAudio = null;
+    $('voice-level-wrap').hidden = true;
     voiceStream?.getTracks().forEach(track => track.stop());
     voiceStream = null;
   }
@@ -20,6 +25,7 @@ SCRIPT = r"""'use strict';
     $('voice-toggle').textContent = voiceState === 'recording' ? 'Остановить запись' :
       voiceState === 'transcribing' ? 'Распознаём…' : voiceState === 'requesting' ? 'Открываем микрофон…' : 'Голосовой ввод';
     $('voice-toggle').setAttribute('aria-pressed', String(voiceState === 'recording'));
+    $('voice-language').disabled = !idle;
   }
   $('voice-toggle').addEventListener('click', async () => {
     if (voiceState === 'recording') {
@@ -27,11 +33,28 @@ SCRIPT = r"""'use strict';
     }
     if ($('voice-toggle').disabled) return;
     const revision = generation;
-    let chunks = [], size = 0, tooLarge = false;
+    let chunks = [], size = 0, tooLarge = false, signalFrames = 0, startedAt = 0;
+    const language = $('voice-language').value;
     voiceState = 'requesting'; controls();
     try {
-      voiceStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      voiceStream = await navigator.mediaDevices.getUserMedia({audio: {
+        channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
       if (revision !== generation || !scope) { releaseMicrophone(); voiceState = 'idle'; controls(); return; }
+      voiceAudio = new (window.AudioContext || window.webkitAudioContext)();
+      await voiceAudio.resume();
+      const analyser = voiceAudio.createAnalyser();
+      analyser.fftSize = 2048;
+      voiceAudio.createMediaStreamSource(voiceStream).connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const measure = () => {
+        analyser.getFloatTimeDomainData(samples);
+        let power = 0;
+        for (const sample of samples) power += sample * sample;
+        const rms = Math.sqrt(power / samples.length);
+        if (rms > 0.003) ++signalFrames;
+        $('voice-level').value = Math.min(100, Math.round(rms * 1000));
+        voiceFrame = requestAnimationFrame(measure);
+      };
       recorder = new MediaRecorder(voiceStream, {mimeType: voiceMime});
       recorder.ondataavailable = event => {
         size += event.data.size;
@@ -52,12 +75,18 @@ SCRIPT = r"""'use strict';
           if (tooLarge) $('voice-status').textContent = 'Не удалось записать аудио. Попробуйте более короткую запись.';
           return;
         }
+        if (performance.now() - startedAt < 1200 || signalFrames < 5) {
+          chunks = []; voiceState = 'idle'; controls();
+          $('voice-status').textContent = 'Не удалось записать достаточно звука. Проверьте микрофон, дождитесь начала записи и произнесите фразу целиком.';
+          return;
+        }
         voiceState = 'transcribing'; controls();
         $('voice-status').textContent = 'Распознаём речь…';
         try {
           const response = await fetch('/api/chat/transcribe', {method: 'POST', credentials: 'same-origin',
             cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
-            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': csrf()}, body: new Blob(chunks, {type: voiceMime})});
+            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': csrf(), 'X-Speech-Language': language},
+            body: new Blob(chunks, {type: voiceMime})});
           if (!response.ok) throw new Error('transcription');
           const {text} = await response.json();
           if (revision !== generation || !scope) return;
@@ -78,7 +107,8 @@ SCRIPT = r"""'use strict';
           if (scope) $('recovery-message').focus({preventScroll: true});
         }
       };
-      recorder.start(1000); voiceState = 'recording'; controls();
+      recorder.start(1000); startedAt = performance.now(); voiceState = 'recording'; controls();
+      $('voice-level-wrap').hidden = false; measure();
       $('voice-status').textContent = 'Идёт запись. Нажмите «Остановить запись», когда закончите (до 1 минуты).';
       voiceTimer = setTimeout(() => {
         if (recorder.state === 'recording') { voiceState = 'stopping'; controls(); recorder.stop(); }

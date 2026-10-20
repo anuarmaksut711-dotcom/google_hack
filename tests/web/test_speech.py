@@ -39,7 +39,11 @@ def test_audio_requires_session_csrf_valid_type_and_bounded_body():
             assert not agent.audio
             response = await client.post(path, content=b'fake audio', headers=headers)
             assert response.json() == {'text': 'Завтра у меня две пары.'}
-            assert agent.audio == [{'audio': b'fake audio', 'mime_type': 'audio/webm'}]
+            assert agent.audio == [{'audio': b'fake audio', 'mime_type': 'audio/webm', 'language': 'ru-RU'}]
+            wrong_language = await client.post(path, content=b'a', headers={**headers, 'X-Speech-Language': 'invalid'})
+            assert wrong_language.status_code == 400
+            kazakh = await client.post(path, content=b'a', headers={**headers, 'X-Speech-Language': 'kk-KZ'})
+            assert kazakh.status_code == 200 and agent.audio[-1]['language'] == 'kk-KZ'
             assert (await client.get('/api/chat')).json()['turns'] == []
             assert not any('fake audio' in str(value) for value in h.documents.data.values())
             agent.error = True

@@ -1,5 +1,6 @@
 """Bounded authenticated audio upload; recordings are never persisted."""
 import asyncio
+import json
 
 from fastapi import APIRouter, Request
 
@@ -22,6 +23,9 @@ def create_speech_router(*, auth, agent):
         mime = request.headers.get('content-type', '').split(';', 1)[0].lower()
         if mime not in AUDIO_TYPES:
             return _json({'error': 'unsupported_audio'}, 415)
+        language = request.headers.get('x-speech-language', 'ru-RU')
+        if language not in {'ru-RU', 'kk-KZ', 'auto'}:
+            return _json({'error': 'unsupported_language'}, 400)
         if lock.locked():
             return _json({'error': 'speech_busy'}, 429)
         async with lock:
@@ -34,8 +38,13 @@ def create_speech_router(*, auth, agent):
                 return _json({'error': 'empty_audio'}, 400)
             try:
                 async with asyncio.timeout(55):
-                    text = await agent.transcribe(audio=bytes(audio), mime_type=mime)
-            except Exception:
+                    text = await agent.transcribe(audio=bytes(audio), mime_type=mime, language=language)
+            except Exception as error:
+                # No audio, transcript, credentials or raw provider messages in logs.
+                code = getattr(error, 'code', None)
+                print(json.dumps({'event': 'speech_failed', 'type': type(error).__name__,
+                    'code': code if isinstance(code, int) else None, 'mime_type': mime,
+                    'audio_bytes': len(audio)}), flush=True)
                 return _json({'error': 'transcription_failed'}, 503)
             latest = await auth.load(request)
             if latest.session != credential.session:
