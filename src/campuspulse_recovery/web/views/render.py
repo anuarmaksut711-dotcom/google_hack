@@ -107,7 +107,6 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <script type="module" src="/assets/logo/welcome.js"></script></head>
 <body data-view="assistant" data-chat-mode="{e(chat_mode)}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К содержимому</a>
 <nav class="activity-rail" aria-label="Быстрые переходы">
-<a class="rail-brand" href="#workspace" aria-label="CampusPulse" title="CampusPulse"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 17h6l4-9 5 17 4-8h5"/></svg></a>
 <a class="rail-link current" data-view="assistant" href="#workspace" aria-label="Открыть ассистента" title="Ассистент"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></a>
 <a class="rail-link" data-view="plan" href="#panel" aria-label="Открыть план" title="Мой план"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 5 2 2 4-4"/></svg></a>
 <a class="rail-link" data-view="journal" href="#journal-heading" aria-label="Открыть журнал" title="Журнал"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></a>

@@ -278,8 +278,7 @@ body[data-view=assistant] #feedback { margin-top: 0; }
 .activity-rail { position: fixed; inset: 0 auto 0 0; z-index: 7; width: 72px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 10px; background: #0d0e10; }
 .activity-rail a { display: grid; place-items: center; width: 50px; height: 50px; border-radius: 14px; color: #a6a9b4; text-decoration: none; }
 .activity-rail svg { width: 21px; height: 21px; }
-.activity-rail .rail-brand { order: 8; color: #9eb8ff; margin-top: auto; }
-.activity-rail .rail-brand svg { width: 29px; height: 29px; }
+.activity-rail .rail-link[data-view=journal] { margin-bottom: auto; }
 .activity-rail a:hover, .activity-rail a.current { background: #252932; color: #e8edff; }
 .activity-rail .account-link { order: 9; width: 44px; padding: 10px; }
 .activity-rail .account-link span { display: none; }
@@ -327,7 +326,7 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 .has-chat .composer-options .prompt-suggestions { display: grid; }
 @media (max-width: 760px) {
   .activity-rail { inset: auto auto 0 0; flex-direction: row; width: 280px; height: 54px; padding: 4px 16px; z-index: 9; transform: translateX(-100%); visibility: hidden; }
-  .activity-rail .rail-link, .activity-rail .rail-brand { display: none; }
+  .activity-rail .rail-link { display: none; }
   body[data-nav-open=true] .activity-rail { transform: translateX(0); visibility: visible; }
   .sidebar { z-index: 8; }
   .app-content { margin-left: 0; margin-right: 0; }
