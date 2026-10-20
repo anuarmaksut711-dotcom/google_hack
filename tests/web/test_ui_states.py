@@ -369,7 +369,8 @@ def test_client_uses_only_explicit_mutations_and_safe_trace_projection():
     # The one-shot timer stops user-started microphone capture at one minute.
     assert SCRIPT.count('setTimeout(') == 1
     assert "innerHTML" not in SCRIPT and "textContent" in SCRIPT
-    assert "localStorage.setItem" in SCRIPT and "request_key" in SCRIPT
+    # Persistence and per-tab draft isolation are exercised by client_state.cjs.
+    assert "request_key" in SCRIPT
     assert "if (busy || chatBusy) return" in SCRIPT and "pending-start" in SCRIPT
     assert "refresh().catch" in SCRIPT and "act('apply')" not in SCRIPT
     assert "record.observation" in SCRIPT and "event.operation_id" in SCRIPT
