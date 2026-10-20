@@ -12,7 +12,7 @@ The product should feel calm, direct, and useful. Use concrete task names, times
 
 ## Sign-in and registration
 
-The login and registration entry screens use the requested dark HextaUI-inspired treatment; the signed-in workspace and existing Moodle account-connection form retain their light treatment. `/register` is available only in the Moodle multiuser configuration. That configuration enables an email/password form above the official Google Identity Services pill. Single-user installations retain Google-only sign-in.
+The login and registration entry screens use the requested dark HextaUI-inspired treatment; the signed-in workspace follows the user-selected Codex composition with the dark Gemini palette. The existing Moodle account-connection form retains its established behavior. `/register` is available only in the Moodle multiuser configuration. That configuration enables an email/password form above the official Google Identity Services pill. Single-user installations retain Google-only sign-in.
 
 Email signup requires a password of 15–128 characters. Unicode and spaces are allowed; passwords are not trimmed. The login password field also caps input at 128 characters. Email registration and sign-in use `/auth/email/register` and `/auth/email/signin`; Google authentication retains `/auth/signin`. Both paths use the strict server nonce/CSRF flow and the same session-cookie protections. Email credentials are durable salted password verifiers, never stored plaintext passwords.
 

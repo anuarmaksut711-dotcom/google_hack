@@ -26,7 +26,7 @@ SCRIPT = r"""'use strict';
     if ($('view-title')) $('view-title').textContent = views[view][0];
     if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
     document.title = 'CampusPulse · ' + views[view][0];
-    document.querySelectorAll('.nav-link').forEach(link => {
+    document.querySelectorAll('.nav-link, .rail-link').forEach(link => {
       const current = link.dataset.view === view;
       link.classList.toggle('current', current);
       if (current) link.setAttribute('aria-current', 'page');
@@ -256,9 +256,14 @@ SCRIPT = r"""'use strict';
     chatWorking = chat.turns.some(turn => turn.status === 'working');
     const log = $('chat-history');
     log.replaceChildren();
+    const index = $('conversation-index');
+    index.replaceChildren();
     for (const turn of chat.turns) {
       const user = document.createElement('article'), label = document.createElement('span'), text = document.createElement('p');
-      user.className = 'chat-message chat-user'; label.className = 'chat-author';
+      user.className = 'chat-message chat-user'; user.id = 'chat-entry-' + turn.request_key; label.className = 'chat-author';
+      const entry = document.createElement('button');
+      entry.type = 'button'; entry.className = 'conversation-entry'; entry.dataset.chatEntry = user.id;
+      entry.textContent = turn.message; entry.title = turn.message; index.append(entry);
       label.textContent = 'Вы'; text.textContent = turn.message; user.append(label, text); log.append(user);
       const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('p');
       reply.className = 'chat-message chat-assistant'; author.className = 'chat-author'; author.textContent = 'CampusPulse';
@@ -371,7 +376,7 @@ SCRIPT = r"""'use strict';
     } catch (error) {
       if (revision === generation) {
         scope = null; activeRun = null; chatAvailable = false; chatWorking = false;
-        $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+        $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
         $('workspace').classList.remove('has-chat');
         $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       }
@@ -474,9 +479,16 @@ SCRIPT = r"""'use strict';
   document.addEventListener('click', event => {
     const prompt = event.target.closest('[data-prompt]');
     if (prompt && !$('recovery-message').readOnly) {
+      setNavigationOpen(false);
+      prompt.closest('details')?.removeAttribute('open');
       $('recovery-message').value = prompt.dataset.prompt;
       $('recovery-message').dispatchEvent(new Event('input', {bubbles: true}));
       $('recovery-message').focus({preventScroll: true});
+    }
+    const entry = event.target.closest('[data-chat-entry]');
+    if (entry) {
+      location.hash = 'workspace'; updateNavigation();
+      requestAnimationFrame(() => $(entry.dataset.chatEntry)?.scrollIntoView({block: 'start'}));
     }
     const link = event.target.closest('.nav-link');
     if (link) {
@@ -491,6 +503,10 @@ SCRIPT = r"""'use strict';
       setNavigationOpen(false);
   });
   updateNavigation();
+  $('focus-composer')?.addEventListener('click', () => {
+    location.hash = 'workspace'; updateNavigation();
+    requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
+  });
   $('reload').addEventListener('click', () => {
     loadMoodle(); refresh().catch(error => feedback(error.message, true));
   });
@@ -524,7 +540,7 @@ SCRIPT = r"""'use strict';
       clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
-      $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+      $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
       $('workspace').classList.remove('has-chat'); $('recovery-message').value = '';
       chatAvailable = false; chatWorking = false; pendingText = null;
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
