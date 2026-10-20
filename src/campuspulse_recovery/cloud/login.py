@@ -129,6 +129,7 @@ button{padding:12px 18px;font:inherit;cursor:pointer}a{color:#245c43}
 body.auth-page {
   --auth-ground:#111; --auth-ink:#f5f5f5; --auth-muted:#aaa; --auth-focus:#e0e0e0;
   color-scheme:dark; box-sizing:border-box; display:grid; place-items:center;
+  width:100%; grid-template-columns:minmax(0,1fr);
   min-height:100svh; padding:32px 20px; margin:0;
   background:var(--auth-ground); color:var(--auth-ink);
   font:14px/1.6 'Segoe UI',system-ui,sans-serif; font-synthesis:none;
@@ -137,7 +138,7 @@ body.auth-page {
 .auth-page *, .auth-page *::before, .auth-page *::after{box-sizing:border-box}
 .auth-page ::selection{background:#666;color:#fff}
 .auth-page .auth-card {
-  width:min(100%,480px); max-width:480px; margin:0; padding:44px 40px 34px;
+  width:min(100%,480px); max-width:480px; min-width:0; margin:0; padding:44px 40px 34px;
   border-radius:30px; text-align:center;
   background:linear-gradient(105deg,#252525 0%,#1b1b1b 42%,#151515 100%);
   box-shadow:0 24px 64px -28px #000b;
