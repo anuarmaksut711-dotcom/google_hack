@@ -24,9 +24,12 @@ class LegacyChatEntry(Contract):
     creation_digest: str | None = None
 
 
-class ChatEntry(LegacyChatEntry):
+class Version2ChatEntry(LegacyChatEntry):
     updated_at: Instant | None = None
     auto_title: bool = False
+
+
+class ChatEntry(Version2ChatEntry):
     manual_title: bool = False
 
 
@@ -50,12 +53,17 @@ class LegacyChatWorkspace(Contract):
     receipts: Annotated[tuple[Receipt, ...], Field(max_length=128)] = ()
 
 
-class ChatWorkspace(Contract):
+class Version2ChatWorkspace(Contract):
     revision: Revision = 0
-    chats: Annotated[tuple[ChatEntry, ...], Field(max_length=120)] = (
-        ChatEntry(chat_id='default', title='Первый чат', auto_title=True),)
+    chats: Annotated[tuple[Version2ChatEntry, ...], Field(max_length=120)] = (
+        Version2ChatEntry(chat_id='default', title='Первый чат', auto_title=True),)
     folders: Annotated[tuple[FolderEntry, ...], Field(max_length=40)] = ()
     receipts: Annotated[tuple[Receipt, ...], Field(max_length=128)] = ()
+
+
+class ChatWorkspace(Version2ChatWorkspace):
+    chats: Annotated[tuple[ChatEntry, ...], Field(max_length=120)] = (
+        ChatEntry(chat_id='default', title='Первый чат', auto_title=True),)
 
 
 class WorkspaceChange(Contract):
@@ -109,7 +117,15 @@ class WorkspaceStore(_Repository):
         if saved.get('kind') == 'chat-workspace-v1':
             legacy = _decode(saved, 'chat-workspace-v1', LegacyChatWorkspace)
             return ChatWorkspace.model_validate(legacy.model_dump())
-        return _decode(saved, 'chat-workspace-v2', ChatWorkspace)
+        if saved.get('kind') == 'chat-workspace-v2':
+            try:
+                previous = _decode(saved, 'chat-workspace-v2', Version2ChatWorkspace)
+            except BindingConflict:
+                # Also read the short-lived v2 writer that included manual_title.
+                # Both shapes still require their original exact bytes and digest.
+                return _decode(saved, 'chat-workspace-v2', ChatWorkspace)
+            return ChatWorkspace.model_validate(previous.model_dump())
+        return _decode(saved, 'chat-workspace-v3', ChatWorkspace)
 
     async def read(self, context):
         saved = await self.documents.get(self.path(context))
@@ -143,7 +159,7 @@ class WorkspaceStore(_Repository):
                 update.update(title=(suggested if valid else fallback) or chat.title, auto_title=False)
             chats[index] = chat.model_copy(update=update)
             result = current.model_copy(update={'chats': tuple(chats), 'revision': current.revision + 1})
-            tx.set(path, _encode('chat-workspace-v2', result))
+            tx.set(path, _encode('chat-workspace-v3', result))
         await self.documents.transact(transact)
 
     async def require_chat(self, context, chat_id):
@@ -199,7 +215,7 @@ class WorkspaceStore(_Repository):
                 folders[index] = folders[index].model_copy(update={'title': value.title})
             result = ChatWorkspace(revision=current.revision + 1, chats=tuple(chats), folders=tuple(folders),
                 receipts=(*current.receipts[-127:], Receipt(request_key=value.request_key, digest=digest, item_id=item_id)))
-            tx.set(path, _encode('chat-workspace-v2', result))
+            tx.set(path, _encode('chat-workspace-v3', result))
             return result, item_id
 
         return await self.documents.transact(transact)

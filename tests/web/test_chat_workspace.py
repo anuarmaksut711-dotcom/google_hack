@@ -276,14 +276,14 @@ def test_placeholder_title_from_previous_release_is_repaired_from_first_turn():
             # v2 upgraded a legacy placeholder with auto_title=False.
             chat_id = (await change(client, headers, 'create_chat', 'legacy-placeholder',
                 title='Новый чат', folder_id=None))['item_id']
-            from campuspulse_recovery.storage.plans import _decode, _encode
-            from campuspulse_recovery.web.workspace import ChatWorkspace
+            from campuspulse_recovery.storage.plans import _encode
+            from campuspulse_recovery.web.workspace import WorkspaceStore
             for path, saved in list(h.documents.data.items()):
                 if path.startswith('cp_chat_workspaces/'):
-                    catalog = _decode(saved, 'chat-workspace-v2', ChatWorkspace)
+                    catalog = WorkspaceStore.decode(saved)
                     catalog = catalog.model_copy(update={'chats': tuple(
                         c.model_copy(update={'auto_title': False}) for c in catalog.chats)})
-                    h.documents.data[path] = _encode('chat-workspace-v2', catalog)
+                    h.documents.data[path] = _encode('chat-workspace-v3', catalog)
             assert (await client.post('/api/chat', headers=headers, json={
                 'chat_id': chat_id, 'request_key': 'legacy-first', 'message': 'Подготовка к экзамену по ОС'})).status_code == 200
             entry = next(c for c in (await client.get('/api/chat/workspace')).json()['chats'] if c['chat_id'] == chat_id)
@@ -320,4 +320,33 @@ def test_draft_capabilities_come_from_configured_agent_without_creating_history(
                 result = (await client.get('/api/chat/workspace')).json()
                 assert result['chat_available'] is chat and result['speech_available'] is speech
                 assert not any(path.startswith('cp_conversations/') for path in h.documents.data)
+    run(scenario())
+
+
+def test_real_previous_v2_catalog_reads_and_upgrades_without_changing_history():
+    from campuspulse_recovery.domain.models import canonical_hash, canonical_json
+
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            await change(client, headers, 'create_folder', 'seed-scope', title='Seed')
+            # Frozen previous-release wire shape, deliberately without manual_title.
+            previous = {'schema_version': '1.0', 'revision': 4, 'chats': [{'schema_version': '1.0', 'chat_id': 'default', 'title': 'Первый чат',
+                'folder_id': None, 'creation_digest': None, 'updated_at': None, 'auto_title': False}],
+                'folders': [], 'receipts': []}
+            saved = {'kind': 'chat-workspace-v2', 'digest': canonical_hash(previous),
+                'body': canonical_json(previous).encode()}
+            for path in list(h.documents.data):
+                if path.startswith('cp_chat_workspaces/'):
+                    h.documents.data[path] = saved.copy()
+            response = await client.get('/api/chat/workspace')
+            assert response.status_code == 200, response.text
+            assert response.json()['chats'][0]['title'] == 'Первый чат'
+            sent = await client.post('/api/chat', headers=headers, json={
+                'request_key': 'v2-first-message', 'message': 'План подготовки к экзамену'})
+            assert sent.status_code == 200 and sent.json()['turns'][0]['status'] == 'completed'
+            assert (await client.get('/api/chat/workspace')).json()['chats'][0]['title'] == 'План подготовки к экзамену'
+            assert next(v for k,v in h.documents.data.items() if k.startswith('cp_chat_workspaces/'))['kind'] == 'chat-workspace-v3'
+            assert (await client.get('/api/chat')).json()['turns'][0]['message'] == 'План подготовки к экзамену'
     run(scenario())
