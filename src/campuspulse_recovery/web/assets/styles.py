@@ -76,10 +76,19 @@ p { margin: 8px 0 16px; }
 .chat-history { width: 100%; max-width: 850px; margin: 20px auto 36px; }
 .chat-message { padding: 14px 0; max-width: 90%; }
 .chat-author { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.chat-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; color: var(--ink); }
+.chat-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; color: var(--ink); }
+.chat-user > p, .chat-answer { font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
+.chat-answer > * + * { margin-top: 12px; }
+.chat-answer ul, .chat-answer ol { margin-bottom: 0; padding-left: 1.4em; }
+.chat-answer li + li { margin-top: 6px; }
+.chat-answer .chat-heading { font-weight: 650; }
+.chat-answer strong { font-weight: 650; }
+.chat-answer pre { max-width: 100%; overflow-x: auto; padding: 12px; border-radius: 10px; background: var(--subtle); }
+.chat-answer code { font-size: .9em; }
+.chat-answer > :first-child { margin-top: 0; }
 .chat-user { margin-left: auto; padding: 16px 20px; background: var(--subtle); border-radius: 18px 18px 4px 18px; }
 .chat-assistant { margin: 16px 0 28px; }
-.chat-system > p { color: #805d25; }
+.chat-system > .chat-answer { color: #805d25; }
 .chat-message details { font-size: 11px; color: var(--muted); margin-top: 12px; }
 .chat-message details summary { padding-block: 6px; }
 .chat-message details p { color: var(--muted); font-size: 11px; }

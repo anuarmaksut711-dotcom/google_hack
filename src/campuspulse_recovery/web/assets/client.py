@@ -328,6 +328,58 @@ SCRIPT = r"""'use strict';
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
   }
+  // Small, deliberately limited Markdown subset. Model text never becomes HTML.
+  function appendChatInline(node, value) {
+    const tokens = /(\*\*([^*\n]+)\*\*|__([^_\n]+)__|`([^`\n]+)`|\*([^*\n]+)\*)/g;
+    let offset = 0;
+    for (const match of value.matchAll(tokens)) {
+      node.append(document.createTextNode(value.slice(offset, match.index)));
+      const element = document.createElement(match[2] || match[3] ? 'strong' : match[4] ? 'code' : 'em');
+      element.textContent = match[2] || match[3] || match[4] || match[5];
+      node.append(element);
+      offset = match.index + match[0].length;
+    }
+    node.append(document.createTextNode(value.slice(offset)));
+  }
+  function renderChatAnswer(node, value) {
+    node.replaceChildren();
+    let paragraph = null, list = null, code = null;
+    for (const raw of String(value || '').replace(/\r\n?/g, '\n').split('\n')) {
+      const line = raw.trim();
+      if (line.startsWith('```')) {
+        paragraph = list = null;
+        if (code) code = null;
+        else {
+          const pre = document.createElement('pre');
+          code = document.createElement('code'); pre.append(code); node.append(pre);
+        }
+        continue;
+      }
+      if (code) { code.append(document.createTextNode(raw + '\n')); continue; }
+      if (!line) { paragraph = list = null; continue; }
+      const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?$/);
+      const item = line.match(/^(?:[-*+]|\d+[.)])\s+(.+)$/);
+      if (heading) {
+        paragraph = list = null;
+        const title = document.createElement('p'); title.className = 'chat-heading';
+        appendChatInline(title, heading[1]); node.append(title);
+      } else if (item) {
+        paragraph = null;
+        const type = /^\d/.test(line) ? 'ol' : 'ul';
+        if (!list || list.localName !== type) {
+          list = document.createElement(type);
+          if (type === 'ol') list.start = parseInt(line, 10);
+          node.append(list);
+        }
+        const entry = document.createElement('li'); appendChatInline(entry, item[1]); list.append(entry);
+      } else {
+        list = null;
+        if (!paragraph) { paragraph = document.createElement('p'); node.append(paragraph); }
+        else paragraph.append(document.createTextNode('\n'));
+        appendChatInline(paragraph, line.replace(/^>\s?/, ''));
+      }
+    }
+  }
   function showChat(chat) {
     speechAvailable = chat.speech_available === true;
     chatAvailable = chat.available;
@@ -338,9 +390,10 @@ SCRIPT = r"""'use strict';
       const user = document.createElement('article'), label = document.createElement('span'), text = document.createElement('p');
       user.className = 'chat-message chat-user'; label.className = 'chat-author';
       label.textContent = 'Вы'; text.textContent = turn.message; user.append(label, text); log.append(user);
-      const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('p');
+      const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('div');
+      answer.className = 'chat-answer';
       reply.className = 'chat-message chat-assistant'; author.className = 'chat-author'; author.textContent = 'CampusPulse';
-      if (turn.status === 'completed') answer.textContent = turn.response;
+      if (turn.status === 'completed') renderChatAnswer(answer, turn.response);
       else {
         reply.classList.add('chat-system');
         author.textContent = 'Статус запроса';

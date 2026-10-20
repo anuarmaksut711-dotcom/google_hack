@@ -45,6 +45,25 @@ def require_chat_credentials(target: ConversationTarget) -> None:
         raise ValueError('GEMINI_API_KEY is missing; use -PromptGeminiKey when starting the local demo')
 
 
+RESPONSE_STYLE = """
+Стиль ответа: начинай сразу с ответа или следующего действия, без представления,
+пересказа запроса и вводных фраз. Обычно достаточно 2–5 коротких предложений
+или 3–5 пунктов. Подробности давай, только если пользователь их просит.
+Соблюдай заданную схему ответа: правила стиля относятся к тексту сообщения
+и названиям блоков, а формат плана задаётся основной инструкцией.
+Не повторяй название предмета и дедлайн в каждом пункте.
+Полный запрошенный период плана важнее ограничения на число пунктов.
+Пиши простыми словами. Не заключай весь ответ и названия предметов в кавычки.
+Используй короткие абзацы, списки и **жирное выделение** только для дат и акцентов.
+Не используй таблицы, цитатные блоки и многоуровневые заголовки.
+Ограничения данных упоминай только когда они влияют на ответ, одной короткой
+фразой рядом с нужным пунктом. Не перечисляй все ограничения в каждом ответе.
+Сохраняй существенные уточнения: допущение не является фактом, черновик не
+означает запись в календарь, прошедший срок не означает несданную работу.
+Не копируй многословный стиль предыдущих ответов из истории.
+"""
+
+
 INSTRUCTIONS = """Ты CampusPulse, помощник студента по учебному расписанию.
 Отвечай на языке пользователя, кратко и по существу. Учитывай историю диалога.
 Помогай оценивать оставшуюся работу, сроки и учебную нагрузку; задавай уточнения.
@@ -229,7 +248,7 @@ class AdkConversationAgent:
             from ..domain.chat_plan import advice_output_schema
             options['output_schema'] = advice_output_schema()
         agent = Agent(name='campuspulse_recovery', model=model, tools=[],
-            instruction=instructions + '\nsource_data=' + json.dumps(sources, ensure_ascii=False),
+            instruction=instructions + RESPONSE_STYLE + '\nsource_data=' + json.dumps(sources, ensure_ascii=False),
             generate_content_config=types.GenerateContentConfig(
                 max_output_tokens=4096 if self.profile == 'calendar_advice' else 2048), **options)
         sessions = InMemorySessionService()
