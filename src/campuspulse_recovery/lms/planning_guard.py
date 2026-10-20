@@ -20,11 +20,18 @@ class MoodleApprovalStore(FirestoreApprovalStore):
         # check immediately before Calendar I/O sees current student input.
         return MoodleApprovalGuard(self)
 
+    async def validate_approval_basis(self, context, transaction, reference, now):
+        await self.transaction_guard().require_planning(context, transaction, reference)
+
 
 class MoodleApprovalGuard(TransactionalUIApprovalGuard):
     async def require_active(self, context, transaction, reference, now):
         reference = PlanReference.model_validate(reference)
         approval = await super().require_active(context, transaction, reference, now)
+        await self.require_planning(context, transaction, reference)
+        return approval
+
+    async def require_planning(self, context, transaction, reference):
         store = self.store
         plan = await store._load_plan(context, transaction, reference.plan_id, reference.version)
         if plan_reference(plan) != reference:
@@ -49,4 +56,3 @@ class MoodleApprovalGuard(TransactionalUIApprovalGuard):
         if work(assignments) != work(original.assignments):
             raise BindingConflict('moodle_planning_changed')
         store.policy.require_context(context)
-        return approval

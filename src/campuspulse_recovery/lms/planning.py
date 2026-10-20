@@ -73,6 +73,9 @@ def moodle_resource_id(site_url, user_id):
 
 
 class MoodlePlanningStore(_Repository):
+    state_model = PlanningState
+    record_model = PlanningRecord
+    update_model = PlanningUpdate
     def __init__(self, documents, policy, *, connection, clock=utcnow):
         super().__init__(documents, policy)
         if connection.documents is not documents or connection.owner_id != policy.config.student.trusted_user_id:
@@ -83,8 +86,8 @@ class MoodlePlanningStore(_Repository):
 
     def _load(self, raw):
         if raw is None:
-            return PlanningState()
-        record = _decode(raw, 'moodle_planning', PlanningRecord)
+            return self.state_model()
+        record = _decode(raw, 'moodle_planning', self.record_model)
         if (record.owner_id, record.resource_id) != (self.connection.owner_id, self.resource_id):
             raise AccessDenied('moodle_planning_binding_mismatch')
         return record.state
@@ -106,7 +109,7 @@ class MoodlePlanningStore(_Repository):
         context = self._request(context)
         if context.boundary != 'backend':
             raise AccessDenied('planning_backend_required')
-        request = PlanningUpdate.model_validate(request)
+        request = self.update_model.model_validate(request)
         source = await self.cached(context)
         self.policy.require_owner(context, source.owner_id)
         if not source.connected or source.snapshot is None:
@@ -122,16 +125,16 @@ class MoodlePlanningStore(_Repository):
             estimates = {e.task_id: e for e in old.estimates if e.task_id in known}
             estimates.update({e.task_id: e for e in request.estimates})
             windows = request.working_windows if 'working_windows' in request.model_fields_set else old.working_windows
-            state = PlanningState(revision=old.revision + 1, working_windows=windows,
+            state = self.state_model(revision=old.revision + 1, working_windows=windows,
                 estimates=tuple(estimates[key] for key in sorted(estimates)), updated_at=self.clock())
             self.policy.require_context(context)
-            tx.set(self.path, _encode('moodle_planning', PlanningRecord(
+            tx.set(self.path, _encode('moodle_planning', self.record_model(
                 owner_id=self.connection.owner_id, resource_id=self.resource_id, state=state)))
             return state
         return await self.documents.transact(save)
 
     def constraints(self, state, *, now):
-        state = PlanningState.model_validate(state)
+        state = self.state_model.model_validate(state)
         start, end = planning_horizon(now)
         windows = None
         if state.working_windows is not None:
@@ -155,7 +158,8 @@ def project_assignments(snapshot, state, *, resource_id, timezone):
         remaining = estimates.get(task.id)
         # Moodle may report graded merely because a grade (including zero)
         # exists. Positive student effort also covers rework after submission.
-        if remaining == 0 or task.submission_status == 'submitted' and task.id not in estimates:
+        if (remaining == 0 or getattr(task, 'local_status', None) == 'done'
+                or task.submission_status == 'submitted' and task.id not in estimates):
             continue
         tasks.append(Assignment(assignment_id='moodle_' + canonical_hash([resource_id, task.id]),
             source_row=task.id, title=task.title,

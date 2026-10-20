@@ -40,15 +40,20 @@ class CloudConversation:
 
 
 class CloudBackend:
-    def __init__(self, settings, policy, documents):
+    def __init__(self, settings, policy, documents, *, worker=None, clock=None):
         self.settings, self.policy, self.documents = settings, policy, documents
+        self.clock = clock or utcnow
         self.plans = FirestorePlanStore(documents, policy)
         self.snapshots = FirestoreSnapshotStore(documents, policy)
-        self.approvals = FirestoreApprovalStore(documents, policy, clock=utcnow)
-        self.journal = FirestoreRunEventStore(documents, policy, clock=utcnow)
-        self.grants = Grants(documents, policy, clock=utcnow)
-        self.worker = CloudTransport(settings.agent_origin)
-        self.planning = planning_inputs(settings, policy, documents, clock=utcnow)
+        self.approvals = FirestoreApprovalStore(documents, policy, clock=self.clock)
+        self.journal = FirestoreRunEventStore(documents, policy, clock=self.clock)
+        self.grants = Grants(documents, policy, clock=self.clock)
+        self.worker = worker or CloudTransport(settings.agent_origin)
+        self.planning = planning_inputs(settings, policy, documents, clock=self.clock)
+        if self.planning is not None:
+            from ..lms.planning_guard import MoodleApprovalStore
+            self.approvals = MoodleApprovalStore(documents, policy, inputs=self.planning,
+                                                snapshots=self.snapshots, clock=self.clock)
         self.moodle = None
         if settings.moodle is not None:
             cfg = settings.moodle
@@ -72,7 +77,7 @@ class CloudBackend:
 
     async def read(self, context, *, constraints=None):
         await self.journal.register(context)
-        now = utcnow()
+        now = self.clock()
         constraints = constraints or await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='read', constraints=constraints,
             proposal_id='read_' + uuid4().hex, planning_at=now)
@@ -117,7 +122,7 @@ class CloudBackend:
             raise BindingConflict('calendar_availability_changed')
 
     async def stream(self, context, intent):
-        now = utcnow()
+        now = self.clock()
         constraints = await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='recover', intent=intent,
             constraints=constraints, planning_at=now,
@@ -130,7 +135,7 @@ class CloudBackend:
         saved = await self.plans.get(context, reference.plan_id, reference.version)
         if plan_reference(saved) != reference:
             raise BindingConflict('exact_plan_changed')
-        now = utcnow()
+        now = self.clock()
         constraints = await current_constraints(self.settings, self.planning, context, now)
         handle, _ = await self.grants.issue(context, operation='evidence', reference=reference,
             constraints=constraints, planning_at=now, proposal_id=reference.plan_id)
@@ -194,8 +199,8 @@ class CloudBackend:
 
     def runs(self, auth):
         self.auth = auth
-        return RecoveryRuns(auth=auth, registry=RunRegistry(self.documents, self.policy, clock=utcnow),
-            remote=self, proposals=ProposalService(self.snapshots, self.plans, self.policy, self, clock=utcnow),
+        return RecoveryRuns(auth=auth, registry=RunRegistry(self.documents, self.policy, clock=self.clock),
+            remote=self, proposals=ProposalService(self.snapshots, self.plans, self.policy, self, clock=self.clock),
             plans=self.plans, approvals=self.approvals, sources=self, journal=self.journal, evidence=self)
 
 
@@ -206,6 +211,7 @@ def create_backend(settings, policy, documents, *, close):
     app = create_ui_app(policy=policy, documents=documents,
         verifier=GoogleSignInVerifier(settings.google_signin_client_id), origin=settings.backend_origin,
         environment='cloud', clock=utcnow, runs_factory=system.runs, projection=system,
+        approval_store=system.approvals,
         chat_agent=CloudConversation(settings.chat) if chat_available else None,
         signin_url='/login', moodle_enabled=moodle_enabled)
     system.auth = app.state.web_auth

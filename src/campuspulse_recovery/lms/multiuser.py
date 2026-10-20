@@ -49,7 +49,7 @@ def account_config(principal, template=None):
 
 
 class AccountFeed:
-    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None, my_du=None):
+    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None, my_du=None, recovery=None):
         self.policy, self.documents = policy, documents
         self.owner_id = policy.config.student.trusted_user_id
         self.directory, self.transport = directory / self.owner_id, transport
@@ -58,6 +58,7 @@ class AccountFeed:
         self.lock = asyncio.Lock()
         self.feed_factory = feed_factory
         self.my_du = my_du
+        self.recovery = recovery
 
     def make(self, url):
         try:
@@ -143,6 +144,11 @@ class AccountFeed:
         if self.my_du is not None:
             lines = await self.my_du.calendar_lines(context)
             sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines)
+        if self.recovery is not None and run is not None and plan is not None and run.verification_status is not None:
+            from ..storage.plans import plan_reference
+            evidence = await self.recovery.stored_evidence(context, plan_reference(plan))
+            if evidence.run_id == run.run_id:
+                sources = SafeSources(assignments=sources.assignments, calendar=sources.calendar, verification=evidence)
         return sources
 
 
@@ -166,7 +172,8 @@ form.addEventListener('submit',async event=>{
 
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
-                         application=None, documents=None, feed_factory=None, my_du_transport=None):
+                         application=None, documents=None, feed_factory=None, my_du_transport=None,
+                         recovery_factory=None, recovery_chat_factory=None):
     environment = 'local' if application is None else 'cloud'
     if environment == 'cloud' and (documents is None or feed_factory is None or test_verifier is not None):
         raise ValueError('explicit_cloud_dependencies_required')
@@ -202,16 +209,29 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         async with lock:
             if principal in apps:
                 return apps[principal]
-            policy = ResourcePolicy(account_config(principal, application), environment=environment)
+            recovery = None if recovery_factory is None else recovery_factory(principal, clock=clock)
+            policy = (ResourcePolicy(account_config(principal, application), environment=environment)
+                      if recovery is None else recovery.policy)
             my_du = MyDuAccount(documents, policy, transport=my_du_transport, clock=clock)
             feed = AccountFeed(policy=policy, documents=documents, directory=directory / 'accounts', transport=transport,
-                               feed_factory=feed_factory, my_du=my_du)
+                               feed_factory=feed_factory, my_du=my_du, recovery=recovery)
             await feed.restore()
+            selected_agent = (recovery_chat_factory if recovery is not None and recovery_chat_factory is not None
+                              else agent_factory)
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
                 origin=origin, environment=environment, clock=clock, moodle_enabled=True,
-                signin_url='/login', chat_agent=None if agent_factory is None else agent_factory(),
-                projection=feed, chat_mode='calendar_advice', owner_chat_history=True, account_url='/account')
+                signin_url='/login', chat_agent=None if selected_agent is None else selected_agent(),
+                projection=feed, chat_mode='calendar_advice' if recovery is None else 'recovery',
+                runs_factory=None if recovery is None else recovery.runs,
+                approval_store=None if recovery is None else recovery.approvals,
+                planning_url=None if recovery is None else '/planning',
+                owner_chat_history=True, account_url='/account')
             auth = inner.state.web_auth
+            if recovery is not None:
+                from ..web.moodle_planning import install_planning_routes
+                from ..web.recovery_planning import install_recovery_planning_page
+                install_planning_routes(inner, auth=auth, inputs=recovery.planning)
+                install_recovery_planning_page(inner, auth=auth, inputs=recovery.planning)
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
             install_my_du_routes(inner, auth=auth, account=my_du)

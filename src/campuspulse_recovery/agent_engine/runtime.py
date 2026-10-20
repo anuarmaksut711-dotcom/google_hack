@@ -34,7 +34,12 @@ async def _worker_app(settings):
     try:
         documents = FirestoreDocuments(client, project_id=policy.config.project_id,
                                       database_id=policy.config.firestore_database)
-        yield create_agent(settings, policy, documents, close=lambda: None)
+        if settings.calendar_feed_accounts:
+            from ..cloud.accounts import create_account_service
+            yield create_account_service(settings, documents, boundary='agent',
+                factory=create_agent, close=lambda: None)
+        else:
+            yield create_agent(settings, policy, documents, close=lambda: None)
     finally:
         async with asyncio.timeout(5):
             closed = client.close()

@@ -50,7 +50,7 @@ def _set(response, name, value, age, *, httponly=True):
 
 
 def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, environment: str,
-               clock: Callable[[], datetime] = lambda: datetime.now(UTC)) -> FastAPI:
+               clock: Callable[[], datetime] = lambda: datetime.now(UTC), approval_store=None) -> FastAPI:
     """Mandatory verified sign-in + config/database binding; missing inputs fail closed.
 
     In production pass GoogleSignInVerifier(explicit client ID) and
@@ -58,7 +58,9 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
     may supply these objects. Google sign-in grants no Sheets/Calendar access.
     """
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin, environment=environment, clock=clock)
-    approvals = FirestoreApprovalStore(documents, policy, clock=clock)
+    approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
+    if approvals.policy is not policy or approvals.documents is not documents or approvals.clock is not clock:
+        raise ValueError('matching_approval_authority_required')
     plans = FirestorePlanStore(documents, policy)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 

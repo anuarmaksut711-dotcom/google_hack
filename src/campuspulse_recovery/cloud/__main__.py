@@ -34,7 +34,12 @@ def main():
             app = create_backend(settings, policy, documents, close=client.close)
         elif role == 'agent':
             from .agent import create_agent
-            app = create_agent(settings, policy, documents, close=client.close)
+            if settings.calendar_feed_accounts:
+                from .accounts import create_account_service
+                app = create_account_service(settings, documents, boundary='agent',
+                    factory=create_agent, close=client.close)
+            else:
+                app = create_agent(settings, policy, documents, close=client.close)
         elif role == 'moodle-sync':
             if settings.moodle is None:
                 raise ValueError('moodle_settings_required')
@@ -42,7 +47,12 @@ def main():
             app = create_moodle_worker(settings, policy, documents, close=client.close)
         else:
             from .mcp import create_mcp
-            app = create_mcp(settings, policy, documents, port=port, close=client.close)
+            if settings.calendar_feed_accounts:
+                from .accounts import create_account_service
+                app = create_account_service(settings, documents, boundary='mcp',
+                    factory=lambda s, p, d, close: create_mcp(s, p, d, port=port, close=close), close=client.close)
+            else:
+                app = create_mcp(settings, policy, documents, port=port, close=client.close)
     except Exception:
         raise SystemExit('cloud_startup_configuration_invalid_or_incomplete') from None
 

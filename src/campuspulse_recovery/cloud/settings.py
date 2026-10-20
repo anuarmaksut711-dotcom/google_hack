@@ -9,7 +9,7 @@ from pydantic import Field, field_validator, model_validator
 from ..agent.conversation import ConversationTarget
 from ..agent.mcp_auth import cloud_run_audience
 from ..config import AppConfig, ServiceAccount
-from ..domain.models import Contract, Interval, PlanningConstraints
+from ..domain.models import Contract, Interval, PlanningConstraints, ResourceId
 from ..domain.time_rules import local_time, planning_horizon
 
 
@@ -55,6 +55,19 @@ class MoodleSettings(Contract):
         return self
 
 
+class FeedRecoveryAccount(Contract):
+    principal_id: Annotated[str, Field(pattern=r'^https://accounts\.google\.com#[A-Za-z0-9_-]{1,128}$')]
+    moodle_user_id: Annotated[int, Field(strict=True, gt=0, le=2**31 - 1)]
+    calendar_id: ResourceId
+
+    @field_validator('calendar_id')
+    @classmethod
+    def explicit_calendar(cls, value):
+        if value.casefold() == 'primary':
+            raise ValueError('explicit_calendar_required')
+        return value
+
+
 class CloudSettings(Contract):
     application: AppConfig
     backend_origin: str
@@ -64,6 +77,7 @@ class CloudSettings(Contract):
     chat: ConversationTarget
     working_hours: tuple[WorkingHours, ...]
     moodle: MoodleSettings | None = None
+    calendar_feed_accounts: Annotated[tuple[FeedRecoveryAccount, ...], Field(max_length=100)] = ()
 
     @field_validator('backend_origin', 'agent_origin', 'mcp_origin')
     @classmethod
@@ -73,6 +87,12 @@ class CloudSettings(Contract):
     @model_validator(mode='after')
     def same_project(self):
         self.application.require_environment('cloud')
+        if self.calendar_feed_accounts:
+            if self.moodle is not None:
+                raise ValueError('choose_calendar_feed_or_rest_moodle')
+            for field in ('principal_id', 'calendar_id', 'moodle_user_id'):
+                if len({getattr(a, field) for a in self.calendar_feed_accounts}) != len(self.calendar_feed_accounts):
+                    raise ValueError('duplicate_recovery_account_binding')
         if len({self.backend_origin, self.agent_origin, self.mcp_origin}) != 3:
             raise ValueError('three_separate_cloud_run_services_required')
         if self.chat.provider == 'vertex' and self.chat.project_id != self.application.project_id:

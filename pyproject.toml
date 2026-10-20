@@ -46,6 +46,7 @@ multiuser = [
   "fastapi==0.141.1", "uvicorn==0.54.0", "google-auth[requests]==2.62.0",
 ]
 cloud = [
+  "icalendar==6.3.2",
   "google-adk[mcp]==2.6.3",
   "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
   "google-genai==2.31.0",

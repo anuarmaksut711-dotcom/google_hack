@@ -10,7 +10,7 @@ def install_planning_routes(app, *, auth, inputs):
         credential = await auth.load(request, mutation=update)
         if request.query_params:
             raise ValueError('planning_selectors_forbidden')
-        value = await body(request, PlanningUpdate) if update else None
+        value = await body(request, inputs.update_model) if update else None
         with auth.request_scope(credential) as context:
             state = await inputs.update(context, value) if update else await inputs.get(context)
             latest = await auth.load(request)
