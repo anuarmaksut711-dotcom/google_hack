@@ -36,10 +36,10 @@ class ConnectFeed(Contract):
     url: str = Field(min_length=1, max_length=4096)
 
 
-def account_config(principal):
+def account_config(principal, template=None):
     if not re.fullmatch(r'https://accounts\.google\.com#[A-Za-z0-9_-]{1,128}', principal):
         raise AccessDenied('google_subject_required')
-    values = demo_config().model_dump()
+    values = (demo_config() if template is None else template).model_dump()
     owner = 'google-' + digest(principal)
     values['student'].update(trusted_user_id=owner, allowed_signin_principal=principal,
                              calendar_id=owner, spreadsheet_id=owner)
@@ -47,13 +47,14 @@ def account_config(principal):
 
 
 class AccountFeed:
-    def __init__(self, *, policy, documents, directory, transport=None):
+    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None):
         self.policy, self.documents = policy, documents
         self.owner_id = policy.config.student.trusted_user_id
         self.directory, self.transport = directory / self.owner_id, transport
         self.record = 'cp_moodle_accounts/' + self.owner_id
         self.feed = None
         self.lock = asyncio.Lock()
+        self.feed_factory = feed_factory
 
     def make(self, url):
         try:
@@ -65,6 +66,9 @@ class AccountFeed:
             raise ValueError('invalid_moodle_calendar_url') from None
         # A feed change gets a separate cache/status namespace. Old feed data is
         # never accidentally displayed while the new connection is unavailable.
+        if self.feed_factory is not None:
+            return self.feed_factory(url=url, owner_id=self.owner_id, user_id=user_id,
+                                     transport=self.transport)
         folder = self.directory / digest(url)
         folder.mkdir(parents=True, exist_ok=True)
         return CalendarFeed(url=url, cache_file=folder / 'calendar.json',
@@ -83,18 +87,27 @@ class AccountFeed:
 
     async def read(self, context):
         self.authorize(context)
-        return self.feed.state() if self.feed else FeedState(owner_id=self.owner_id,
-            expected_user_id=1, connected=False, stale=True)
+        async with self.lock:
+            if self.feed_factory is not None:
+                await self.restore()
+            if self.feed and hasattr(self.feed, 'load'):
+                await self.feed.load()
+            return self.feed.state() if self.feed else FeedState(owner_id=self.owner_id,
+                expected_user_id=1, connected=False, stale=True)
 
     async def refresh(self, context):
         self.authorize(context)
         async with self.lock:
+            if self.feed_factory is not None:
+                await self.restore()
             if self.feed:
                 await self.feed.refresh()
 
     async def status(self, context, task_id, done):
         self.authorize(context)
         async with self.lock:
+            if self.feed_factory is not None:
+                await self.restore()
             if self.feed is None:
                 raise ValueError('moodle_not_connected')
             await self.feed.set_local_status(task_id, done)
@@ -115,6 +128,8 @@ class AccountFeed:
     async def project(self, context, *, run, plan):
         self.authorize(context)
         async with self.lock:
+            if self.feed_factory is not None:
+                await self.restore()
             if self.feed is None:
                 return SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
                                    calendar=('Свободное время и расписание не подключены.',))
@@ -140,14 +155,17 @@ form.addEventListener('submit',async event=>{
 
 
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
-                         transport=None, test_verifier=None, clock=lambda: datetime.now(UTC)):
-    # Test injection is only an in-process factory parameter; the CLI never
-    # exposes it, and local mode remains excluded from cloud deployment.
+                         transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
+                         application=None, documents=None, feed_factory=None):
+    environment = 'local' if application is None else 'cloud'
+    if environment == 'cloud' and (documents is None or feed_factory is None or test_verifier is not None):
+        raise ValueError('explicit_cloud_dependencies_required')
     verifier = GoogleSignInVerifier(client_id) if test_verifier is None else test_verifier
-    bootstrap = ResourcePolicy(account_config('https://accounts.google.com#bootstrap'), environment='local')
-    documents = SqliteDocuments(directory, project_id=bootstrap.config.project_id,
-                               database_id=bootstrap.config.firestore_database)
-    public_auth = WebAuth(documents, bootstrap, verifier=verifier, origin=origin, environment='local', clock=clock)
+    bootstrap = ResourcePolicy(account_config('https://accounts.google.com#bootstrap', application), environment=environment)
+    if documents is None:
+        documents = SqliteDocuments(directory, project_id=bootstrap.config.project_id,
+                                   database_id=bootstrap.config.firestore_database)
+    public_auth = WebAuth(documents, bootstrap, verifier=verifier, origin=origin, environment=environment, clock=clock)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     apps, lock = {}, asyncio.Lock()
     app.state.documents = documents
@@ -174,11 +192,12 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         async with lock:
             if principal in apps:
                 return apps[principal]
-            policy = ResourcePolicy(account_config(principal), environment='local')
-            feed = AccountFeed(policy=policy, documents=documents, directory=directory / 'accounts', transport=transport)
+            policy = ResourcePolicy(account_config(principal, application), environment=environment)
+            feed = AccountFeed(policy=policy, documents=documents, directory=directory / 'accounts', transport=transport,
+                               feed_factory=feed_factory)
             await feed.restore()
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
-                origin=origin, environment='local', clock=clock, moodle_enabled=True,
+                origin=origin, environment=environment, clock=clock, moodle_enabled=True,
                 signin_url='/login', chat_agent=None if agent_factory is None else agent_factory(),
                 projection=feed, chat_mode='calendar_advice', owner_chat_history=True, account_url='/account')
             auth = inner.state.web_auth
