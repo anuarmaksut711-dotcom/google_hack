@@ -54,7 +54,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   projection: SafeProjection | None = None, demo_mode: bool = False,
                   chat_agent=None, signin_url=None, moodle_enabled: bool = False,
                   chat_mode: str = 'recovery', owner_chat_history: bool = False,
-                  account_url: str | None = None, planning_url: str | None = None, approval_store=None, email_credentials=None):
+                  account_url: str | None = None, planning_url: str | None = None, approval_store=None, email_credentials=None,
+                  google_calendar_enabled: bool = False, chat_sources=None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -78,7 +79,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
         agent=chat_agent, projection=projection, owner_history=owner_chat_history,
-        structured_advice=chat_mode == 'calendar_advice'))
+        structured_advice=chat_mode == 'calendar_advice', additional_sources=chat_sources))
     app.include_router(create_workspace_router(auth=auth, documents=documents, policy=policy,
         owner_history=owner_chat_history, chat_available=chat_agent is not None,
         speech_available=callable(getattr(chat_agent, 'transcribe', None))))
@@ -96,7 +97,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
         return render_shell(policy.config.student.timezone, demo_mode=demo_mode,
                             live_chat=chat_agent is not None, signin_url=signin_url,
                             moodle_enabled=moodle_enabled, chat_mode=chat_mode, account_url=account_url,
-                            planning_url=planning_url)
+                            planning_url=planning_url, google_calendar_enabled=google_calendar_enabled)
 
     @app.get("/assets/campuspulse.css")
     async def css():

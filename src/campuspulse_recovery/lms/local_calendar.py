@@ -83,7 +83,7 @@ def create_local_calendar_app(*, origin: str, url_file: Path, cache_file: Path,
         auth.check_request(request)
         return ('<!doctype html><html lang="ru"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>CampusPulse · Moodle</title><h1>CampusPulse · Moodle</h1>'
+            '<title>Google AI · Moodle</title><h1>Google AI · Moodle</h1>'
             '<p>Личный календарь Moodle на этом компьютере. Оценки и статусы сдачи не передаются.</p>'
             '<p>Повторно вводить пароль Moodle не нужно.</p>'
             '<button id="local-signin">Открыть мои дедлайны</button><p id="result" role="status"></p>'

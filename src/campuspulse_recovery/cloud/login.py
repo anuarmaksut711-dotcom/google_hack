@@ -256,13 +256,13 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="color-scheme" content="dark light">'
-        f'<title>{title} · CampusPulse</title><link rel="stylesheet" href="/assets/login.css">' + THEME_HEAD +
+        f'<title>{title} · Google AI</title><link rel="stylesheet" href="/assets/login.css">' + THEME_HEAD +
         f'<script id="google-sdk" src="https://accounts.google.com/gsi/client"{nonce_attribute} async></script>'
         '<script src="/assets/login.js" defer></script></head>'
         f'<body class="auth-page" data-email-password="{str(email_password).lower()}" data-auth-mode="{"signup" if signup else "signin"}" data-client-id="{escape(client_id, quote=True)}">'
         '<div class="auth-theme">' + THEME_BUTTON + '</div><main class="auth-card" aria-labelledby="auth-heading">'
         '<div class="auth-orb" aria-hidden="true"></div>'
-        '<h1 id="auth-heading">CampusPulse</h1>'
+        '<h1 id="auth-heading">Google AI</h1>'
         f'<p class="auth-title">{"Создать аккаунт" if signup else "С возвращением"}</p>'
         + ('' if email_password else f'<p class="auth-description">{description}</p>') + email_form +
         '<div class="auth-actions"><div id="login-loading" aria-hidden="true">Подключаем Google…</div>'

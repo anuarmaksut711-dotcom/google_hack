@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, Response
 
 PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Время для учебного плана · CampusPulse</title><link rel="stylesheet" href="/assets/login.css">
+<title>Время для учебного плана · Google AI</title><link rel="stylesheet" href="/assets/login.css">
 <main><a href="/">К заданиям и плану</a><h1>Время для учебного плана</h1>
 <p>Укажите оставшееся время на задания и часы, когда вы можете учиться.
 Эти данные используются при создании предложения. Запись в Google Calendar потребует отдельного согласования плана.</p>

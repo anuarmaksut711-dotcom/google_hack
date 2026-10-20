@@ -29,9 +29,11 @@ function harness(options = {}) {
     if (!elements.has(id)) elements.set(id, {
       value: '', textContent: '', hidden: false, disabled: false, maxLength: 4000,
       attributes: {}, dataset: {}, style: {setProperty() {}}, events: new Map(),
+      clientWidth: 832, children: Array.from({length: 104}, () => ({style: {}})),
       setAttribute(name, value) { this.attributes[name] = value; },
       addEventListener(name, callback) { this.events.set(name, callback); },
       dispatchEvent(event) { this.events.get(event.type)?.(event); },
+      click() { return this.events.get('click')?.(); },
       focus() {},
     });
     return elements.get(id);
@@ -128,8 +130,8 @@ async function recordingAppendsToDraftWithoutSendingChat() {
   assert.equal(h.run('voiceState'), 'recording');
   assert.equal(h.$('voice-toggle').attributes['aria-pressed'], 'true');
   h.advance();
-  assert(h.$('voice-level').value > 0, 'The level meter should respond to input');
-  await h.click(); await h.settle();
+  assert(h.$('voice-waveform').children.some(dot => parseFloat(dot.style.height) > 4), 'Waveform should respond to audio');
+  await h.$('voice-stop').click(); await h.settle();
   assert.equal(h.requests.length, 1);
   assert.equal(h.requests[0].url, '/api/chat/transcribe', 'Voice input must never auto-send a chat message');
   assert.equal(h.requests[0].request.headers['X-CSRF-Token'], 'fresh-csrf-token');
@@ -322,7 +324,23 @@ async function unsupportedAudioDoesNotAskForMicrophone() {
   assert.equal(h.requests.length, 0);
 }
 
+async function cancelDiscardsAudioAndAllowsNewRecording() {
+  const h = harness();
+  h.$('recovery-message').value = 'Сохранённый черновик';
+  await h.click(); h.advance();
+  await h.$('voice-cancel').click();
+  await h.settle();
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.$('recovery-message').value, 'Сохранённый черновик');
+  assert.equal(h.run('voiceState'), 'idle');
+  assert(h.streams[0].track.stopped && h.audios[0].closed);
+  assert.equal(h.timers.size, 0); assert.equal(h.frames.size, 0);
+  await h.click(); h.advance(); await h.$('voice-stop').click(); await h.settle();
+  assert.equal(h.requests.length, 1);
+}
+
 const tests = [
+  cancelDiscardsAudioAndAllowsNewRecording,
   recordingAppendsToDraftWithoutSendingChat, deniedMicrophonePreservesDraftAndCanRetry,
   shortOrSilentRecordingDoesNotUpload, maximumDurationStopsAndTranscribesOnce,
   oversizedRecordingIsReleasedWithoutUpload, transcriptionFailureKeepsTypedText,

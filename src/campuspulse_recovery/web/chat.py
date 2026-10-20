@@ -118,7 +118,7 @@ class ChatStore(_Repository):
 
 
 def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False,
-                       structured_advice=False):
+                       structured_advice=False, additional_sources=None):
     router = APIRouter()
     store = ChatStore(documents, policy, owner_history=owner_history)
     workspace = WorkspaceStore(documents, policy, owner_history=owner_history)
@@ -186,6 +186,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                     sources = {} if projection is None else (await projection.project(
                         context, run=None, plan=None)).model_dump(mode='json',
                             include={'assignments', 'calendar', 'class_schedule'})
+                    if additional_sources is not None:
+                        sources['google_calendar'] = await additional_sources(context)
                     await fresh(request, credential)
                     response = await agent.reply(history=chat.turns[:-1], message=value.message,
                         user_id=context.trusted.owner_id, session_id=context.session_id, sources=sources)

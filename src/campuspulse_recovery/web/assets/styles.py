@@ -128,8 +128,22 @@ body[data-view=journal] .recovery-home, body[data-view=journal] #moodle, body[da
 .voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
 #voice-status { flex: 1 1 200px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 #voice-status:empty, .voice-input:not(:has(#voice-level-wrap:not([hidden]))):has(#voice-status:empty) { display: none; }
-#voice-level-wrap { font-size: 12px; color: var(--muted); }
-#voice-level { width: 100px; vertical-align: middle; }
+#voice-level-wrap { display: flex; align-items: center; gap: 16px; width: 100%; min-width: 0; height: 60px; padding: 10px 4px; color: #171717; background: #fff; }
+#voice-cancel, #voice-stop { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 10px; border: 0; border-radius: 50%; color: inherit; background: #f3f3f3; }
+#voice-cancel:hover, #voice-stop:hover { background: #e8e8e8; }
+#voice-cancel:active, #voice-stop:active { background: #ddd; }
+html[data-theme=light] #voice-cancel, html[data-theme=light] #voice-stop { background: #f3f3f3; color: #171717; }
+html[data-theme=light] #voice-cancel:hover, html[data-theme=light] #voice-stop:hover { background: #e8e8e8; }
+html[data-theme=light] #voice-cancel:active, html[data-theme=light] #voice-stop:active { background: #ddd; }
+#voice-cancel svg, #voice-stop svg { width: 20px; height: 20px; }
+#voice-stop svg { fill: currentColor; stroke: none; }
+#voice-waveform { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 4px; height: 32px; min-width: 0; overflow: hidden; }
+#voice-waveform span { flex: 0 0 4px; width: 4px; height: 4px; border-radius: 4px; background: currentColor; opacity: .25; }
+#chat-form[data-voice-state=recording] #voice-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+#voice-level-wrap { border-radius: 20px; }
+html[data-theme=dark] #voice-level-wrap { background: #1d1e22; color: #e3e4e9; }
+html[data-theme=dark] #voice-cancel, html[data-theme=dark] #voice-stop { background: #292a2e; }
+html[data-theme=dark] #voice-cancel:hover, html[data-theme=dark] #voice-stop:hover { background: #36373b; }
 .chat-user > p, .chat-answer { font-size: 18px; line-height: 1.65; overflow-wrap: anywhere; }
 .chat-answer > * + * { margin-top: 12px; }
 .chat-answer ul, .chat-answer ol { margin-bottom: 0; padding-left: 1.4em; }
@@ -140,6 +154,9 @@ body[data-view=journal] .recovery-home, body[data-view=journal] #moodle, body[da
 .chat-answer code { font-size: .9em; }
 .chat-answer > :first-child { margin-top: 0; }
 .chat-answer p { font-size: inherit; line-height: inherit; }
+.chat-reveal-part { animation: chat-part-appear 160ms ease-out; }
+@keyframes chat-part-appear { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .chat-reveal-part { animation: none; } }
 .chat-system > .chat-answer { color: #e7cb90; }
 #panel:focus { outline: none; }
 #panel section { margin-bottom: 28px; }

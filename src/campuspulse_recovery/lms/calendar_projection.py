@@ -33,7 +33,7 @@ class CalendarChatProjection:
             key=lambda task: (task.due_at, task.id))
         done_count = sum(task.local_status == 'done' for task in snapshot.tasks)
         if done_count:
-            notice += f'Пользователь отметил выполненными {done_count} работ в CampusPulse; они исключены из планирования. '
+            notice += f'Пользователь отметил выполненными {done_count} работ в Google AI; они исключены из планирования. '
         # The shared display contract allows 100 lines. Explicitly report the
         # bound instead of suggesting a partial source is the full workload.
         if len(tasks) > 99:

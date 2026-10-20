@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "campuspulse-recovery"
 version = "0.1.0"
-description = "CampusPulse Recovery Agent product package"
+description = "Google AI Recovery Agent product package"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 license-files = ["requirements/LICENSE"]
@@ -41,6 +41,13 @@ web = [
 ]
 dev = ["pytest==9.1.1", "build==1.6.1", "setuptools==84.0.0", "wheel==0.48.0"]
 calendar = ["icalendar==6.3.2", "httpx==0.28.1"]
+oauth-calendar = ["google-auth-oauthlib==1.5.0", "requests-oauthlib==2.0.0", "oauthlib==3.3.1"]
+local-calendar = [
+  "icalendar==6.3.2", "httpx==0.28.1", "cryptography==50.0.2",
+  "fastapi==0.141.1", "uvicorn==0.54.0", "mcp==1.30.0,<2",
+  "google-auth[requests]==2.62.0", "google-api-python-client==2.201.0",
+  "google-auth-oauthlib==1.5.0", "requests-oauthlib==2.0.0", "oauthlib==3.3.1",
+]
 multiuser = [
   "icalendar==6.3.2", "httpx==0.28.1", "cryptography==50.0.2",
   "fastapi==0.141.1", "uvicorn==0.54.0", "google-auth[requests]==2.62.0",

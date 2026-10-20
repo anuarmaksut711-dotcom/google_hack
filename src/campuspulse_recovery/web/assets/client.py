@@ -1,8 +1,10 @@
 """Small browser adapter; GET refreshes never consent or dispatch execution."""
 from .workspace import SCRIPT as WORKSPACE_SCRIPT
+from .answer_reveal import SCRIPT as ANSWER_REVEAL_SCRIPT
 SCRIPT = r"""'use strict';
 (() => {
   const $ = id => document.getElementById(id);
+  const answerReveal = new window.CampusPulseAnswerReveal();
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
   let speechAvailable = false, voiceState = 'idle', voiceSession = null;
@@ -38,7 +40,18 @@ SCRIPT = r"""'use strict';
     button.setAttribute('title', label);
     button.setAttribute('aria-pressed', String(voiceState === 'recording'));
     button.dataset.state = voiceState;
+    $('chat-form').dataset.voiceState = voiceState;
   }
+  $('voice-stop').addEventListener('click', () => $('voice-toggle').click());
+  $('voice-cancel').addEventListener('click', () => {
+    if (voiceState !== 'recording' || !voiceSession) return;
+    const session = voiceSession;
+    session.cancelled = true;
+    if (session.recorder?.state === 'recording') session.recorder.stop();
+    finishVoice(session);
+    $('voice-status').textContent = '';
+    $('recovery-message').focus({preventScroll: true});
+  });
   $('voice-toggle').addEventListener('click', async () => {
     if (voiceState === 'recording') {
       const session = voiceSession;
@@ -61,6 +74,10 @@ SCRIPT = r"""'use strict';
       analyser.fftSize = 2048;
       audio.createMediaStreamSource(session.stream).connect(analyser);
       const samples = new Float32Array(analyser.fftSize);
+      const dots = Array.from($('voice-waveform').children);
+      const levels = Array(dots.length).fill(0);
+      let lastWaveAt = 0;
+      dots.forEach(dot => { dot.style.height = '4px'; dot.style.opacity = '0.25'; });
       const measure = () => {
         if (!currentVoice(session) || voiceState !== 'recording') return;
         analyser.getFloatTimeDomainData(samples);
@@ -68,7 +85,17 @@ SCRIPT = r"""'use strict';
         for (const sample of samples) power += sample * sample;
         const rms = Math.sqrt(power / samples.length);
         if (rms > 0.003) ++signalFrames;
-        $('voice-level').value = Math.min(100, Math.round(rms * 1000));
+        const now = performance.now();
+        if (now - lastWaveAt >= 65) {
+          levels.shift(); levels.push(Math.min(1, rms * 12));
+          const visibleDots = Math.max(1, Math.floor($('voice-waveform').clientWidth / 8));
+          dots.forEach((dot, index) => {
+            dot.hidden = index < dots.length - visibleDots;
+            dot.style.height = (4 + levels[index] * 24) + 'px';
+            dot.style.opacity = String(0.25 + levels[index] * 0.6);
+          });
+          lastWaveAt = now;
+        }
         session.frame = requestAnimationFrame(measure);
       };
       const recorder = new MediaRecorder(session.stream, {mimeType: voiceMime});
@@ -89,7 +116,7 @@ SCRIPT = r"""'use strict';
       };
       recorder.onstop = async () => {
         releaseMicrophone(session);
-        if (!currentVoice(session) || tooLarge) {
+        if (!currentVoice(session) || session.cancelled || tooLarge) {
           if (currentVoice(session) && tooLarge) $('voice-status').textContent = 'Не удалось записать аудио. Попробуйте более короткую запись.';
           chunks = []; finishVoice(session); return;
         }
@@ -121,7 +148,7 @@ SCRIPT = r"""'use strict';
           } else {
             input.value = draft;
             input.dispatchEvent(new Event('input', {bubbles: true}));
-            $('voice-status').textContent = text ? 'Текст добавлен. Проверьте его и нажмите «Отправить».' :
+            $('voice-status').textContent = text ? '' :
               'Речь не распознана. Попробуйте говорить ближе к микрофону.';
           }
         } catch (error) {
@@ -223,6 +250,7 @@ SCRIPT = r"""'use strict';
       status.textContent = voiceState !== 'idle' ? 'Завершите голосовой ввод, затем откройте другой чат.' : 'Дождитесь завершения текущего запроса, затем откройте другой чат.';
       return;
     }
+    answerReveal.finish();
     saveDraft();
     activeChat = id; ++chatGeneration;
     $('conversation-index')?.replaceChildren();
@@ -233,8 +261,9 @@ SCRIPT = r"""'use strict';
     if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
   }
   const views = {
-    assistant: ['Ассистент', 'Спланируем учёбу вместе'],
+    assistant: ['Ассистент', 'Ваши задачи и планы'],
     tasks: ['Мои задания', 'Задания и ближайшие сроки'],
+    calendar: ['Google Calendar', 'Ваш календарь на ближайшие три дня'],
     plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
     journal: ['Журнал', 'Действия агента и результаты запуска']
   };
@@ -248,14 +277,15 @@ SCRIPT = r"""'use strict';
     const chatMatch = /^#chat\/([a-f0-9]{32})$/.exec(selected);
     if (chatMatch || selected === '#workspace' || /^#new(?:\/[a-f0-9]{32})?$/.test(selected)) selectChat(hashChat(selected));
     let view = {'#workspace': 'assistant', '#moodle': 'tasks', '#sources': 'plan',
-      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal'}[selected] || 'assistant';
+      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal',
+      '#calendar': document.getElementById('google-calendar') ? 'calendar' : 'assistant'}[selected] || 'assistant';
     if (view === 'tasks' && !moodleEnabled) view = 'plan';
     document.body.dataset.view = view;
     if ($('view-title')) $('view-title').textContent = view === 'assistant' ? chats.title() : views[view][0];
     if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
     const chatTarget = chatHash(activeChat);
     document.querySelectorAll('.nav-link[data-view=assistant], .rail-link[data-view=assistant], .brand, .rail-brand').forEach(link => { link.href = chatTarget; });
-    document.title = 'CampusPulse · ' + (view === 'assistant' ? chats.title() : views[view][0]);
+    document.title = 'Google AI · ' + (view === 'assistant' ? chats.title() : views[view][0]);
     document.querySelectorAll('.nav-link, .rail-link').forEach(link => {
       const current = link.dataset.view === view;
       link.classList.toggle('current', current);
@@ -379,7 +409,7 @@ SCRIPT = r"""'use strict';
       }
     }
     let message;
-    if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде CampusPulse, чтобы настроить доступ к своему аккаунту.';
+    if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде Google AI, чтобы настроить доступ к своему аккаунту.';
     else if (!snapshot) message = state.error ?
       'Задания пока не получены. Проверьте доступ к Moodle и повторите обновление.' :
       'Задания ещё не загружены. Ожидаем первое обновление.';
@@ -390,7 +420,7 @@ SCRIPT = r"""'use strict';
       if (state.syncing) message += ' Обновление выполняется.';
     }
     if (state.error === 'auth_failed' || state.error === 'identity_mismatch')
-      message += ' Доступ к аккаунту Moodle нужно подключить заново через команду CampusPulse.';
+      message += ' Доступ к аккаунту Moodle нужно подключить заново через команду Google AI.';
     if (calendarFeed) message += ' Календарь передаёт события и сроки; оценки и статусы сдачи недоступны.';
     $('moodle-status').textContent = message;
     if (!snapshot || !state.connected) return;
@@ -426,7 +456,7 @@ SCRIPT = r"""'use strict';
       descriptionBox.append(descriptionSummary, description);
       const values = calendarFeed ? [
         ['Срок', moodleDate(task.due_at)],
-        ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в CampusPulse' :
+        ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в Google AI' :
           group === 'past' ? 'Срок прошёл; статус сдачи неизвестен' : 'Статус сдачи неизвестен'],
       ] : [
         ['Срок сдачи', task.due_at ? moodleDate(task.due_at) : 'Не указан'],
@@ -477,7 +507,7 @@ SCRIPT = r"""'use strict';
       }
     } catch (error) {
       if (revision !== moodleRevision) return;
-      if (error.status === 403) clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
+      if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
       else $('moodle-status').textContent = 'Не удалось обновить задания. Если показаны сохранённые данные, они могли измениться. Повторите обновление.';
     } finally {
       if (revision === moodleRevision) {
@@ -580,7 +610,9 @@ SCRIPT = r"""'use strict';
       }
     }
   }
-  function showChat(chat) {
+  function showChat(chat, {animateRequestKey = null} = {}) {
+    answerReveal.finish();
+    let revealAnswer = null;
     chatLimitReached = chat.limit_reached === true;
     speechAvailable = chat.speech_available === true;
     chatAvailable = chat.available;
@@ -598,8 +630,11 @@ SCRIPT = r"""'use strict';
       label.textContent = 'Вы'; text.textContent = turn.message; user.append(label, text); log.append(user);
       const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('div');
       answer.className = 'chat-answer';
-      reply.className = 'chat-message chat-assistant'; author.className = 'chat-author'; author.textContent = 'CampusPulse';
-      if (turn.status === 'completed') renderChatAnswer(answer, turn.response);
+      reply.className = 'chat-message chat-assistant'; author.className = 'chat-author'; author.textContent = 'Google AI';
+      if (turn.status === 'completed') {
+        renderChatAnswer(answer, turn.response);
+        if (turn.request_key === animateRequestKey) revealAnswer = answer;
+      }
       else {
         reply.classList.add('chat-system');
         author.textContent = 'Статус запроса';
@@ -634,6 +669,7 @@ SCRIPT = r"""'use strict';
     };
     if (providerErrors[chat.failure_code]) $('chat-status').textContent = providerErrors[chat.failure_code];
     controls();
+    if (revealAnswer) answerReveal.start(revealAnswer, $('conversation-scroll'), log);
   }
   async function loadChat() {
     // A bookmarked chat can have been deleted in another tab. Preserve any
@@ -662,7 +698,7 @@ SCRIPT = r"""'use strict';
     try {
       const chat = await (await api('/api/chat?chat_id=' + chatId)).json();
       if (revision !== generation || session !== scope || selection !== chatGeneration) return;
-      showChat(chat);
+      showChat(chat, {animateRequestKey: pending});
       const accepted = pending && chat.turns.find(turn => turn.request_key === pending);
       if (!chatBusy && pending === stored(pendingChatKey()) && accepted && accepted.status !== 'working') {
         if (accepted.status === 'completed' && $('recovery-message').value.trim() === accepted.message.trim())
@@ -714,7 +750,7 @@ SCRIPT = r"""'use strict';
       stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
       saveDraft();
-      showChat(chat);
+      showChat(chat, {animateRequestKey: request_key});
       await chats.load();
       updateNavigation({preserveNavigation: true});
       const conversation = $('conversation-scroll');
@@ -952,7 +988,7 @@ SCRIPT = r"""'use strict';
     try { await api('/auth/signout', {}); ++generation; clearDrafts(); scope = null; activeRun = null;
       chats.reset(); clearDrafts(); activeChat = 'default'; ++chatGeneration;
       ++moodleRevision; moodleBusy = false;
-      clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
+      clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
       $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
@@ -978,6 +1014,6 @@ SCRIPT = r"""'use strict';
   refresh().catch(error => feedback(error.message, true));
 })();
 """
-SCRIPT = WORKSPACE_SCRIPT + SCRIPT
+SCRIPT = WORKSPACE_SCRIPT + ANSWER_REVEAL_SCRIPT + SCRIPT
 from .sidebar import SCRIPT as SIDEBAR_SCRIPT
 SCRIPT = SIDEBAR_SCRIPT + SCRIPT

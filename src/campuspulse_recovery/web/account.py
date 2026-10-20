@@ -2,10 +2,10 @@
 from .assets.theme import THEME_BUTTON, THEME_HEAD
 
 
-def render_moodle_settings(*, connected, classes_html):
+def render_moodle_settings(*, connected, classes_html, google_calendar_html=''):
     instructions = ('<p>Откройте Moodle AITU → Календарь → Экспорт календаря. Выберите все события, '
         'нажмите Get calendar URL и вставьте полученную ссылку сюда.</p>')
-    privacy = ('<p>Ссылка даёт доступ к вашему календарю и сохраняется для этого аккаунта CampusPulse. '
+    privacy = ('<p>Ссылка даёт доступ к вашему календарю и сохраняется для этого аккаунта Google AI. '
         'При составлении плана Gemini получает названия предметов, заданий и сроки. '
         'Календарь не сообщает, сдали ли вы работу: выполненные задания отмечайте здесь.</p>')
     form = ('<form id="connect-moodle"><label for="moodle-url">'
@@ -21,13 +21,13 @@ def render_moodle_settings(*, connected, classes_html):
             + instructions + privacy + form + '</details>')
     else:
         moodle = ('<p id="moodle-connection-status">Подключите календарь Moodle один раз. '
-            'При следующих входах в этот аккаунт CampusPulse он загрузится автоматически.</p>'
+            'При следующих входах в этот аккаунт Google AI он загрузится автоматически.</p>'
             + instructions + privacy + form)
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>Настройки · CampusPulse</title><link rel="stylesheet" href="/assets/campuspulse.css">'
+        '<title>Настройки · Google AI</title><link rel="stylesheet" href="/assets/campuspulse.css">'
         + THEME_HEAD + '</head><body class="settings-page">'
-        '<header class="settings-header"><a class="settings-brand" href="/">CampusPulse</a>'
+        '<header class="settings-header"><a class="settings-brand" href="/">Google AI</a>'
         '<div class="settings-actions">' + THEME_BUTTON + '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
         '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></div></header>'
         '<main class="settings-main"><h1>Настройки</h1>'
@@ -40,4 +40,4 @@ def render_moodle_settings(*, connected, classes_html):
         'В облачной версии также предусмотрено фоновое обновление каждые 15 минут. '
         'Отображаются события выбранного периода экспорта; изменения могут появляться с задержкой.</p>'
         '<p id="account-status" role="status" aria-live="polite"></p></section>'
-        + classes_html + '</main><script src="/assets/account.js"></script></body></html>')
+        + google_calendar_html + classes_html + '</main><script src="/assets/account.js"></script></body></html>')

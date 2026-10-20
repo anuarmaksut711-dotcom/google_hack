@@ -86,7 +86,7 @@ PAGE_CSP = ("default-src 'none'; script-src 'sha256-" + SCRIPT_HASH + "'; connec
     "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 PAGE_HTML = """<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Подключить устройство — CampusPulse</title>
+<title>Подключить устройство — Google AI</title>
 <main><h1>Подключить голосовой помощник</h1>
 <p>Устройство сможет читать задания и расписание и предлагать учебный план.
 Изменения календаря требуют отдельного подтверждения в браузере.</p>
