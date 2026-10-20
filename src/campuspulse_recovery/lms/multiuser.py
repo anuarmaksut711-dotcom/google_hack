@@ -141,15 +141,9 @@ class AccountFeed:
             else:
                 sources = await CalendarChatProjection(self.feed, self.policy).project(context, run=run, plan=plan)
         if self.my_du is not None:
-            lines, schedule = await self.my_du.calendar_context(context)
-            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines,
-                                  class_schedule=schedule)
+            lines = await self.my_du.calendar_lines(context)
+            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines)
         return sources
-
-    async def current_class_schedule(self, context):
-        """Read again after generation, so concurrent sync/disconnect is respected."""
-        self.authorize(context)
-        return None if self.my_du is None else self.my_du.planning_schedule(await self.my_du.read(context))
 
 
 ACCOUNT_SCRIPT = r"""'use strict';
