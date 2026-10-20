@@ -172,6 +172,9 @@ body.auth-page {
 .auth-page #provider-status{margin:10px 0 0;font-size:12px;color:var(--auth-muted)}
 .auth-page #google-signin{display:flex;justify-content:center;width:100%;min-height:60px;padding:8px 0;border-radius:999px;background:#202124}
 .auth-page #google-signin>div{max-width:100%}
+/* Match the GIS document's scheme so its transparent canvas stays transparent.
+   The button itself keeps Google's filled_black theme. */
+.auth-page #google-signin iframe{color-scheme:light}
 .auth-page #login-loading{height:60px;border-radius:999px;background:#303030;display:grid;place-items:center;color:#bbb;font-size:14px}
 .auth-page #login-status{min-height:48px;margin:18px auto 0;color:var(--auth-muted);font-size:13px;line-height:1.7;max-width:38ch;overflow-wrap:anywhere}
 .auth-page #login-status[data-state=error]{color:#f0b6ab}
