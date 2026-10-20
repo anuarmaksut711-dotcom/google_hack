@@ -86,6 +86,11 @@ jobs:
             .validation/ci/pytest.xml
             .validation/ci/*.log
             .validation/ci/voice-report.json
+            .validation/ci/recovery-evaluation/compatibility.json
+            .validation/ci/recovery-evaluation/local-summary.json
+            .validation/ci/recovery-evaluation/guards.json
+            .validation/ci/recovery-evaluation/runtime-origins.json
+            .validation/ci/recovery-evaluation/junit.xml
             .validation/ci/dist/*.whl
             .validation/ci/dist/*.tar.gz
 
