@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from ...storage.plans import plan_reference
+from ..assets.theme import THEME_BUTTON, THEME_HEAD
 
 STATUS = {
     "proposed": ("Предложен план", "Изучите изменения перед согласованием."),
@@ -101,7 +102,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     sources_nav = f'<a class="nav-link" data-view="tasks" href="{sources_target}" aria-label="{sources_title}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8 11h8M8 15h5"/></svg><span class="nav-label">{sources_title}</span><span class="nav-short" aria-hidden="true">Задания</span></a>' if moodle_enabled else ''
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>
-<link rel="stylesheet" href="/assets/campuspulse.css"><script src="/assets/campuspulse.js" defer></script>
+<meta name="color-scheme" content="dark light"><link rel="stylesheet" href="/assets/campuspulse.css">{THEME_HEAD}<script src="/assets/campuspulse.js" defer></script>
 <script src="/assets/logo/vendor/gsap.min.js" defer></script>
 <script type="module" src="/assets/logo/welcome.js"></script></head>
 <body data-view="assistant" data-chat-mode="{e(chat_mode)}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К содержимому</a>
@@ -124,7 +125,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <details class="conversation-navigation"><summary>Сообщения чата</summary><div id="conversation-index" class="conversation-index" aria-label="Сообщения диалога"></div></details>
 <div class="sidebar-bottom"><footer><span>{e(timezone)}</span><details><summary>О расписании</summary><p>{'Ваш календарь под вашим контролем.' if advice else 'Вы решаете, какие изменения применить.'} Интервалы [начало, конец): конец не включён. Запланированное время не означает, что задание выполнено.</p></details></footer></div>
 </aside>
-<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваше учебное пространство</span></div><button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></header>
+<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваше учебное пространство</span></div><div class="topbar-actions">{THEME_BUTTON}<button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></div></header>
 <main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <img id="welcome-fallback" src="/assets/logo/assets/g-reference.png" alt="" width="409" height="413" hidden>

@@ -1,4 +1,5 @@
 """First Moodle connection and optional settings; saved feed URLs stay server-side."""
+from .assets.theme import THEME_BUTTON, THEME_HEAD
 
 
 def render_moodle_settings(*, connected, classes_html):
@@ -25,10 +26,10 @@ def render_moodle_settings(*, connected, classes_html):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Настройки · CampusPulse</title><link rel="stylesheet" href="/assets/campuspulse.css">'
-        '</head><body class="settings-page">'
+        + THEME_HEAD + '</head><body class="settings-page">'
         '<header class="settings-header"><a class="settings-brand" href="/">CampusPulse</a>'
-        '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
-        '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></header>'
+        '<div class="settings-actions">' + THEME_BUTTON + '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
+        '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></div></header>'
         '<main class="settings-main"><h1>Настройки</h1>'
         '<section class="settings-card" data-connected="' + str(connected).lower() + '" '
         'aria-labelledby="moodle-settings-heading"><div class="settings-card-heading">'

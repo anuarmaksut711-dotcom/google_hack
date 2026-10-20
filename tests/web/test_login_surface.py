@@ -55,7 +55,7 @@ def test_login_and_registration_are_read_only_google_surfaces_with_safe_client_i
                 assert not any(tag in ('input', 'form') for tag, _ in page.elements)
                 assert destination in [attrs.get('href') for tag, attrs in page.elements if tag == 'a']
                 assert [attrs.get('src') for tag, attrs in page.elements if tag == 'script'] == [
-                    'https://accounts.google.com/gsi/client', '/assets/login.js']
+                    '/assets/theme.js', 'https://accounts.google.com/gsi/client', '/assets/login.js']
                 assert 'set-cookie' not in response.headers
             assert not client.cookies
         assert harness.documents.data == before

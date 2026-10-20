@@ -19,6 +19,7 @@ from ..security.resources import ResourcePolicy
 from ..storage.plans import FirestorePlanStore, plan_reference
 from .approval import ApprovalAction, FirestoreApprovalStore
 from .auth import CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE, WebAuth
+from .assets.theme import install_theme
 
 
 class SignInBody(Contract):
@@ -64,6 +65,7 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
         raise ValueError('matching_approval_authority_required')
     plans = FirestorePlanStore(documents, policy)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    install_theme(app)
 
     @app.middleware("http")
     async def protections(request, call_next):

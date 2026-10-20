@@ -4,6 +4,7 @@ import secrets
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, Response
+from ..web.assets.theme import THEME_BUTTON, THEME_HEAD, install_theme
 
 SCRIPT = r"""'use strict';
 document.addEventListener('DOMContentLoaded', async () => {
@@ -254,12 +255,12 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
             f'<button id="email-submit" type="submit" disabled>{"Создать аккаунт" if signup else "Войти"}</button></form>')
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta name="color-scheme" content="dark">'
-        f'<title>{title} · CampusPulse</title><link rel="stylesheet" href="/assets/login.css">'
+        '<meta name="color-scheme" content="dark light">'
+        f'<title>{title} · CampusPulse</title><link rel="stylesheet" href="/assets/login.css">' + THEME_HEAD +
         f'<script id="google-sdk" src="https://accounts.google.com/gsi/client"{nonce_attribute} async></script>'
         '<script src="/assets/login.js" defer></script></head>'
         f'<body class="auth-page" data-email-password="{str(email_password).lower()}" data-auth-mode="{"signup" if signup else "signin"}" data-client-id="{escape(client_id, quote=True)}">'
-        '<main class="auth-card" aria-labelledby="auth-heading">'
+        '<div class="auth-theme">' + THEME_BUTTON + '</div><main class="auth-card" aria-labelledby="auth-heading">'
         '<div class="auth-orb" aria-hidden="true"></div>'
         '<h1 id="auth-heading">CampusPulse</h1>'
         f'<p class="auth-title">{"Создать аккаунт" if signup else "С возвращением"}</p>'
@@ -273,6 +274,7 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
 
 
 def install_login(app, auth, client_id, *, moodle=False, email_password=False):
+    install_theme(app)
     @app.get('/login', response_class=HTMLResponse)
     async def login(request: Request):
         auth.check_login_navigation(request)

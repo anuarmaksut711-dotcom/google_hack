@@ -9,6 +9,9 @@ Gemini для диалога и Firestore для сохранения состо
 
 **Приложение:** [открыть CampusPulse](https://campuspulse-403025736340.us-central1.run.app/login).
 
+Кнопка с солнцем или луной вверху страницы переключает светлую и тёмную темы.
+Выбор сохраняется в браузере и действует в чате, настройках и на страницах входа.
+
 Основной стек: Python 3.12, FastAPI, Google ADK, Gemini API для обычного чата,
 Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Firestore.
 
