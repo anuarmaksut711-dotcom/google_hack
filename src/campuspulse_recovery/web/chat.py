@@ -17,7 +17,7 @@ from ..domain.chat_plan import ClassSchedule, render_advice
 from ..domain.ports import BindingConflict
 from ..observability.events import TechnicalId
 from ..security.context import AccessDenied
-from ..storage.plans import _Repository, _decode, _encode, _key
+from ..storage.plans import _Repository, _decode, _encode
 from .app import body, _json
 from .workspace import ChatId, WorkspaceStore
 
@@ -57,22 +57,22 @@ class ChatStore(_Repository):
     def __init__(self, *args, owner_history=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.owner_history = owner_history
+        self.workspace = WorkspaceStore(*args, owner_history=owner_history, **kwargs)
 
     def path(self, context, chat_id='default'):
-        TypeAdapter(ChatId).validate_python(chat_id)
-        c = self._request(context)
-        legacy = _key(c.trusted.project_id, c.trusted.owner_id,
-            c.trusted.calendar_id, c.trusted.config_revision,
-            'owner-history-v1' if self.owner_history else c.session_id)
-        return 'cp_conversations/' + (legacy if chat_id == 'default' else _key(legacy, chat_id))
+        return self.workspace.conversation_path(context, chat_id)
 
     async def read(self, context, chat_id='default'):
-        saved = await self.documents.get(self.path(context, chat_id))
-        return Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
+        async def transact(tx):
+            await self.workspace.require_chat(context, chat_id, reader=tx)
+            saved = await tx.get(self.path(context, chat_id))
+            return Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
+        return await self.documents.transact(transact)
 
     async def claim(self, context, value, now):
         path = self.path(context, value.chat_id)
         async def transact(tx):
+            await self.workspace.require_chat(context, value.chat_id, reader=tx)
             saved = await tx.get(path)
             chat = Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
             previous = next((t for t in chat.turns if t.request_key == value.request_key), None)
@@ -99,6 +99,7 @@ class ChatStore(_Repository):
     async def finish(self, context, key, *, response, duration_ms, chat_id='default'):
         path = self.path(context, chat_id)
         async def transact(tx):
+            await self.workspace.require_chat(context, chat_id, reader=tx)
             chat = _decode(await tx.get(path), 'chat-v1', Conversation)
             turns = list(chat.turns)
             for index, turn in enumerate(turns):
@@ -149,8 +150,6 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             raise ValueError('invalid_chat_selector')
         chat_id = TypeAdapter(ChatId).validate_python(request.query_params.get('chat_id', 'default'))
         with auth.request_scope(credential) as context:
-            if chat_id != 'default':
-                await workspace.require_chat(context, chat_id)
             chat = await store.read(context, chat_id)
             await fresh(request, credential)
             return _json(view(chat))
@@ -166,8 +165,6 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
         if agent is None:
             return _json({'error': 'chat_not_configured'}, 503)
         with auth.request_scope(credential) as context:
-            if value.chat_id != 'default':
-                await workspace.require_chat(context, value.chat_id)
             try:
                 chat, claimed = await store.claim(context, value, auth.now())
             except BindingConflict as error:

@@ -1,5 +1,6 @@
 """Chat folders and isolated histories, using fake identity/model/document IO."""
 import asyncio
+import pytest
 
 from campuspulse_recovery.web.views.app import create_ui_app
 from tests.storage.test_plans import run
@@ -155,6 +156,14 @@ def test_other_user_cannot_read_or_move_into_a_known_private_chat_or_folder(tmp_
             assert (await post(bob, '/api/chat/workspace', {**payload, 'revision': 0})).status_code == 403
             assert (await post(bob, '/api/chat/workspace', {'action': 'rename_chat', 'request_key': 'rename', 'revision': 0,
                 'item_id': chat_id, 'title': 'stolen'})).status_code == 403
+            for action, item_id in (('delete_chat', chat_id), ('delete_folder', folder)):
+                assert (await post(bob, '/api/chat/workspace', {'action': action, 'request_key': action,
+                    'revision': 0, 'item_id': item_id})).status_code == 403
+            assert (await alice.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == 'Alice private'
+            alice_revision = (await alice.get('/api/chat/workspace')).json()['revision']
+            assert (await post(alice, '/api/chat/workspace', {'action': 'delete_folder', 'request_key': 'alice-delete',
+                'revision': alice_revision, 'item_id': folder})).status_code == 200
+            assert (await post(bob, '/api/chat/workspace', {**payload, 'revision': 0})).status_code == 403
             assert len(calls) == 1
     run(scenario())
 
@@ -349,4 +358,220 @@ def test_real_previous_v2_catalog_reads_and_upgrades_without_changing_history():
             assert (await client.get('/api/chat/workspace')).json()['chats'][0]['title'] == 'План подготовки к экзамену'
             assert next(v for k,v in h.documents.data.items() if k.startswith('cp_chat_workspaces/'))['kind'] == 'chat-workspace-v3'
             assert (await client.get('/api/chat')).json()['turns'][0]['message'] == 'План подготовки к экзамену'
+    run(scenario())
+
+
+@pytest.mark.parametrize('named', [False, True])
+def test_delete_chat_erases_history_and_denies_old_links_and_sends_after_restart(named):
+    async def scenario():
+        h, agent = Setup(), FakeAgent()
+        async with h.client(app(h, agent)) as client:
+            headers = await login(client)
+            chat_id = (await change(client, headers, 'create_chat', 'delete-me',
+                title='Private', folder_id=None))['item_id'] if named else 'default'
+            payload = {'chat_id': chat_id, 'request_key': 'secret-question', 'message': 'Private deleted message'}
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 200
+            stale = await client.post('/api/chat/workspace', headers=headers, json={
+                'action': 'delete_chat', 'request_key': 'stale-delete', 'revision': 0, 'item_id': chat_id})
+            assert stale.status_code == 409
+            assert (await client.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == payload['message']
+            deleted = await change(client, headers, 'delete_chat', 'remove-chat', item_id=chat_id)
+            assert chat_id not in [entry['chat_id'] for entry in deleted['chats']]
+            # Deletion removes the stored message body, rather than only hiding its row.
+            assert all(b'Private deleted message' not in value.get('body', b'') for value in h.documents.data.values())
+            for params in ({'chat_id': chat_id}, *([{}] if not named else [])):
+                assert (await client.get('/api/chat', params=params)).status_code == 403
+            assert (await client.post('/api/chat', headers=headers, json=payload)).status_code == 403
+            assert (await client.post('/api/chat', headers=headers,
+                json={**payload, 'request_key': 'new-send'})).status_code == 403
+            assert len(agent.calls) == 1
+            async with h.client(app(h, agent)) as restarted:
+                await login(restarted)
+                catalog = (await restarted.get('/api/chat/workspace')).json()
+                assert catalog['chats'] == deleted['chats']
+                assert (await restarted.get('/api/chat', params={'chat_id': chat_id})).status_code == 403
+    run(scenario())
+
+
+def test_delete_project_moves_its_chats_to_general_list_and_preserves_histories():
+    async def scenario():
+        h, agent = Setup(), FakeAgent()
+        async with h.client(app(h, agent)) as client:
+            headers = await login(client)
+            folder_id = (await change(client, headers, 'create_folder', 'delete-folder', title='Remove'))['item_id']
+            other_folder = (await change(client, headers, 'create_folder', 'keep-folder', title='Keep'))['item_id']
+            await change(client, headers, 'move_chat', 'move-default', item_id='default', folder_id=folder_id)
+            child = (await change(client, headers, 'create_chat', 'child',
+                title='Named child', folder_id=folder_id))['item_id']
+            independent = (await change(client, headers, 'create_chat', 'independent',
+                title='Keep this', folder_id=other_folder))['item_id']
+            for chat_id in ('default', child):
+                assert (await client.post('/api/chat', headers=headers, json={
+                    'chat_id': chat_id, 'request_key': 'first', 'message': 'Keep history'})).status_code == 200
+            before = (await client.get('/api/chat/workspace')).json()
+            histories = {chat_id: (await client.get('/api/chat', params={'chat_id': chat_id})).json()
+                         for chat_id in ('default', child)}
+            deleted = await change(client, headers, 'delete_folder', 'remove-folder', item_id=folder_id)
+            assert [folder['folder_id'] for folder in deleted['folders']] == [other_folder]
+            assert deleted['chats'] == [{**chat, 'folder_id': None} if chat['folder_id'] == folder_id else chat
+                                      for chat in before['chats']]
+            assert next(chat for chat in deleted['chats'] if chat['chat_id'] == independent)['folder_id'] == other_folder
+            for chat_id, history in histories.items():
+                assert (await client.get('/api/chat', params={'chat_id': chat_id})).json() == history
+            assert len(agent.calls) == 2
+            assert (await client.post('/api/chat/workspace', headers=headers, json={
+                'action': 'move_chat', 'request_key': 'move-back', 'revision': deleted['revision'],
+                'item_id': child, 'folder_id': folder_id})).status_code == 403
+    run(scenario())
+
+
+@pytest.mark.parametrize('already_created', [False, True])
+def test_first_send_retry_after_project_deletion_keeps_identity_and_lands_in_general(already_created):
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            folder = await change(client, headers, 'create_folder', 'draft-project', title='Project')
+            payload = {'action': 'create_chat', 'request_key': 'draft-original-key', 'revision': folder['revision'],
+                'title': 'Новый чат', 'folder_id': folder['item_id']}
+            if already_created:
+                first = await client.post('/api/chat/workspace', headers=headers, json=payload)
+                assert first.status_code == 200
+                original_id = first.json()['item_id']
+            deleted = await change(client, headers, 'delete_folder', 'delete-draft-project', item_id=folder['item_id'])
+            retry = await client.post('/api/chat/workspace', headers=headers, json=payload)
+            if not already_created:
+                assert retry.status_code == 409  # The client must first refresh its revision.
+                retry = await client.post('/api/chat/workspace', headers=headers,
+                    json={**payload, 'revision': deleted['revision']})
+            assert retry.status_code == 200, retry.text
+            saved = retry.json()
+            chat_id = saved['item_id']
+            if already_created:
+                assert chat_id == original_id
+            assert len(saved['chats']) == 2 and saved['folders'] == []
+            assert next(chat for chat in saved['chats'] if chat['chat_id'] == chat_id)['folder_id'] is None
+            # Keep the original project in the request fingerprint, even though
+            # the server placed this chat in the general list.
+            assert (await client.post('/api/chat/workspace', headers=headers, json=payload)).json() == saved
+            assert (await client.post('/api/chat/workspace', headers=headers,
+                json={**payload, 'folder_id': None})).status_code == 409
+            if not already_created:
+                for index in range(129):
+                    await change(client, headers, 'rename_chat', 'retry-evict-' + str(index),
+                        item_id='default', title='Keep ' + str(index))
+                replay = await client.post('/api/chat/workspace', headers=headers, json=payload)
+                assert replay.status_code == 200
+                assert replay.json()['item_id'] == chat_id and len(replay.json()['chats']) == 2
+    run(scenario())
+
+
+def test_create_chat_rejects_unknown_or_deleted_chat_id_as_project():
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            chat = await change(client, headers, 'create_chat', 'wrong-type', title='Chat', folder_id=None)
+            deleted = await change(client, headers, 'delete_chat', 'remove-wrong-type', item_id=chat['item_id'])
+            for index, folder_id in enumerate(('a' * 32, chat['item_id'])):
+                response = await client.post('/api/chat/workspace', headers=headers, json={
+                    'action': 'create_chat', 'request_key': 'invalid-project-' + str(index),
+                    'revision': deleted['revision'], 'title': 'Invalid', 'folder_id': folder_id})
+                assert response.status_code == 403
+            assert (await client.get('/api/chat/workspace')).json()['chats'] == deleted['chats']
+    run(scenario())
+
+
+def test_deletion_retry_is_idempotent_and_stale_competing_mutation_is_rejected():
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            payload = {'action': 'delete_chat', 'request_key': 'lost-delete', 'revision': 0, 'item_id': 'default'}
+            deleted = await client.post('/api/chat/workspace', headers=headers, json=payload)
+            assert deleted.status_code == 200, deleted.text
+            assert deleted.json()['chats'] == []
+            assert (await client.post('/api/chat/workspace', headers=headers, json=payload)).json() == deleted.json()
+            changed = await client.post('/api/chat/workspace', headers=headers,
+                json={**payload, 'item_id': 'a' * 32})
+            assert changed.status_code == 409
+            stale = await client.post('/api/chat/workspace', headers=headers, json={
+                'action': 'create_chat', 'request_key': 'stale-create', 'revision': 0,
+                'title': 'Stale', 'folder_id': None})
+            assert stale.status_code == 409
+            folder = await change(client, headers, 'create_folder', 'folder', title='Project')
+            concurrent = await asyncio.gather(*(client.post('/api/chat/workspace', headers=headers, json={
+                'action': 'delete_folder', 'request_key': key, 'revision': folder['revision'],
+                'item_id': folder['item_id']}) for key in ('delete-tab-one', 'delete-tab-two')))
+            assert sorted(response.status_code for response in concurrent) == [200, 409]
+            repeated = await client.post('/api/chat/workspace', headers=headers, json=payload)
+            assert repeated.status_code == 200 and repeated.json()['chats'] == [] and repeated.json()['folders'] == []
+    run(scenario())
+
+
+def test_deleted_creation_keys_cannot_resurrect_chat_or_folder_after_receipts_expire():
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            chat_payload = {'action': 'create_chat', 'request_key': 'original-chat', 'revision': 0,
+                'title': 'Delete', 'folder_id': None}
+            chat = (await client.post('/api/chat/workspace', headers=headers, json=chat_payload)).json()
+            folder_payload = {'action': 'create_folder', 'request_key': 'original-folder',
+                'revision': chat['revision'], 'title': 'Delete project'}
+            folder = (await client.post('/api/chat/workspace', headers=headers, json=folder_payload)).json()
+            await change(client, headers, 'delete_chat', 'delete-original-chat', item_id=chat['item_id'])
+            await change(client, headers, 'delete_folder', 'delete-original-folder', item_id=folder['item_id'])
+            for original in (chat_payload, folder_payload):
+                replay = await client.post('/api/chat/workspace', headers=headers, json=original)
+                assert replay.status_code == 403
+            for index in range(129):
+                await change(client, headers, 'rename_chat', 'evict-' + str(index),
+                    item_id='default', title='Keep ' + str(index))
+            catalog = (await client.get('/api/chat/workspace')).json()
+            for original in (chat_payload, folder_payload):
+                replay = await client.post('/api/chat/workspace', headers=headers,
+                    json={**original, 'revision': catalog['revision']})
+                assert replay.status_code == 403
+            assert (await client.get('/api/chat/workspace')).json() == catalog
+    run(scenario())
+
+
+@pytest.mark.parametrize('named', [False, True])
+def test_inflight_model_reply_cannot_restore_deleted_history(named):
+    async def scenario():
+        h, agent = Setup(), FakeAgent()
+        agent.release = asyncio.Event()
+        async with h.client(app(h, agent)) as client:
+            headers = await login(client)
+            chat_id = (await change(client, headers, 'create_chat', 'pending-chat',
+                title='Pending', folder_id=None))['item_id'] if named else 'default'
+            pending = asyncio.create_task(client.post('/api/chat', headers=headers, json={
+                'chat_id': chat_id, 'request_key': 'pending', 'message': 'Delete while generating'}))
+            await agent.entered.wait()
+            try:
+                await change(client, headers, 'delete_chat', 'delete-pending', item_id=chat_id)
+            finally:
+                agent.release.set()
+            response = await pending
+            assert response.status_code == 403
+            assert (await client.get('/api/chat', params={'chat_id': chat_id})).status_code == 403
+            assert all(b'Delete while generating' not in value.get('body', b'') for value in h.documents.data.values())
+    run(scenario())
+
+
+def test_deletion_rejects_extra_fields_missing_identity_and_missing_csrf():
+    async def scenario():
+        h = Setup()
+        async with h.client(app(h, FakeAgent())) as client:
+            headers = await login(client)
+            for action in ('delete_chat', 'delete_folder'):
+                payload = {'action': action, 'request_key': 'delete', 'revision': 0, 'item_id': 'default'}
+                assert (await client.post('/api/chat/workspace', json=payload)).status_code == 403
+                for extra in ({'title': 'Delete'}, {'folder_id': None}, {'item_id': None}, {'owner_id': 'another-user'}):
+                    invalid = await client.post('/api/chat/workspace', headers=headers, json={**payload, **extra})
+                    assert invalid.status_code == 400
+                missing_id = {key: value for key, value in payload.items() if key != 'item_id'}
+                assert (await client.post('/api/chat/workspace', headers=headers, json=missing_id)).status_code == 400
+            assert len((await client.get('/api/chat/workspace')).json()['chats']) == 1
     run(scenario())

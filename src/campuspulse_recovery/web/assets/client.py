@@ -5,86 +5,107 @@ SCRIPT = r"""'use strict';
   const $ = id => document.getElementById(id);
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
-  let speechAvailable = false, voiceState = 'idle', recorder = null, voiceStream = null, voiceTimer = null;
-  let voiceAudio = null, voiceFrame = null;
+  let speechAvailable = false, voiceState = 'idle', voiceSession = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
     .find(type => MediaRecorder.isTypeSupported(type)) : null;
-  function releaseMicrophone() {
-    clearTimeout(voiceTimer);
-    cancelAnimationFrame(voiceFrame);
-    if (voiceAudio) voiceAudio.close().catch(() => {});
-    voiceAudio = null;
-    $('voice-level-wrap').hidden = true;
-    voiceStream?.getTracks().forEach(track => track.stop());
-    voiceStream = null;
+  const currentVoice = session => voiceSession === session && session.revision === generation && !!scope;
+  function releaseMicrophone(session) {
+    if (!session) return;
+    clearTimeout(session.timer);
+    cancelAnimationFrame(session.frame);
+    const audio = session.audio;
+    session.audio = null;
+    if (audio) audio.close().catch(() => {});
+    session.stream?.getTracks().forEach(track => track.stop());
+    session.stream = null;
+    if (voiceSession === session) $('voice-level-wrap').hidden = true;
+  }
+  function finishVoice(session) {
+    releaseMicrophone(session);
+    if (voiceSession !== session) return;
+    voiceSession = null; voiceState = 'idle'; controls();
   }
   function voiceControls() {
     const idle = voiceState === 'idle';
-    $('voice-toggle').disabled = !voiceMime || !speechAvailable || !scope || busy || chatBusy || chatWorking || chatLimitReached ||
+    const button = $('voice-toggle');
+    button.disabled = !voiceMime || !speechAvailable || !scope || busy || chatBusy || chatWorking || chatLimitReached ||
       (!idle && voiceState !== 'recording');
-    $('voice-toggle').textContent = voiceState === 'recording' ? 'Остановить запись' :
+    const label = voiceState === 'recording' ? 'Остановить запись' :
       voiceState === 'transcribing' ? 'Распознаём…' : voiceState === 'requesting' ? 'Открываем микрофон…' : 'Голосовой ввод';
-    $('voice-toggle').setAttribute('aria-pressed', String(voiceState === 'recording'));
+    $('voice-toggle-label').textContent = label;
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+    button.setAttribute('aria-pressed', String(voiceState === 'recording'));
+    button.dataset.state = voiceState;
   }
   $('voice-toggle').addEventListener('click', async () => {
     if (voiceState === 'recording') {
-      voiceState = 'stopping'; controls(); recorder.stop(); releaseMicrophone(); return;
+      const session = voiceSession;
+      voiceState = 'stopping'; controls(); session.recorder.stop(); releaseMicrophone(session); return;
     }
     if ($('voice-toggle').disabled) return;
-    const revision = generation;
+    const session = {revision: generation, stream: null, audio: null, recorder: null, timer: null, frame: null};
+    voiceSession = session;
     let chunks = [], size = 0, tooLarge = false, signalFrames = 0, startedAt = 0;
     voiceState = 'requesting'; controls();
     try {
-      voiceStream = await navigator.mediaDevices.getUserMedia({audio: {
+      session.stream = await navigator.mediaDevices.getUserMedia({audio: {
         channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
-      if (revision !== generation || !scope) { releaseMicrophone(); voiceState = 'idle'; controls(); return; }
-      voiceAudio = new (window.AudioContext || window.webkitAudioContext)();
-      await voiceAudio.resume();
-      const analyser = voiceAudio.createAnalyser();
+      if (!currentVoice(session)) { finishVoice(session); return; }
+      const audio = new (window.AudioContext || window.webkitAudioContext)();
+      session.audio = audio;
+      await audio.resume();
+      if (!currentVoice(session)) { finishVoice(session); return; }
+      const analyser = audio.createAnalyser();
       analyser.fftSize = 2048;
-      voiceAudio.createMediaStreamSource(voiceStream).connect(analyser);
+      audio.createMediaStreamSource(session.stream).connect(analyser);
       const samples = new Float32Array(analyser.fftSize);
       const measure = () => {
+        if (!currentVoice(session) || voiceState !== 'recording') return;
         analyser.getFloatTimeDomainData(samples);
         let power = 0;
         for (const sample of samples) power += sample * sample;
         const rms = Math.sqrt(power / samples.length);
         if (rms > 0.003) ++signalFrames;
         $('voice-level').value = Math.min(100, Math.round(rms * 1000));
-        voiceFrame = requestAnimationFrame(measure);
+        session.frame = requestAnimationFrame(measure);
       };
-      recorder = new MediaRecorder(voiceStream, {mimeType: voiceMime});
+      const recorder = new MediaRecorder(session.stream, {mimeType: voiceMime});
+      session.recorder = recorder;
       recorder.ondataavailable = event => {
+        if (!currentVoice(session)) return;
         size += event.data.size;
         if (size > 4 * 1024 * 1024) {
           tooLarge = true;
           if (recorder.state !== 'inactive') recorder.stop();
-          releaseMicrophone();
+          releaseMicrophone(session);
         } else if (!tooLarge) chunks.push(event.data);
       };
       recorder.onerror = () => {
-        tooLarge = true; chunks = []; releaseMicrophone(); voiceState = 'idle'; controls();
-        $('voice-status').textContent = 'Запись прервалась. Попробуйте снова.';
+        tooLarge = true; chunks = [];
+        if (currentVoice(session)) $('voice-status').textContent = 'Запись прервалась. Попробуйте снова.';
+        finishVoice(session);
       };
       recorder.onstop = async () => {
-        releaseMicrophone();
-        if (revision !== generation || tooLarge) {
-          voiceState = 'idle'; controls();
-          if (tooLarge) $('voice-status').textContent = 'Не удалось записать аудио. Попробуйте более короткую запись.';
-          return;
+        releaseMicrophone(session);
+        if (!currentVoice(session) || tooLarge) {
+          if (currentVoice(session) && tooLarge) $('voice-status').textContent = 'Не удалось записать аудио. Попробуйте более короткую запись.';
+          chunks = []; finishVoice(session); return;
         }
         if (performance.now() - startedAt < 1200 || signalFrames < 5) {
-          chunks = []; voiceState = 'idle'; controls();
+          chunks = []; finishVoice(session);
           $('voice-status').textContent = 'Не удалось записать достаточно звука. Проверьте микрофон, дождитесь начала записи и произнесите фразу целиком.';
           return;
         }
         voiceState = 'transcribing'; controls();
         $('voice-status').textContent = 'Распознаём речь…';
         try {
+          const token = await csrf();
+          if (!currentVoice(session)) return;
           const response = await fetch('/api/chat/transcribe', {method: 'POST', credentials: 'same-origin',
             cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
-            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': await csrf()},
+            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': token},
             body: new Blob(chunks, {type: voiceMime})});
           if (!response.ok) {
             const error = new Error('transcription');
@@ -92,7 +113,7 @@ SCRIPT = r"""'use strict';
             throw error;
           }
           const {text} = await response.json();
-          if (revision !== generation || !scope) return;
+          if (!currentVoice(session)) return;
           const input = $('recovery-message');
           const draft = input.value + (input.value && text ? '\n' : '') + text;
           if (draft.length > input.maxLength) {
@@ -104,33 +125,36 @@ SCRIPT = r"""'use strict';
               'Речь не распознана. Попробуйте говорить ближе к микрофону.';
           }
         } catch (error) {
-          if (revision === generation) $('voice-status').textContent = error.status === 403 ?
+          if (currentVoice(session)) $('voice-status').textContent = error.status === 403 ?
             'Сессия входа недействительна. Войдите заново, затем повторите запись.' :
             'Не удалось распознать речь. Попробуйте снова или введите сообщение вручную.';
         } finally {
-          chunks = []; voiceState = 'idle'; controls();
-          if (scope) $('recovery-message').focus({preventScroll: true});
+          const focus = currentVoice(session);
+          chunks = []; finishVoice(session);
+          if (focus) $('recovery-message').focus({preventScroll: true});
         }
       };
       recorder.start(1000); startedAt = performance.now(); voiceState = 'recording'; controls();
       $('voice-level-wrap').hidden = false; measure();
       $('voice-status').textContent = 'Идёт запись. Нажмите «Остановить запись», когда закончите (до 1 минуты).';
-      voiceTimer = setTimeout(() => {
+      session.timer = setTimeout(() => {
+        if (!currentVoice(session)) return;
         if (recorder.state === 'recording') { voiceState = 'stopping'; controls(); recorder.stop(); }
-        releaseMicrophone();
+        releaseMicrophone(session);
       }, 60000);
     } catch (error) {
-      releaseMicrophone(); voiceState = 'idle'; controls();
-      $('voice-status').textContent = error.name === 'NotAllowedError' ?
+      if (currentVoice(session)) $('voice-status').textContent = error.name === 'NotAllowedError' ?
         'Разрешите доступ к микрофону в настройках браузера и попробуйте снова.' :
         'Микрофон недоступен. Проверьте подключение и попробуйте снова.';
+      finishVoice(session);
     }
   });
   window.addEventListener('pagehide', () => {
     saveDraft();
     ++generation;
-    if (recorder?.state === 'recording') recorder.stop();
-    releaseMicrophone();
+    const session = voiceSession;
+    if (session?.recorder?.state === 'recording') session.recorder.stop();
+    finishVoice(session);
   });
   if (!voiceMime) $('voice-status').textContent = 'Голосовой ввод недоступен в этом браузере. Используйте современный браузер и HTTPS.';
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
@@ -143,6 +167,7 @@ SCRIPT = r"""'use strict';
   const chatDrafts = new Map();
   const chats = new window.CampusPulseChats({api, selected: () => activeChat, session: () => scope,
     navigate: id => { location.hash = chatHash(id); if (id === activeChat) $('recovery-message').focus({preventScroll: true}); },
+    removed: removedWorkspaceItem,
     changed: () => updateNavigation({preserveNavigation: true}), blocked: () => !scope || busy || chatBusy || voiceState !== 'idle'});
   $('chat-limit-new').addEventListener('click', () => $('chat-new').click());
   const pendingChatKey = () => activeChat === 'default' ? 'pending-chat' : 'pending-chat:' + activeChat;
@@ -175,6 +200,20 @@ SCRIPT = r"""'use strict';
       const prefix = draftPrefix();
       for (const key of Object.keys(sessionStorage)) if (key.startsWith(prefix)) sessionStorage.removeItem(key);
     } catch { /* Storage can be disabled by browser policy. */ }
+  }
+  function removedWorkspaceItem(change) {
+    if (change.action !== 'delete_chat') return;
+    const id = change.item_id;
+    chatDrafts.delete(id);
+    try { sessionStorage.removeItem(draftPrefix() + id); } catch { /* Browser storage is optional. */ }
+    stored(id === 'default' ? 'pending-chat' : 'pending-chat:' + id, null);
+    if (id !== activeChat) return;
+    activeChat = 'draft'; ++chatGeneration;
+    restoreDraft(activeChat);
+    history.replaceState(null, '', location.pathname + location.search + chatHash(activeChat));
+    $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+    $('conversation-index')?.replaceChildren(); $('workspace').classList.remove('has-chat');
+    loadChat();
   }
   function selectChat(id) {
     if (id === activeChat) { chats.selection(); return; }
@@ -596,6 +635,22 @@ SCRIPT = r"""'use strict';
     controls();
   }
   async function loadChat() {
+    // A bookmarked chat can have been deleted in another tab. Preserve any
+    // unsent text as an independent local draft; never recreate the old chat.
+    if (!draftChat(activeChat) && Array.isArray(chats.data?.chats) &&
+        !chats.data.chats.some(chat => chat.chat_id === activeChat)) {
+      const previous = activeChat;
+      saveDraft();
+      activeChat = 'draft-' + (previous === 'default' ? crypto.randomUUID().replaceAll('-', '') : previous);
+      ++chatGeneration; pendingText = null; saveDraft();
+      chatDrafts.delete(previous);
+      try { sessionStorage.removeItem(draftPrefix() + previous); } catch { /* Browser storage is optional. */ }
+      stored(previous === 'default' ? 'pending-chat' : 'pending-chat:' + previous, null);
+      history.replaceState(null, '', location.pathname + location.search + chatHash(activeChat));
+      $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+      $('conversation-index')?.replaceChildren(); $('workspace').classList.remove('has-chat');
+      updateNavigation({preserveNavigation: true});
+    }
     const revision = generation, session = scope, chatId = activeChat, selection = chatGeneration;
     if (draftChat(chatId)) {
       showChat({available: chats.data?.chat_available === true,
@@ -637,7 +692,15 @@ SCRIPT = r"""'use strict';
       saveDraft();
       if (draftChat(activeChat)) {
         const draftId = activeChat;
-        const chatId = await chats.materialize(draftId === 'draft' ? null : draftId.slice(6), request_key);
+        const project = draftId === 'draft' ? null : draftId.slice(6);
+        const creationKey = pendingChatKey() + ':creation', previousCreation = stored(creationKey);
+        const folderId = previousCreation?.requestKey === request_key ? previousCreation.folderId :
+          Array.isArray(chats.data?.folders) && !chats.data.folders.some(folder => folder.folder_id === project) ? null : project;
+        // A lost response may already have created this chat. Its retry must
+        // use the same project even if that project has since been deleted.
+        stored(creationKey, {requestKey: request_key, folderId});
+        const chatId = await chats.materialize(folderId, request_key);
+        stored(creationKey, null);
         stored(pendingChatKey(), null);
         activeChat = chatId; ++chatGeneration;
         stored(pendingChatKey(), request_key); saveDraft();

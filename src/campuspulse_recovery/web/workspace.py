@@ -2,7 +2,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Request
-from pydantic import Field, StringConstraints, field_validator, model_validator
+from pydantic import Field, StringConstraints, TypeAdapter, field_validator, model_validator
 
 from ..domain.models import Contract, Instant, canonical_hash
 from ..domain.ports import BindingConflict
@@ -67,7 +67,8 @@ class ChatWorkspace(Version2ChatWorkspace):
 
 
 class WorkspaceChange(Contract):
-    action: Literal['create_chat', 'create_folder', 'rename_chat', 'rename_folder', 'move_chat']
+    action: Literal['create_chat', 'create_folder', 'rename_chat', 'rename_folder', 'move_chat',
+                    'delete_chat', 'delete_folder']
     request_key: TechnicalId
     revision: Revision
     item_id: ChatId | None = None
@@ -89,6 +90,7 @@ class WorkspaceChange(Contract):
             'create_chat': {'title', 'folder_id'}, 'create_folder': {'title'},
             'rename_chat': {'item_id', 'title'}, 'rename_folder': {'item_id', 'title'},
             'move_chat': {'item_id', 'folder_id'},
+            'delete_chat': {'item_id'}, 'delete_folder': {'item_id'},
         }[self.action]
         if self.model_fields_set != required | {'action', 'request_key', 'revision'}:
             raise ValueError('invalid_workspace_change')
@@ -109,6 +111,14 @@ class WorkspaceStore(_Repository):
 
     def path(self, context):
         return 'cp_chat_workspaces/' + self.scope_key(context)
+
+    def conversation_path(self, context, chat_id):
+        TypeAdapter(ChatId).validate_python(chat_id)
+        scope = self.scope_key(context)
+        return 'cp_conversations/' + (scope if chat_id == 'default' else _key(scope, chat_id))
+
+    def deleted_item_path(self, context, item_id):
+        return 'cp_chat_deleted_items/' + _key(self.scope_key(context), item_id)
 
     @staticmethod
     def decode(saved):
@@ -162,8 +172,9 @@ class WorkspaceStore(_Repository):
             tx.set(path, _encode('chat-workspace-v3', result))
         await self.documents.transact(transact)
 
-    async def require_chat(self, context, chat_id):
-        if not any(c.chat_id == chat_id for c in (await self.read(context)).chats):
+    async def require_chat(self, context, chat_id, *, reader=None):
+        current = self.decode(await (reader or self.documents).get(self.path(context)))
+        if not any(c.chat_id == chat_id for c in current.chats):
             raise AccessDenied('chat_not_available')
 
     async def change(self, context, value, *, now=None):
@@ -175,6 +186,11 @@ class WorkspaceStore(_Repository):
         async def transact(tx):
             saved = await tx.get(path)
             current = self.decode(saved)
+            if value.action in ('create_chat', 'create_folder'):
+                # A delayed creation retry must never resurrect a deleted item,
+                # even after its original receipt has left the bounded catalog.
+                if await tx.get(self.deleted_item_path(context, new_id)) is not None:
+                    raise AccessDenied('workspace_item_deleted')
             previous = next((r for r in current.receipts if r.request_key == value.request_key), None)
             if previous:
                 if previous.digest != digest:
@@ -190,29 +206,51 @@ class WorkspaceStore(_Repository):
             if value.revision != current.revision:
                 raise BindingConflict('workspace_revision_changed')
             chats, folders = list(current.chats), list(current.folders)
-            if value.folder_id is not None and not any(f.folder_id == value.folder_id for f in folders):
-                raise AccessDenied('folder_not_available')
+            folder_id = value.folder_id
+            if folder_id is not None and not any(f.folder_id == folder_id for f in folders):
+                if value.action != 'create_chat':
+                    raise AccessDenied('folder_not_available')
+                deleted = await tx.get(self.deleted_item_path(context, folder_id))
+                if deleted is None or deleted.get('kind') != 'deleted-chat-project-v1':
+                    raise AccessDenied('folder_not_available')
+                _decode(deleted, 'deleted-chat-project-v1', Contract)
+                # A first-send retry may outlive its project. Preserve its
+                # original fingerprint/key, but save the chat in the general list.
+                folder_id = None
             item_id = value.item_id or new_id
             if value.action == 'create_chat':
                 if len(chats) >= 120:
                     raise BindingConflict('chat_count_limit')
-                chats.append(ChatEntry(chat_id=item_id, title=value.title, folder_id=value.folder_id,
+                chats.append(ChatEntry(chat_id=item_id, title=value.title, folder_id=folder_id,
                     creation_digest=digest, auto_title=value.title == 'Новый чат', updated_at=now))
             elif value.action == 'create_folder':
                 if len(folders) >= 40:
                     raise BindingConflict('folder_count_limit')
                 folders.append(FolderEntry(folder_id=item_id, title=value.title, creation_digest=digest))
-            elif value.action in ('rename_chat', 'move_chat'):
+            elif value.action in ('rename_chat', 'move_chat', 'delete_chat'):
                 index = next((i for i, c in enumerate(chats) if c.chat_id == item_id), None)
                 if index is None:
                     raise AccessDenied('chat_not_available')
-                update = {'title': value.title, 'auto_title': False, 'manual_title': True} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
-                chats[index] = chats[index].model_copy(update=update)
+                if value.action == 'delete_chat':
+                    chats.pop(index)
+                    marker = _encode('deleted-chat-item-v1', Contract())
+                    # Replace the live history with a content-free marker in the
+                    # same transaction that removes catalog access.
+                    tx.set(self.conversation_path(context, item_id), marker)
+                    tx.set(self.deleted_item_path(context, item_id), marker)
+                else:
+                    update = {'title': value.title, 'auto_title': False, 'manual_title': True} if value.action == 'rename_chat' else {'folder_id': value.folder_id}
+                    chats[index] = chats[index].model_copy(update=update)
             else:
                 index = next((i for i, f in enumerate(folders) if f.folder_id == item_id), None)
                 if index is None:
                     raise AccessDenied('folder_not_available')
-                folders[index] = folders[index].model_copy(update={'title': value.title})
+                if value.action == 'delete_folder':
+                    folders.pop(index)
+                    chats = [chat.model_copy(update={'folder_id': None}) if chat.folder_id == item_id else chat for chat in chats]
+                    tx.set(self.deleted_item_path(context, item_id), _encode('deleted-chat-project-v1', Contract()))
+                else:
+                    folders[index] = folders[index].model_copy(update={'title': value.title})
             result = ChatWorkspace(revision=current.revision + 1, chats=tuple(chats), folders=tuple(folders),
                 receipts=(*current.receipts[-127:], Receipt(request_key=value.request_key, digest=digest, item_id=item_id)))
             tx.set(path, _encode('chat-workspace-v3', result))

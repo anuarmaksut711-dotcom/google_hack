@@ -365,9 +365,78 @@ async function staleRefreshDoesNotClearNewRequest() {
   assert.equal(h.run('snapshot().pendingText'), 'New question');
 }
 
+async function deletingSelectedChatClearsItsLocalStateAndOpensDraft() {
+  const h = harness(), id = 'c'.repeat(32);
+  h.run(`activeChat='${id}'; pendingText='Pending old text'`);
+  h.$('recovery-message').value = 'Deleted draft';
+  h.run('saveDraft()');
+  h.pending.set('pending-chat:' + id, 'old-key');
+  h.sandbox.chats.data.chats = [];
+  h.run(`removedWorkspaceItem({action:'delete_chat',item_id:'${id}'})`);
+  assert.equal(h.run('activeChat'), 'draft');
+  assert.equal(h.$('recovery-message').value, '');
+  assert.equal(h.pending.get('pending-chat:' + id), null);
+  assert.equal(h.data.has('campuspulse-draft-v1:session-1:' + id), false);
+  assert.equal(h.run('chatDrafts.has("' + id + '")'), false);
+}
+
+async function deletingOtherChatPreservesCurrentDraft() {
+  const h = harness(), id = 'd'.repeat(32);
+  h.$('recovery-message').value = 'Keep current draft';
+  h.run(`removedWorkspaceItem({action:'delete_chat',item_id:'${id}'})`);
+  assert.equal(h.run('activeChat'), 'default');
+  assert.equal(h.$('recovery-message').value, 'Keep current draft');
+}
+
+async function deletedProjectDraftSendsIntoGeneralList() {
+  const h = harness(), folder = 'a'.repeat(32), id = 'b'.repeat(32);
+  h.run(`activeChat='draft-${folder}'`);
+  h.sandbox.chats.data.folders = [];
+  h.$('recovery-message').value = 'Keep project draft';
+  let destination;
+  h.sandbox.chats.materialize = async target => { destination = target; return id; };
+  h.sandbox.api = async (url, payload) => ({json: async () => ({turns: []})});
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.equal(destination, null);
+  assert.equal(h.run('activeChat'), id);
+}
+
+async function lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion() {
+  const h = harness(), folder = 'a'.repeat(32), id = 'b'.repeat(32), attempts = [];
+  h.run(`activeChat='draft-${folder}'`);
+  h.sandbox.chats.data.folders = [{folder_id: folder}];
+  h.$('recovery-message').value = 'Recover accepted creation';
+  h.sandbox.chats.materialize = async (target, key) => {
+    attempts.push([target, key]);
+    if (attempts.length === 1) throw new Error('Successful response lost');
+    return id;
+  };
+  h.sandbox.api = async () => ({json: async () => ({turns: []})});
+  await h.run('sendMessage({preventDefault(){}})');
+  h.sandbox.chats.data.folders = [];
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(attempts, [[folder, 'stable-first-send'], [folder, 'stable-first-send']]);
+  assert.equal(h.run('activeChat'), id);
+}
+
+async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() {
+  const h = harness(), id = 'e'.repeat(32);
+  h.run(`activeChat='${id}'; pendingText='Old unknown message'`);
+  h.$('recovery-message').value = 'Keep this unsent text';
+  h.sandbox.chats.data.chats = [];
+  h.sandbox.api = async () => { throw new Error('Deleted chat must not be requested'); };
+  h.pending.set('pending-chat:' + id, 'deleted-key');
+  await h.run('loadChat()');
+  assert.equal(h.run('activeChat'), 'draft-' + id);
+  assert.equal(h.$('recovery-message').value, 'Keep this unsent text');
+  assert.equal(h.run('pendingText'), null);
+  assert.equal(h.pending.get('pending-chat:' + id), null);
+  assert.equal(h.sandbox.lastChat?.turns.length, 0);
+}
+
 (async () => {
   let failures = 0;
-  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
+  for (const test of [lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion, deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory, deletingSelectedChatClearsItsLocalStateAndOpensDraft, deletingOtherChatPreservesCurrentDraft, deletedProjectDraftSendsIntoGeneralList, transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }

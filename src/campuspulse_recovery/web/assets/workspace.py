@@ -2,11 +2,12 @@
 CHAT_NEW = '''<button id="chat-new" class="chat-new" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5H5v14h14v-8M15 3l6 6M10 14l2-5 6-6 3 3-6 6Z"/></svg>Новый чат</button>'''
 CHAT_NAV = '''<section id="chat-library" class="chat-library" aria-label="Проекты и чаты" hidden>
 <div class="chat-library-heading"><h2 id="chat-projects-heading">Проекты</h2><button id="chat-folder-create" class="chat-icon-button" type="button" aria-label="Создать проект" title="Создать проект"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5h6l2 2h10v13H3ZM12 10v7m-3-3h6"/></svg></button></div>
-<p id="chat-library-status" role="status" aria-live="polite"></p><div id="chat-project-list" aria-labelledby="chat-projects-heading"></div>
+<p id="chat-library-status" role="status" aria-live="polite"></p><button id="chat-library-retry" class="chat-retry" type="button" hidden>Повторить удаление</button><div id="chat-project-list" aria-labelledby="chat-projects-heading"></div>
 <div class="chat-library-heading chat-recents-heading"><h2 id="chat-library-heading">Чаты</h2></div><div id="chat-library-list" aria-labelledby="chat-library-heading"></div>
 <div id="chat-action-menu" class="chat-action-menu" popover="auto" role="group" aria-label="Действия с чатом"></div>
-<dialog id="chat-edit-dialog" class="chat-edit-dialog" aria-labelledby="chat-edit-heading">
+<dialog id="chat-edit-dialog" class="chat-edit-dialog" aria-labelledby="chat-edit-heading" aria-describedby="chat-edit-description">
 <form id="chat-edit-form"><h2 id="chat-edit-heading">Изменить название чата</h2>
+<p id="chat-edit-description" hidden></p>
 <label id="chat-edit-label" class="chat-edit-label" for="chat-edit-name">Название чата</label>
 <input id="chat-edit-name" maxlength="80" required autocomplete="off" autofocus>
 <label id="chat-move-label" class="chat-edit-label" for="chat-folder-select" hidden>Проект чата</label><select id="chat-folder-select" hidden></select>
@@ -55,10 +56,14 @@ WORKSPACE_STYLES = r'''
 .chat-action-menu { position: fixed; inset: auto; margin: 0; padding: 6px; width: 228px; max-width: calc(100vw - 24px); background: var(--selected); color: var(--ink); border: 0; border-radius: 14px; box-shadow: 0 8px 28px #0006; }
 .chat-action-menu button { width: 100%; min-height: 44px; display: flex; justify-content: flex-start; gap: 12px; padding: 10px 12px; background: transparent; color: var(--ink); border-radius: 9px; font-size: 13px; font-weight: 400; }
 .chat-action-menu button:hover, .chat-action-menu button:focus-visible { background: var(--surface); }
+.chat-action-menu .chat-delete { color: #ffb4ab; }
+.chat-library .chat-retry { min-height: 40px; margin: 0 12px 8px; padding: 8px 12px; color: var(--ink); background: var(--selected); border-radius: 12px; font-size: 13px; }
+.chat-retry[hidden] { display: none; }
 .chat-edit-dialog { width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 0; border-radius: 28px; background: var(--selected); color: var(--ink); box-shadow: 0 16px 48px #0005; }
 .chat-edit-dialog::backdrop { background: #0008; }
 .chat-edit-dialog form { margin: 0; }
 .chat-edit-dialog h2 { margin: 0 0 28px; font-size: 20px; line-height: 1.35; font-weight: 500; letter-spacing: normal; }
+#chat-edit-description { margin: -12px 0 20px; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; color: var(--muted); }
 .chat-edit-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .chat-edit-dialog input, .chat-edit-dialog select { box-sizing: border-box; min-width: 0; width: 100%; min-height: 48px; padding: 11px 14px; border: 1px solid var(--muted); border-radius: 14px; background: transparent; color: var(--ink); font: inherit; font-size: 15px; caret-color: var(--accent); color-scheme: dark; }
 .chat-edit-dialog input:focus-visible, .chat-edit-dialog select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -69,6 +74,7 @@ WORKSPACE_STYLES = r'''
 .chat-dialog-actions button { min-height: 40px; padding: 9px 16px; border-radius: 24px; background: transparent; color: var(--ink); font-weight: 500; }
 .chat-dialog-actions button:hover { background: var(--surface); }
 .chat-dialog-actions #chat-edit-save { background: var(--accent); color: #142344; }
+.chat-dialog-actions #chat-edit-save[data-destructive=true] { background: #ffb4ab; color: #601410; }
 .chat-dialog-actions #chat-edit-save:disabled { background: #373a42; color: #a2a5af; }
 .chat-library button:disabled { background: transparent; opacity: .5; }
 .sidebar-note { margin-top: 24px; padding-top: 12px; }
@@ -82,14 +88,21 @@ WORKSPACE_STYLES = r'''
 
 SCRIPT = r"""'use strict';
 window.CampusPulseChats = class {
-  constructor({api, selected, navigate, changed, blocked, session}) {
-    Object.assign(this, {api, selected, navigate, changed, blocked, session});
+  constructor({api, selected, navigate, changed, removed, blocked, session}) {
+    Object.assign(this, {api, selected, navigate, changed, removed, blocked, session});
     this.data = null; this.epoch = 0; this.mutating = false; this.openFolders = new Set(); this.pending = null; this.editing = null; this.menuTrigger = null;
     this.$ = id => document.getElementById(id);
     this.$('chat-new').addEventListener('click', () => this.startChat());
     this.$('chat-folder-create').addEventListener('click', event => this.edit('create_folder', null, event.currentTarget));
-    this.$('chat-edit-cancel').addEventListener('click', () => this.$('chat-edit-dialog').close());
+    this.$('chat-edit-cancel').addEventListener('click', () => { if (!this.mutating) this.$('chat-edit-dialog').close(); });
+    this.$('chat-edit-dialog').addEventListener('cancel', event => { if (this.mutating) event.preventDefault(); });
     this.$('chat-edit-dialog').addEventListener('close', () => { this.editing = null; this.restoreFocus(); });
+    this.$('chat-library-retry').addEventListener('click', event => {
+      if (!this.pending || this.mutating || this.blocked()) return;
+      const {change, item} = this.pending;
+      this.edit(change.action, item, event.currentTarget);
+      this.change(change);
+    });
     this.$('chat-edit-name').addEventListener('input', () => this.controls());
     this.$('chat-folder-select').addEventListener('change', () => this.controls());
     this.$('chat-edit-form').addEventListener('submit', event => {
@@ -97,7 +110,7 @@ window.CampusPulseChats = class {
       const {action, item} = this.editing, change = {action};
       if (item) change.item_id = item.chat_id || item.folder_id;
       if (action === 'move_chat') change.folder_id = this.$('chat-folder-select').value || null;
-      else change.title = this.$('chat-edit-name').value.trim();
+      else if (!action.startsWith('delete_')) change.title = this.$('chat-edit-name').value.trim();
       this.change(change);
     });
     this.$('chat-action-menu').addEventListener('toggle', event => {
@@ -110,7 +123,7 @@ window.CampusPulseChats = class {
   restoreFocus() {
     const original = this.editTrigger;
     const replacement = original?.dataset.actionKey && [...this.$('chat-library').querySelectorAll('[data-action-key]')].find(button => button.dataset.actionKey === original.dataset.actionKey);
-    (original?.isConnected ? original : replacement || this.$('chat-new')).focus();
+    (original?.isConnected && !original.hidden ? original : replacement || this.$('chat-new')).focus();
   }
   closeMenu() { const menu = this.$('chat-action-menu'); if (menu.matches(':popover-open')) menu.hidePopover(); }
   folderState(save = false) {
@@ -132,15 +145,18 @@ window.CampusPulseChats = class {
     ++this.epoch; this.data = null; this.pending = null; this.mutating = false; this.openFolders.clear(); this.closeMenu();
     if (this.$('chat-edit-dialog').open) this.$('chat-edit-dialog').close();
     this.$('chat-library-list').replaceChildren(); this.$('chat-project-list').replaceChildren(); this.$('chat-edit-name').value = ''; this.$('chat-folder-select').replaceChildren(); this.$('chat-library').hidden = true;
+    this.$('chat-library-retry').hidden = true;
   }
   controls() {
     const disabled = !this.data || this.mutating || this.blocked();
     this.$('chat-new').disabled = disabled;
     this.$('chat-library').querySelectorAll('button').forEach(button => { button.disabled = disabled && button.id !== 'chat-edit-cancel'; });
+    this.$('chat-edit-cancel').disabled = this.mutating;
+    this.$('chat-library-retry').hidden = !this.pending?.change.action.startsWith('delete_');
     this.$('chat-edit-name').disabled = disabled; this.$('chat-folder-select').disabled = disabled;
     if (this.editing && !disabled) {
       const {action, item} = this.editing;
-      this.$('chat-edit-save').disabled = action === 'move_chat'
+      this.$('chat-edit-save').disabled = action.startsWith('delete_') ? false : action === 'move_chat'
         ? (this.$('chat-folder-select').value || null) === item.folder_id
         : !this.$('chat-edit-name').value.trim() || this.$('chat-edit-name').value.trim() === item?.title;
     }
@@ -185,25 +201,37 @@ window.CampusPulseChats = class {
   async change(change) {
     if (!this.data || this.mutating || this.blocked()) return;
     if (this.pending && JSON.stringify(change) !== JSON.stringify(this.pending.change)) { this.message('Предыдущее изменение не подтверждено. Повторите то же действие.', true); return; }
-    if (!this.pending) this.pending = {change, payload: {...change, revision: this.data.revision, request_key: crypto.randomUUID()}};
-    const epoch = this.epoch, payload = this.pending.payload; this.mutating = true; this.controls(); this.message('Сохраняем…');
+    if (!this.pending) this.pending = {change, item: this.editing?.item,
+      payload: {...change, revision: this.data.revision, request_key: crypto.randomUUID()}};
+    const epoch = this.epoch, payload = this.pending.payload; let completed = false;
+    this.mutating = true; this.controls(); this.message('Сохраняем…');
     try {
       const data = await (await this.api('/api/chat/workspace', payload)).json(); if (epoch !== this.epoch) return;
       this.pending = null; this.data = data;
       if (change.action === 'create_folder') this.openFolders.add(data.item_id);
       if (change.action === 'move_chat' && change.folder_id) this.openFolders.add(change.folder_id);
+      if (change.action === 'delete_folder') this.openFolders.delete(change.item_id);
       this.folderState(true);
-      this.message(''); this.render(); this.changed();
-      if (this.$('chat-edit-dialog').open) this.$('chat-edit-dialog').close();
+      this.message(''); this.render();
+      if (change.action.startsWith('delete_')) this.removed?.(change, data);
+      this.changed();
+      completed = true;
       if (change.action === 'create_chat') this.navigate(data.item_id);
     } catch (error) {
       if (epoch !== this.epoch) return;
       if (error.status && error.status < 500) { this.pending = null; if (error.status === 409) await this.load(); }
-      this.message(error.status === 409 ? 'Список изменился или достигнут лимит: 120 чатов и 40 проектов. Проверьте список перед повтором.' : 'Изменение не подтверждено. Повторите это же действие.', true);
-    } finally { if (epoch === this.epoch) { this.mutating = false; this.controls(); } }
+      this.message(error.status === 409
+        ? change.action.startsWith('delete_') ? 'Список изменился. Проверьте его и подтвердите удаление ещё раз.' : 'Список изменился или достигнут лимит: 120 чатов и 40 проектов. Проверьте список перед повтором.'
+        : change.action.startsWith('delete_') ? 'Не удалось подтвердить удаление. Повторите попытку.' : 'Изменение не подтверждено. Повторите это же действие.', true);
+    } finally {
+      if (epoch === this.epoch) {
+        this.mutating = false; this.controls();
+        if (completed && this.$('chat-edit-dialog').open) this.$('chat-edit-dialog').close();
+      }
+    }
   }
   icon(kind) {
-    const paths = {more: 'M12 5h.01M12 12h.01M12 19h.01', rename: 'M4 20l5-1L20 8l-4-4L5 15ZM14 6l4 4', folder: 'M3 7V5h6l2 2h10v13H3Z', move: 'M3 7V5h6l2 2h10v13H3ZM8 14h8m-3-3 3 3-3 3', plus: 'M12 5v14M5 12h14', chevron: 'M9 5l7 7-7 7'};
+    const paths = {more: 'M12 5h.01M12 12h.01M12 19h.01', rename: 'M4 20l5-1L20 8l-4-4L5 15ZM14 6l4 4', folder: 'M3 7V5h6l2 2h10v13H3Z', move: 'M3 7V5h6l2 2h10v13H3ZM8 14h8m-3-3 3 3-3 3', plus: 'M12 5v14M5 12h14', chevron: 'M9 5l7 7-7 7', delete: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7'};
     const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg'), path = document.createElementNS(ns, 'path');
     svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
     if (kind === 'more') { svg.style.strokeWidth = '3'; svg.style.strokeLinecap = 'round'; }
@@ -220,9 +248,10 @@ window.CampusPulseChats = class {
   menu(item, folder, trigger) {
     const menu = this.$('chat-action-menu'), same = this.menuTrigger === trigger && menu.matches(':popover-open'); this.closeMenu(); if (same) return;
     this.menuTrigger = trigger; menu.replaceChildren(); menu.setAttribute('aria-label', 'Действия: ' + item.title);
-    const actions = folder ? [['create_chat', 'plus', 'Новый чат в проекте'], ['rename_folder', 'rename', 'Переименовать']] : [['rename_chat', 'rename', 'Переименовать'], ['move_chat', 'move', 'Переместить в проект']];
+    const actions = folder ? [['create_chat', 'plus', 'Новый чат в проекте'], ['rename_folder', 'rename', 'Переименовать'], ['delete_folder', 'delete', 'Удалить проект']] : [['rename_chat', 'rename', 'Переименовать'], ['move_chat', 'move', 'Переместить в проект'], ['delete_chat', 'delete', 'Удалить чат']];
     for (const [action, icon, title] of actions) {
       const button = document.createElement('button'); button.type = 'button'; button.append(this.icon(icon), document.createTextNode(title));
+      if (action.startsWith('delete_')) button.className = 'chat-delete';
       button.addEventListener('click', () => { this.closeMenu(); if (action === 'create_chat') this.startChat(item.folder_id); else this.edit(action, item, trigger); }); menu.append(button);
     }
     menu.showPopover(); trigger.setAttribute('aria-expanded', 'true');
@@ -234,17 +263,23 @@ window.CampusPulseChats = class {
   edit(action, item, trigger) {
     if (!this.data || this.mutating || this.blocked()) return;
     this.editing = {action, item}; this.editTrigger = trigger;
-    const move = action === 'move_chat', folder = action === 'rename_folder' || action === 'create_folder';
-    this.$('chat-edit-heading').textContent = move ? 'Переместить чат' : action === 'create_folder' ? 'Новый проект' : folder ? 'Изменить название проекта' : 'Изменить название чата';
+    const move = action === 'move_chat', remove = action.startsWith('delete_'), folder = action.endsWith('_folder');
+    this.$('chat-edit-heading').textContent = remove ? folder ? 'Удалить проект?' : 'Удалить чат?' : move ? 'Переместить чат' : action === 'create_folder' ? 'Новый проект' : folder ? 'Изменить название проекта' : 'Изменить название чата';
+    this.$('chat-edit-description').hidden = !remove;
+    this.$('chat-edit-description').textContent = !remove ? '' : folder
+      ? 'Проект «' + item.title + '» будет удалён. Все его чаты сохранятся в общем списке.'
+      : 'Чат «' + item.title + '» и его сообщения будут удалены. Восстановить их не получится.';
     this.$('chat-edit-label').textContent = folder ? 'Название проекта' : 'Название чата';
-    this.$('chat-edit-name').hidden = move; this.$('chat-edit-name').required = !move; this.$('chat-edit-name').value = item?.title || '';
-    this.$('chat-edit-label').hidden = move; this.$('chat-move-label').hidden = !move; this.$('chat-folder-select').hidden = !move;
+    this.$('chat-edit-name').hidden = move || remove; this.$('chat-edit-name').required = !move && !remove; this.$('chat-edit-name').value = item?.title || '';
+    this.$('chat-edit-label').hidden = move || remove; this.$('chat-move-label').hidden = !move; this.$('chat-folder-select').hidden = !move;
     this.$('chat-folder-select').replaceChildren(new Option('Без проекта', ''));
     for (const folder of this.data.folders) this.$('chat-folder-select').append(new Option(folder.title, folder.folder_id));
     this.$('chat-folder-select').value = move ? item.folder_id || '' : '';
-    this.$('chat-edit-save').textContent = move ? 'Переместить' : action === 'create_folder' ? 'Создать' : 'Изменить';
+    this.$('chat-edit-save').textContent = remove ? 'Удалить' : move ? 'Переместить' : action === 'create_folder' ? 'Создать' : 'Изменить';
+    this.$('chat-edit-save').dataset.destructive = String(remove);
     this.$('chat-edit-status').textContent = ''; this.controls(); this.$('chat-edit-dialog').showModal();
-    if (move) this.$('chat-folder-select').focus(); else { this.$('chat-edit-name').focus(); this.$('chat-edit-name').select(); }
+    if (remove) this.$('chat-edit-cancel').focus();
+    else if (move) this.$('chat-folder-select').focus(); else { this.$('chat-edit-name').focus(); this.$('chat-edit-name').select(); }
   }
   list(entries) {
     const list = document.createElement('ul'); list.className = 'chat-list';
