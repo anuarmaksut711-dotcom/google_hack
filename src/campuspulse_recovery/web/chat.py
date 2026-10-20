@@ -122,6 +122,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=90):
                 turn['status'] = 'unknown'
         result = {'available': agent is not None, 'turns': turns}
+        if callable(getattr(agent, 'transcribe', None)):
+            result['speech_available'] = True
         failure = getattr(agent, 'last_failure', None)
         if failure in {'provider_request_rejected','provider_auth_failed','provider_access_denied',
                 'provider_model_unavailable','provider_quota','provider_unavailable','chat_runtime_failed'}:

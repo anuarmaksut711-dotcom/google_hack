@@ -4,6 +4,99 @@ SCRIPT = r"""'use strict';
   const $ = id => document.getElementById(id);
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, pendingText = null;
+  let speechAvailable = false, voiceState = 'idle', recorder = null, voiceStream = null, voiceTimer = null;
+  const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
+    .find(type => MediaRecorder.isTypeSupported(type)) : null;
+  function releaseMicrophone() {
+    clearTimeout(voiceTimer);
+    voiceStream?.getTracks().forEach(track => track.stop());
+    voiceStream = null;
+  }
+  function voiceControls() {
+    const idle = voiceState === 'idle';
+    $('voice-toggle').disabled = !voiceMime || !speechAvailable || !scope || busy || chatBusy || chatWorking ||
+      (!idle && voiceState !== 'recording');
+    $('voice-toggle').textContent = voiceState === 'recording' ? 'Остановить запись' :
+      voiceState === 'transcribing' ? 'Распознаём…' : voiceState === 'requesting' ? 'Открываем микрофон…' : 'Голосовой ввод';
+    $('voice-toggle').setAttribute('aria-pressed', String(voiceState === 'recording'));
+  }
+  $('voice-toggle').addEventListener('click', async () => {
+    if (voiceState === 'recording') {
+      voiceState = 'stopping'; controls(); recorder.stop(); releaseMicrophone(); return;
+    }
+    if ($('voice-toggle').disabled) return;
+    const revision = generation;
+    let chunks = [], size = 0, tooLarge = false;
+    voiceState = 'requesting'; controls();
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({audio: true});
+      if (revision !== generation || !scope) { releaseMicrophone(); voiceState = 'idle'; controls(); return; }
+      recorder = new MediaRecorder(voiceStream, {mimeType: voiceMime});
+      recorder.ondataavailable = event => {
+        size += event.data.size;
+        if (size > 4 * 1024 * 1024) {
+          tooLarge = true;
+          if (recorder.state !== 'inactive') recorder.stop();
+          releaseMicrophone();
+        } else if (!tooLarge) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        tooLarge = true; chunks = []; releaseMicrophone(); voiceState = 'idle'; controls();
+        $('voice-status').textContent = 'Запись прервалась. Попробуйте снова.';
+      };
+      recorder.onstop = async () => {
+        releaseMicrophone();
+        if (revision !== generation || tooLarge) {
+          voiceState = 'idle'; controls();
+          if (tooLarge) $('voice-status').textContent = 'Не удалось записать аудио. Попробуйте более короткую запись.';
+          return;
+        }
+        voiceState = 'transcribing'; controls();
+        $('voice-status').textContent = 'Распознаём речь…';
+        try {
+          const response = await fetch('/api/chat/transcribe', {method: 'POST', credentials: 'same-origin',
+            cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
+            headers: {'Content-Type': voiceMime, 'X-CSRF-Token': csrf()}, body: new Blob(chunks, {type: voiceMime})});
+          if (!response.ok) throw new Error('transcription');
+          const {text} = await response.json();
+          if (revision !== generation || !scope) return;
+          const input = $('recovery-message');
+          const draft = input.value + (input.value && text ? '\n' : '') + text;
+          if (draft.length > input.maxLength) {
+            $('voice-status').textContent = 'Текст не поместился в сообщение. Сократите черновик и повторите запись.';
+          } else {
+            input.value = draft;
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            $('voice-status').textContent = text ? 'Текст добавлен. Проверьте его и нажмите «Отправить».' :
+              'Речь не распознана. Попробуйте говорить ближе к микрофону.';
+          }
+        } catch {
+          if (revision === generation) $('voice-status').textContent = 'Не удалось распознать речь. Попробуйте снова или введите сообщение вручную.';
+        } finally {
+          chunks = []; voiceState = 'idle'; controls();
+          if (scope) $('recovery-message').focus({preventScroll: true});
+        }
+      };
+      recorder.start(1000); voiceState = 'recording'; controls();
+      $('voice-status').textContent = 'Идёт запись. Нажмите «Остановить запись», когда закончите (до 1 минуты).';
+      voiceTimer = setTimeout(() => {
+        if (recorder.state === 'recording') { voiceState = 'stopping'; controls(); recorder.stop(); }
+        releaseMicrophone();
+      }, 60000);
+    } catch (error) {
+      releaseMicrophone(); voiceState = 'idle'; controls();
+      $('voice-status').textContent = error.name === 'NotAllowedError' ?
+        'Разрешите доступ к микрофону в настройках браузера и попробуйте снова.' :
+        'Микрофон недоступен. Проверьте подключение и попробуйте снова.';
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    ++generation;
+    if (recorder?.state === 'recording') recorder.stop();
+    releaseMicrophone();
+  });
+  if (!voiceMime) $('voice-status').textContent = 'Голосовой ввод недоступен в этом браузере. Используйте современный браузер и HTTPS.';
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
   let moodleRevision = 0, moodleBusy = false;
   const feedback = (message, error = false) => {
@@ -195,16 +288,18 @@ SCRIPT = r"""'use strict';
     return {plan_id: node.dataset.planId, version: Number(node.dataset.version), payload_hash: node.dataset.hash};
   }
   function controls() {
+    voiceControls();
     document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy; });
-    $('start').disabled = busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
-    $('reload').disabled = busy || chatBusy;
-    $('signout').disabled = busy || chatBusy;
+    $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
+    $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
+    $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
-    $('chat-send').disabled = busy || chatBusy || chatWorking || !scope || !chatAvailable || !$('recovery-message').value.trim();
+    $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || !scope || !chatAvailable || !$('recovery-message').value.trim();
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
   }
   function showChat(chat) {
+    speechAvailable = chat.speech_available === true;
     chatAvailable = chat.available;
     chatWorking = chat.turns.some(turn => turn.status === 'working');
     const log = $('chat-history');

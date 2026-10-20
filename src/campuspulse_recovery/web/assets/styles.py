@@ -64,6 +64,9 @@ p { margin: 8px 0 16px; }
 #message-hint { margin: 6px 0 20px; font-size: 11px; color: var(--muted); line-height: 1.6; }
 .chat-submit { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 12px; }
 .chat-submit #message-hint { margin: 0; }
+.voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; }
+#voice-status { flex: 1 1 200px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+#voice-toggle[aria-pressed="true"] { background: #a92d35; }
 #chat-send { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 10px; border-radius: 50%; }
 #chat-send svg { width: 21px; height: 21px; }
 #chat-status { font-size: 12px; color: var(--muted); margin: 0 0 16px; overflow-wrap: anywhere; }

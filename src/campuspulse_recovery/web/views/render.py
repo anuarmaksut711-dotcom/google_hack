@@ -104,6 +104,8 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение CampusPulse</label>
 <textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Что изменилось в расписании?" aria-describedby="message-hint"></textarea>
 <div class="chat-submit"><p id="message-hint">Enter — отправить · Shift+Enter — новая строка</p><button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
+<div class="voice-input"><button id="voice-toggle" type="button" disabled aria-pressed="false" aria-describedby="voice-status">Голосовой ввод</button>
+<p id="voice-status" role="status" aria-live="polite">Запись до 1 минуты. Аудио отправляется в Gemini для распознавания.</p></div>
 <p id="chat-status" role="status">Проверяем подключение чата…</p>
 <div class="toolbar"><button id="reload" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg>Обновить состояние</button>
 <button id="start" type="button" disabled><span>Проверить изменения и восстановить план</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div></form>

@@ -329,7 +329,10 @@ def test_resources_csp_and_missing_runtime_fail_closed():
 
 
 def test_client_uses_only_explicit_mutations_and_safe_trace_projection():
-    assert "setInterval" not in SCRIPT and "setTimeout" not in SCRIPT
+    assert "setInterval" not in SCRIPT
+    # The only timer stops user-started microphone capture at one minute.
+    # Background polling and automatic retries remain absent.
+    assert SCRIPT.count('setTimeout(') == 1
     assert "innerHTML" not in SCRIPT and "textContent" in SCRIPT
     assert "localStorage.setItem" in SCRIPT and "request_key" in SCRIPT
     assert "if (busy || chatBusy) return" in SCRIPT and "pending-start" in SCRIPT

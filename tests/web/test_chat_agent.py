@@ -27,6 +27,21 @@ def adapter(model):
         location='us-central1', model='gemini-synthetic'), model_factory=lambda: model)
 
 
+def test_transcription_passes_audio_to_configured_model_without_tools_or_history():
+    async def scenario():
+        model = SyntheticModel(model='gemini-synthetic')
+        text = await adapter(model).transcribe(audio=b'audio fixture', mime_type='audio/webm')
+        assert text == 'Visible synthetic answer'
+        request, = model._requests
+        assert request.model == 'gemini-synthetic'
+        assert len(request.contents) == 1
+        assert request.contents[0].parts[0].inline_data.data == b'audio fixture'
+        assert request.contents[0].parts[0].inline_data.mime_type == 'audio/webm'
+        assert not request.tools_dict
+        assert 'Transcribe only' in request.config.system_instruction
+    run(scenario())
+
+
 def test_adk_receives_history_and_sources_but_has_no_execution_tools():
     async def scenario():
         model = SyntheticModel(model='gemini-synthetic')

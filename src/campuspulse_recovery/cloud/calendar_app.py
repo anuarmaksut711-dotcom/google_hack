@@ -48,6 +48,9 @@ class CalendarConversation:
     async def reply(self, **kwargs):
         return await self.agent.reply(**kwargs)
 
+    async def transcribe(self, **kwargs):
+        return await self.agent.transcribe(**kwargs)
+
 
 def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
     settings.application.require_environment('cloud')

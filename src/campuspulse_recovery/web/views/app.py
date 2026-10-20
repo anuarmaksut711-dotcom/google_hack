@@ -19,6 +19,7 @@ from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
 from ..chat import create_chat_router
+from ..speech import create_speech_router
 from ..runs import RecoveryRuns, RunView, create_runs_router
 from ..assets.client import SCRIPT
 from ..assets.styles import STYLES
@@ -68,6 +69,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
                    environment=environment, clock=clock)
     app.state.web_auth = auth
+    app.include_router(create_speech_router(auth=auth, agent=chat_agent))
     plans = FirestorePlanStore(documents, policy)
     approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
