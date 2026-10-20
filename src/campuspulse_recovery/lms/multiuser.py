@@ -27,9 +27,11 @@ from ..web.app import SignInBody, _set, body
 from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
     GoogleSignInVerifier, LoginChallenge, WebAuth, WebSession, digest)
 from ..web.moodle import install_moodle_routes
+from ..web.my_du import ACCOUNT_MY_DU, MY_DU_SCRIPT, install_my_du_routes
 from ..web.views.app import SafeSources, create_ui_app
 from .calendar_feed import CalendarFeed, FeedState, validate_feed_url
 from .calendar_projection import CalendarChatProjection
+from .my_du import MyDuAccount
 
 
 class ConnectFeed(Contract):
@@ -47,7 +49,7 @@ def account_config(principal, template=None):
 
 
 class AccountFeed:
-    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None):
+    def __init__(self, *, policy, documents, directory, transport=None, feed_factory=None, my_du=None):
         self.policy, self.documents = policy, documents
         self.owner_id = policy.config.student.trusted_user_id
         self.directory, self.transport = directory / self.owner_id, transport
@@ -55,6 +57,7 @@ class AccountFeed:
         self.feed = None
         self.lock = asyncio.Lock()
         self.feed_factory = feed_factory
+        self.my_du = my_du
 
     def make(self, url):
         try:
@@ -131,9 +134,14 @@ class AccountFeed:
             if self.feed_factory is not None:
                 await self.restore()
             if self.feed is None:
-                return SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
-                                   calendar=('Свободное время и расписание не подключены.',))
-            return await CalendarChatProjection(self.feed, self.policy).project(context, run=run, plan=plan)
+                sources = SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
+                    calendar=('Личные свободные часы неизвестны. Уточни доступное время.',))
+            else:
+                sources = await CalendarChatProjection(self.feed, self.policy).project(context, run=run, plan=plan)
+        if self.my_du is not None:
+            lines = await self.my_du.calendar_lines(context)
+            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines)
+        return sources
 
 
 ACCOUNT_SCRIPT = r"""'use strict';
@@ -156,7 +164,7 @@ form.addEventListener('submit',async event=>{
 
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
-                         application=None, documents=None, feed_factory=None):
+                         application=None, documents=None, feed_factory=None, my_du_transport=None):
     environment = 'local' if application is None else 'cloud'
     if environment == 'cloud' and (documents is None or feed_factory is None or test_verifier is not None):
         raise ValueError('explicit_cloud_dependencies_required')
@@ -193,8 +201,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             if principal in apps:
                 return apps[principal]
             policy = ResourcePolicy(account_config(principal, application), environment=environment)
+            my_du = MyDuAccount(documents, policy, transport=my_du_transport, clock=clock)
             feed = AccountFeed(policy=policy, documents=documents, directory=directory / 'accounts', transport=transport,
-                               feed_factory=feed_factory)
+                               feed_factory=feed_factory, my_du=my_du)
             await feed.restore()
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
                 origin=origin, environment=environment, clock=clock, moodle_enabled=True,
@@ -203,6 +212,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             auth = inner.state.web_auth
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
+            install_my_du_routes(inner, auth=auth, account=my_du)
 
             @inner.get('/account', response_class=HTMLResponse)
             async def account(request: Request):
@@ -219,12 +229,13 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                     '<form id="connect-moodle"><label for="moodle-url">Ссылка календаря Moodle</label>'
                     '<input id="moodle-url" type="url" required autocomplete="off" maxlength="4096">'
                     '<button type="submit">Подключить мой Moodle</button></form>'
-                    '<p id="account-status" role="status"></p></main><script src="/assets/account.js"></script></html>')
+                    '<p id="account-status" role="status"></p>' + ACCOUNT_MY_DU +
+                    '</main><script src="/assets/account.js"></script></html>')
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):
                 await auth.load(request)
-                return Response(ACCOUNT_SCRIPT, media_type='text/javascript')
+                return Response(ACCOUNT_SCRIPT + MY_DU_SCRIPT, media_type='text/javascript')
 
             @inner.post('/api/account/moodle')
             async def connect(request: Request):

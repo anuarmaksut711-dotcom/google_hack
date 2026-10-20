@@ -19,7 +19,7 @@ class CalendarChatProjection:
         zone = ZoneInfo(timezone)
         now = self.feed.clock().astimezone(zone)
         calendar = [f'Сейчас {now.isoformat()}. Часовой пояс: {timezone}.',
-            'Расписание занятий и свободные часы пользователя не подключены.',
+            'Личные свободные часы неизвестны. Уточни доступное время.',
             'План составляется в чате; запись в календарь не подключена.']
         if state.snapshot is None:
             return SafeSources(assignments=('Данные Moodle недоступны. Попроси обновить задания.',),
