@@ -65,7 +65,7 @@ def install_login(app, auth, client_id, *, moodle=False):
             'margin:0;padding:24px}main{max-width:480px;margin:12vh auto;padding:32px;'
             'background:white;border-radius:20px}h1{font-size:32px;line-height:1.2}'
             '#login-status{min-height:3em;color:#505b50}'
-            'input{display:block;box-sizing:border-box;width:100%;padding:12px;margin:10px 0 18px;'
+            'input,select{display:block;box-sizing:border-box;width:100%;padding:12px;margin:10px 0 18px;'
             'border:1px solid #788278;border-radius:8px;font:inherit}'
             'button{padding:12px 18px;font:inherit;cursor:pointer}a{color:#245c43}'
             '@media(max-width:520px){body{padding:12px}main{margin:24px auto;padding:20px}}', media_type='text/css')

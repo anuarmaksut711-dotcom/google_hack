@@ -135,13 +135,21 @@ class AccountFeed:
                 await self.restore()
             if self.feed is None:
                 sources = SafeSources(assignments=('Moodle не подключён. Предложи добавить свою ссылку на странице /account.',),
-                    calendar=('Личные свободные часы неизвестны. Уточни доступное время.',))
+                    calendar=(f'Сейчас {self.my_du.clock().isoformat()}. Часовой пояс: {self.policy.config.student.timezone}.'
+                              if self.my_du is not None else 'Текущее время не передано.',
+                              'Личные свободные часы неизвестны. Уточни доступное время.'))
             else:
                 sources = await CalendarChatProjection(self.feed, self.policy).project(context, run=run, plan=plan)
         if self.my_du is not None:
-            lines = await self.my_du.calendar_lines(context)
-            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines)
+            lines, schedule = await self.my_du.calendar_context(context)
+            sources = SafeSources(assignments=sources.assignments, calendar=tuple(sources.calendar or ()) + lines,
+                                  class_schedule=schedule)
         return sources
+
+    async def current_class_schedule(self, context):
+        """Read again after generation, so concurrent sync/disconnect is respected."""
+        self.authorize(context)
+        return None if self.my_du is None else self.my_du.planning_schedule(await self.my_du.read(context))
 
 
 ACCOUNT_SCRIPT = r"""'use strict';

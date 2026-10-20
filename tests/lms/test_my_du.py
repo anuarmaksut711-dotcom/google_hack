@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from campuspulse_recovery.lms.multiuser import create_multiuser_app
-from campuspulse_recovery.lms.my_du import MyDuUnavailable, TermSettings, parse_week
+from campuspulse_recovery.lms.my_du import MyDuClient, MyDuUnavailable, TermSettings, credentials, parse_week
 from tests.lms.test_multiuser import Agent, ORIGIN, Verifier, client, fetch, login, post, run_async, url
 
 NOW = datetime(2026, 10, 20, 6, tzinfo=UTC)
@@ -85,6 +85,24 @@ def test_normalize_week_rejects_wrong_dates_and_preserves_busy_times():
             parse_week(payload, settings, 7)
     with pytest.raises(ValueError):
         TermSettings(**{**SETTINGS, 'first_week_start': '2026-09-08'})
+
+
+@run_async
+async def test_transport_redirect_limits_and_cookie_injection():
+    calls = []
+    def redirect(request):
+        calls.append(request)
+        return httpx.Response(302, headers={'Location': 'https://evil.example/'})
+    adapter = MyDuClient(transport=httpx.MockTransport(redirect))
+    with pytest.raises(MyDuUnavailable):
+        await adapter.request('/test', tokens={'access_token': 'private-access', 'refresh_token': 'private-refresh'})
+    assert len(calls) == 1 and calls[0].url.host == 'my-du.astanait.edu.kz'
+    for token in ('x; injected=yes', 'x\r\nOther: value', 'non-ascii-ю', ''):
+        with pytest.raises(MyDuUnavailable):
+            credentials({'access_token': token, 'refresh_token': 'refresh'})
+    adapter = MyDuClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b' ' * 1_500_001)))
+    with pytest.raises(MyDuUnavailable):
+        await adapter.request('/test')
 
 
 @run_async
@@ -224,3 +242,42 @@ async def test_wrong_week_does_not_become_free_time_and_account_form(tmp_path):
         assert "script-src 'self'" in page.headers['content-security-policy']
         script = await alice.get('/assets/account.js')
         assert 'textContent=item.subject' in script.text
+
+
+@run_async
+async def test_real_adk_runner_receives_classes_and_exclusion_instruction(tmp_path):
+    from campuspulse_recovery.agent.conversation import AdkConversationAgent, ConversationTarget
+    from tests.web.test_chat_agent import SyntheticModel
+    provider = Provider()
+    model = SyntheticModel(model='gemini-synthetic')
+    app = create_multiuser_app(origin=ORIGIN, client_id='test.apps.googleusercontent.com',
+        directory=tmp_path, test_verifier=Verifier(), transport=httpx.MockTransport(fetch),
+        my_du_transport=httpx.MockTransport(provider), clock=lambda: NOW,
+        agent_factory=lambda: AdkConversationAgent(ConversationTarget(provider='gemini_api',
+            model='gemini-synthetic'), model_factory=lambda: model, profile='calendar_advice'))
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        assert (await post(alice, '/api/account/moodle', {'url': url(42)})).status_code == 200
+        assert (await post(alice, '/api/account/my-du/connect', await connection(alice))).json()['error'] is None
+        count = len(provider.calls)
+        response = await post(alice, '/api/chat', {'request_key': 'adk-plan', 'message': 'План на день с парами'})
+        assert response.json()['turns'][0]['status'] == 'completed'
+        request, = model._requests
+        instruction = str(request.config.system_instruction)
+        assert '2026-10-20T12:00:00+05:00' in instruction and 'Algorithms' in instruction
+        assert 'не должны пересекаться с парами' in instruction
+        assert 'secret-access' not in instruction and not request.tools_dict
+        assert len(provider.calls) == count  # recent successful schedule is reused
+
+
+@run_async
+async def test_outdated_term_is_not_a_successful_empty_schedule(tmp_path):
+    provider = Provider()
+    app = application(tmp_path, provider)
+    async with client(app) as alice:
+        await login(alice, 'alice')
+        value = await connection(alice)
+        value.update(first_week_start='2026-01-05')
+        response = await post(alice, '/api/account/my-du/connect', value)
+        assert response.json()['error'] == 'unavailable'
+        assert response.json()['snapshot'] is None

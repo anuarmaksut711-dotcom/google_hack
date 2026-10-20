@@ -16,6 +16,7 @@ import httpx
 from pydantic import Field, StrictInt, model_validator
 
 from ..domain.models import Contract, Instant, Interval
+from ..domain.chat_plan import ClassSchedule
 from ..domain.ports import BindingConflict
 from ..security.context import AccessDenied
 
@@ -64,7 +65,7 @@ def credentials(value):
     result = {}
     for key in ('access_token', 'refresh_token'):
         token = value.get(key)
-        if not isinstance(token, str) or not re.fullmatch(r'[^\s;\x00-\x1f\x7f]{1,16000}', token):
+        if not isinstance(token, str) or not re.fullmatch(r'[\x21-\x3a\x3c-\x7e]{1,16000}', token):
             raise MyDuUnavailable()
         result[key] = token
     return result
@@ -168,7 +169,7 @@ class MyDuAccount:
         await self.documents.transact(save)
         query = urlencode({'client_id': '9f15860b-4243-4610-845e-428dc4ae43a8',
             'response_type': 'code', 'redirect_uri': ORIGIN + '/login', 'response_mode': 'fragment',
-            'scope': 'offline_access user.read mail.read', 'state': state})
+            'scope': 'offline_access user.read', 'state': state})
         return {'url': 'https://login.microsoftonline.com/158f15f3-83e0-4906-824c-69bdc50d9d61/oauth2/v2.0/authorize?' + query}
 
     async def connect(self, context, value):
@@ -190,10 +191,14 @@ class MyDuAccount:
             pending = (record or {}).get('pending')
             if (not pending or not secrets.compare_digest(pending['state'], state)
                     or self.clock() >= datetime.fromisoformat(pending['expires_at'])):
-                raise ValueError('my_du_login_expired')
+                return False
             record.update(pending=None, connecting=attempt)
             tx.set(self.path, record)
-        await self.documents.transact(consume)
+            return True
+        # Return a domain rejection outside the transaction: the Firestore port
+        # intentionally treats unexpected callback exceptions as unknown writes.
+        if not await self.documents.transact(consume):
+            raise ValueError('my_du_login_expired')
         tokens = await self.client.exchange(code)
         settings = TermSettings(study_year=value.study_year, term=value.term, first_week_start=value.first_week_start)
         async def save(tx):
@@ -215,7 +220,7 @@ class MyDuAccount:
     def view(self, record):
         connected = bool(record and record.get('generation'))
         snapshot = None if not connected or record.get('snapshot') is None else ScheduleSnapshot.model_validate(record['snapshot'])
-        stale = bool(snapshot is None or self.clock() - snapshot.fetched_at > timedelta(hours=24)
+        stale = bool(snapshot is None or not timedelta(0) <= self.clock() - snapshot.fetched_at <= timedelta(hours=24)
                      or not snapshot.coverage.start <= self.clock() < snapshot.coverage.end)
         return {'connected': connected, 'stale': stale,
             'error': None if record is None else record.get('error'),
@@ -225,13 +230,18 @@ class MyDuAccount:
         self.authorize(context)
         return self.view(await self.load())
 
-    async def refresh(self, context):
+    async def refresh(self, context, *, cached=False, timeout=40):
         self.authorize(context)
         now, lease = self.clock(), secrets.token_hex(16)
         async def claim(tx):
             record = await self.load(tx)
             if not record or not record.get('tokens'):
                 return None
+            if cached and not record.get('error') and record.get('snapshot'):
+                snapshot = ScheduleSnapshot.model_validate(record['snapshot'])
+                if (timedelta(0) <= now - snapshot.fetched_at < timedelta(minutes=15)
+                        and snapshot.coverage.start <= now < snapshot.coverage.end):
+                    return None
             if record.get('lease_until') and datetime.fromisoformat(record['lease_until']) > now:
                 return None
             if record.get('last_attempt') and now - datetime.fromisoformat(record['last_attempt']) < timedelta(seconds=60):
@@ -267,7 +277,7 @@ class MyDuAccount:
             return await self.client.request(path, tokens=tokens, data=data)
 
         try:
-            async with asyncio.timeout(40):
+            async with asyncio.timeout(timeout):
                 settings = TermSettings.model_validate(record['settings'])
                 count = await get('/admin/client/settings/' + ('add_term_week_count' if settings.term == -1 else 'term_week_count'))
                 weeks = int(count['value'])
@@ -303,8 +313,21 @@ class MyDuAccount:
             await update(values)
         return await self.read(context)
 
-    async def calendar_lines(self, context):
-        state = await self.refresh(context)
+    def planning_schedule(self, state):
+        if not state['connected']:
+            return ClassSchedule(status='not_connected')
+        if state['stale'] or state['error'] or state['snapshot'] is None:
+            return ClassSchedule(status='unavailable')
+        snapshot = ScheduleSnapshot.model_validate(state['snapshot'])
+        return ClassSchedule(status='ready', coverage=snapshot.coverage, fetched_at=snapshot.fetched_at,
+                             busy=tuple(meeting.interval for meeting in snapshot.classes))
+
+    async def calendar_context(self, context):
+        # Leave time for Gemini inside the chat endpoint's 60-second budget.
+        state = await self.refresh(context, cached=True, timeout=8)
+        return self.calendar_lines(state), self.planning_schedule(state)
+
+    def calendar_lines(self, state):
         if not state['connected']:
             return ('My DU не подключён. Расписание пар неизвестно; предложи подключить его на странице аккаунта.',)
         if state['stale'] or state['error'] or state['snapshot'] is None:
