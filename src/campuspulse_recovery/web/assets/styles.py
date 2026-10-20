@@ -71,14 +71,13 @@ summary:hover { color: var(--accent); }
 .welcome-logo img { position: absolute; top: 50%; left: 50%; width: 56%; height: auto; transform: translate(-50%, -50%); }
 .welcome-logo.is-dismissed { display: none; }
 .command-bar { width: 100%; max-width: 1016px; border: 1px solid #303239; border-radius: 30px; background: #1d1e22; box-shadow: 0 18px 50px -24px #000a; }
-.command-bar:focus-within { border-color: #657caf; }
+.command-bar:focus-within { border-color: #657caf; outline: 2px solid var(--focus); outline-offset: 2px; }
 .command-body { padding: 18px 18px 12px; }
 .message-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-#recovery-message { display: block; width: 100%; min-height: 56px; max-height: 200px; margin: 0; padding: 0; resize: vertical; border: 0; background: transparent; color: var(--ink); font-size: 16px; line-height: 1.7; caret-color: var(--accent); }
+#recovery-message { display: block; width: 100%; min-height: 56px; max-height: min(360px, 42dvh); margin: 0; padding: 0; resize: none; overflow-y: hidden; border: 0; background: transparent; color: var(--ink); font-size: 16px; line-height: 1.7; caret-color: var(--accent); }
 #recovery-message::placeholder { color: var(--muted); opacity: 1; }
-#recovery-message:focus-visible { outline-offset: 5px; }
+#recovery-message:focus-visible { outline: none; }
 .chat-submit { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
-#message-hint { margin: 0; font-size: 11px; color: var(--muted); }
 #chat-send { display: grid; place-items: center; width: 38px; min-height: 38px; padding: 8px; border-radius: 50%; }
 #chat-send svg { width: 19px; height: 19px; }
 #chat-status { margin: 10px 0 0; max-width: 75ch; font-size: 12px; color: var(--muted); }
@@ -203,7 +202,6 @@ footer p { max-width: 65ch; }
   .intro > p { font-size: 13px; max-width: 37ch; }
   .command-body { padding: 16px; }
   #recovery-message { font-size: 16px; }
-  #message-hint { font-size: 10px; }
   .prompt-suggestions { gap: 7px; justify-content: flex-start; margin-block: 12px 22px; }
   .prompt-chip { min-height: 36px; font-size: 11px; padding-inline: 10px; }
   .recovery-controls { flex-direction: column; align-items: stretch; gap: 14px; padding-block: 18px; }
@@ -239,7 +237,6 @@ body[data-view=assistant] .recovery-home { flex: 1; min-height: 0; overflow: hid
 .composer-dock { position: relative; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; width: 100%; padding: 12px 0 max(8px, env(safe-area-inset-bottom)); background: transparent; }
 body[data-view=assistant] #feedback, body[data-view=assistant] footer { flex-shrink: 0; }
 body[data-view=assistant] #feedback { margin-top: 0; }
-body[data-view=assistant] #recovery-message { max-height: min(200px, 20dvh); }
 @media (max-width: 760px) {
   body[data-view=assistant] .app-content { height: 100dvh; }
   .conversation-scroll { padding: 16px 4px 8px; }
@@ -274,7 +271,7 @@ body[data-view=assistant] #recovery-message { max-height: min(200px, 20dvh); }
 body[data-view=assistant] .view-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 body[data-view=assistant] .topbar { justify-content: flex-end; }
 #reload span { display: none; }
-.composer-context { display: flex; align-items: center; gap: 28px; width: calc(100% - 40px); max-width: 976px; min-height: 50px; padding: 12px 18px 16px; margin-bottom: -6px; background: #191b20; border-radius: 20px 20px 0 0; }
+.composer-context { display: flex; align-items: center; gap: 28px; width: 100%; min-height: 34px; padding: 12px 18px 0; background: transparent; }
 .composer-context a { display: inline-flex; align-items: center; gap: 8px; color: #bfc3cf; font-size: 16px; text-decoration: none; }
 .composer-context a:hover { color: #edf0ff; }
 .composer-context svg { width: 16px; height: 16px; }
@@ -300,7 +297,7 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
   body[data-nav-open=true] .activity-rail { transform: translateX(0); visibility: visible; }
   .sidebar { z-index: 8; }
   .app-content { margin-left: 0; margin-right: 0; }
-  .composer-context { gap: 14px; width: calc(100% - 22px); padding-inline: 12px; }
+  .composer-context { gap: 14px; padding-inline: 16px; }
   .composer-context a { font-size: 11px; }
   .command-bar { border-radius: 22px; }
   .command-body { padding: 16px 16px 12px; }
@@ -308,7 +305,6 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
   .intro { position: static; flex: 1; justify-content: center; padding-block: 24px; }
   .welcome-logo { margin-bottom: 24px; }
   .sidebar-project { margin-bottom: 48px; }
-  #message-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .chat-help { font-size: 12px; }
   body[data-view=assistant] .view-heading { position: static; width: auto; height: auto; clip-path: none; }
 }
