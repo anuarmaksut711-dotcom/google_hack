@@ -401,6 +401,31 @@ async function deletedProjectDraftSendsIntoGeneralList() {
   assert.equal(h.run('activeChat'), id);
 }
 
+async function deletedAmbiguousCreationAllowsExplicitFreshSend() {
+  const h = harness(), id = 'b'.repeat(32), attempts = [];
+  let sequence = 0;
+  h.run("activeChat='draft'");
+  h.sandbox.keyFor = name => {
+    if (!h.pending.get(name)) h.pending.set(name, 'key-' + (++sequence));
+    return h.pending.get(name);
+  };
+  h.$('recovery-message').value = 'Preserved question';
+  h.sandbox.chats.materialize = async (target, key) => {
+    attempts.push(key);
+    if (attempts.length === 1) throw new Error('Created but response lost');
+    if (attempts.length === 2) throw Object.assign(new Error('Deleted'), {status:403, code:'workspace_item_deleted'});
+    return id;
+  };
+  h.sandbox.api = async () => ({json: async () => ({turns: []})});
+  await h.run('sendMessage({preventDefault(){}})');
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.equal(h.$('recovery-message').value, 'Preserved question');
+  assert(!h.$('chat-status').textContent.includes('Войдите заново'));
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(attempts, ['key-1', 'key-1', 'key-2']);
+  assert.equal(h.run('activeChat'), id);
+}
+
 async function lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion() {
   const h = harness(), folder = 'a'.repeat(32), id = 'b'.repeat(32), attempts = [];
   h.run(`activeChat='draft-${folder}'`);
@@ -436,7 +461,7 @@ async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() 
 
 (async () => {
   let failures = 0;
-  for (const test of [lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion, deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory, deletingSelectedChatClearsItsLocalStateAndOpensDraft, deletingOtherChatPreservesCurrentDraft, deletedProjectDraftSendsIntoGeneralList, transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
+  for (const test of [deletedAmbiguousCreationAllowsExplicitFreshSend, lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion, deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory, deletingSelectedChatClearsItsLocalStateAndOpensDraft, deletingOtherChatPreservesCurrentDraft, deletedProjectDraftSendsIntoGeneralList, transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }

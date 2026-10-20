@@ -157,13 +157,15 @@ def test_other_user_cannot_read_or_move_into_a_known_private_chat_or_folder(tmp_
             assert (await post(bob, '/api/chat/workspace', {'action': 'rename_chat', 'request_key': 'rename', 'revision': 0,
                 'item_id': chat_id, 'title': 'stolen'})).status_code == 403
             for action, item_id in (('delete_chat', chat_id), ('delete_folder', folder)):
-                assert (await post(bob, '/api/chat/workspace', {'action': action, 'request_key': action,
-                    'revision': 0, 'item_id': item_id})).status_code == 403
+                denied = await post(bob, '/api/chat/workspace', {'action': action, 'request_key': action,
+                    'revision': 0, 'item_id': item_id})
+                assert denied.status_code == 403 and denied.json() == {'error': 'access_denied'}
             assert (await alice.get('/api/chat', params={'chat_id': chat_id})).json()['turns'][0]['message'] == 'Alice private'
             alice_revision = (await alice.get('/api/chat/workspace')).json()['revision']
             assert (await post(alice, '/api/chat/workspace', {'action': 'delete_folder', 'request_key': 'alice-delete',
                 'revision': alice_revision, 'item_id': folder})).status_code == 200
-            assert (await post(bob, '/api/chat/workspace', {**payload, 'revision': 0})).status_code == 403
+            denied = await post(bob, '/api/chat/workspace', {**payload, 'revision': 0})
+            assert denied.status_code == 403 and denied.json() == {'error': 'access_denied'}
             assert len(calls) == 1
     run(scenario())
 
@@ -523,8 +525,13 @@ def test_deleted_creation_keys_cannot_resurrect_chat_or_folder_after_receipts_ex
             await change(client, headers, 'delete_chat', 'delete-original-chat', item_id=chat['item_id'])
             await change(client, headers, 'delete_folder', 'delete-original-folder', item_id=folder['item_id'])
             for original in (chat_payload, folder_payload):
+                no_csrf = await client.post('/api/chat/workspace', json=original)
+                assert no_csrf.status_code == 403 and no_csrf.json() == {'error': 'access_denied'}
                 replay = await client.post('/api/chat/workspace', headers=headers, json=original)
-                assert replay.status_code == 403
+                assert replay.status_code == 403 and replay.json() == {'error': 'workspace_item_deleted'}
+            async with h.client(app(h, FakeAgent())) as anonymous:
+                no_auth = await anonymous.post('/api/chat/workspace', json=chat_payload)
+                assert no_auth.status_code == 403 and no_auth.json() == {'error': 'access_denied'}
             for index in range(129):
                 await change(client, headers, 'rename_chat', 'evict-' + str(index),
                     item_id='default', title='Keep ' + str(index))
@@ -532,7 +539,7 @@ def test_deleted_creation_keys_cannot_resurrect_chat_or_folder_after_receipts_ex
             for original in (chat_payload, folder_payload):
                 replay = await client.post('/api/chat/workspace', headers=headers,
                     json={**original, 'revision': catalog['revision']})
-                assert replay.status_code == 403
+                assert replay.status_code == 403 and replay.json() == {'error': 'workspace_item_deleted'}
             assert (await client.get('/api/chat/workspace')).json() == catalog
     run(scenario())
 

@@ -289,7 +289,13 @@ def create_workspace_router(*, auth, documents, policy, owner_history=False, cha
             raise ValueError('workspace_selectors_forbidden')
         value = await body(request, WorkspaceChange)
         with auth.request_scope(credential) as context:
-            result, item_id = await store.change(context, value, now=auth.now())
+            try:
+                result, item_id = await store.change(context, value, now=auth.now())
+            except AccessDenied as error:
+                if str(error) != 'workspace_item_deleted':
+                    raise
+                await fresh(request, credential)
+                return _json({'error': 'workspace_item_deleted'}, 403)
             await fresh(request, credential)
             return _json({**view(result), 'item_id': item_id})
 

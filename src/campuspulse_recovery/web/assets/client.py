@@ -326,9 +326,10 @@ SCRIPT = r"""'use strict';
       }
       const error = new Error(messages[response.status] || 'Не удалось получить результат. Обновите состояние.');
       error.status = response.status;
-      if (path === '/api/chat' && response.status === 409) {
+      if (path === '/api/chat' && response.status === 409 ||
+          path === '/api/chat/workspace' && response.status === 403) {
         const detail = await response.json().catch(() => ({}));
-        if (detail.error === 'chat_history_limit') error.code = detail.error;
+        if (detail.error === 'chat_history_limit' || detail.error === 'workspace_item_deleted') error.code = detail.error;
       }
       throw error;
     }
@@ -720,6 +721,11 @@ SCRIPT = r"""'use strict';
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
       if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
+      if (draftChat(activeChat) && error.code === 'workspace_item_deleted') {
+        stored(pendingChatKey() + ':creation', null); stored(pendingChatKey(), null);
+        $('chat-status').textContent = 'Этот чат уже удалён. Текст сохранён. Нажмите «Отправить», чтобы начать новый чат.';
+        return;
+      }
       if (!hadPending && (error.code === 'session_required' || error.code === 'request_not_sent')) {
         pendingText = null; stored(pendingChatKey(), null); saveDraft();
       }

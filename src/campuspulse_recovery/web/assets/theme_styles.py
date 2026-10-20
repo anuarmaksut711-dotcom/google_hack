@@ -83,10 +83,18 @@ html[data-theme=light] .sidebar-project a,
 html[data-theme=light] .sidebar-bottom footer details[open] { background: var(--selected); }
 html[data-theme=light] .sidebar-bottom { border-color: var(--line); }
 html[data-theme=light] .command-bar {
-  border-color: var(--line); background: var(--surface);
+  border-color: transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+    conic-gradient(from var(--pb-angle), #d7dce6 0deg 285deg, #9da6b7 308deg,
+      #335ab8 325deg, #9da6b7 342deg, #d7dce6 360deg) border-box;
   box-shadow: 0 18px 50px -24px #22345b26;
 }
-html[data-theme=light] .command-bar:focus-within { border-color: var(--focus); }
+html[data-theme=light] .command-bar:focus-within { border-color: transparent; }
+html[data-theme=light] #chat-send { background: var(--ink); color: var(--surface); }
+html[data-theme=light] #chat-send:hover { background: #384057; }
+html[data-theme=light] #chat-send:disabled { background: var(--theme-disabled-surface); color: var(--theme-disabled); }
+html[data-theme=light] #voice-toggle:hover,
+html[data-theme=light] .composer-options > summary:hover { background: var(--subtle); }
 html[data-theme=light] .prompt-chip svg { color: var(--muted); }
 html[data-theme=light] .prompt-chip:hover { border-color: var(--theme-border-strong); }
 html[data-theme=light] .composer-options .prompt-suggestions,
@@ -143,6 +151,8 @@ html[data-theme=light] .chat-edit-dialog input,
 html[data-theme=light] .chat-edit-dialog select { color-scheme: light; background: var(--surface); }
 html[data-theme=light] .chat-dialog-actions #chat-edit-save { background: var(--action); color: #ffffff; }
 html[data-theme=light] .chat-dialog-actions #chat-edit-save:hover { background: var(--action-hover); }
+html[data-theme=light] .chat-dialog-actions #chat-edit-save[data-destructive=true] { background: #a92d35; color: #ffffff; }
+html[data-theme=light] .chat-dialog-actions #chat-edit-save[data-destructive=true]:hover { background: #90232b; }
 html[data-theme=light] .chat-dialog-actions #chat-edit-save:disabled {
   background: var(--theme-disabled-surface); color: var(--theme-disabled);
 }
