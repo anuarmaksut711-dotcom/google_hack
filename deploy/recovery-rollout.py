@@ -53,6 +53,9 @@ def build():
     archive = subprocess.check_output(['git','archive','--format=tar',sha],cwd=ROOT)
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         source.extractall(stage,filter='data')
+    # Archive contains only tracked files. Do not apply .gitignore again: some
+    # tracked test fixtures deliberately have otherwise ignored filenames.
+    (stage/'.gcloudignore').write_text('.git\n.gcloudignore\n',encoding='utf-8')
     tag = f'{gcp.REGION}-docker.pkg.dev/{gcp.PROJECT}/campuspulse/recovery-rollout:{sha}'
     qa_tag = tag+'-qa'
     config = dict(steps=[
@@ -62,7 +65,7 @@ def build():
              '-f','deploy/Dockerfile.rollout','-t',tag,'.']),
         dict(name='gcr.io/cloud-builders/docker',entrypoint='bash',args=['-c',
              'set -eu\ncontainer=$(docker create '+qa_tag+')\nmkdir -p release-out\ndocker cp "$container:/out/." release-out/\n'])],
-        images=[tag],timeout='3600s',options=dict(logging='CLOUD_LOGGING_ONLY',machineType='E2_HIGHCPU_8'),
+        images=[tag],timeout='3600s',options=dict(logging='CLOUD_LOGGING_ONLY'),
         serviceAccount=f'projects/{gcp.PROJECT}/serviceAccounts/campuspulse-build@{gcp.PROJECT}.iam.gserviceaccount.com',
         artifacts=dict(objects=dict(location=f'gs://{gcp.PROJECT}-campuspulse-build/recovery-rollout/{sha}/',
             paths=['release-out/qa-summary.json','release-out/dist/*.whl','release-out/dist/*.tar.gz',
