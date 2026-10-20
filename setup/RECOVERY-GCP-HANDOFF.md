@@ -7,6 +7,14 @@ Verified on 20 October 2026, Asia/Qyzylorda.
 Project: `gen-lang-client-0602946419` (`585736102295`); region: `us-central1`.
 The existing public `campuspulse` calendar/chat service must remain unchanged.
 
+Repository integration update: source merge `9c2d16d` on `main` combines this
+GCP work with the personal website recovery integration (`71bf31f`). The code
+now implements per-user feed/source/Calendar resolution. The deployed bootstrap
+runtime still requires a matching code/settings update and actual private account
+bindings before site activation; see [RECOVERY-WEB-HANDOFF.md](RECOVERY-WEB-HANDOFF.md).
+The cloud receipts below describe the earlier audited deployment, not a deployment
+of the merged source.
+
 ## Backend contract
 
 Deploy the existing `campuspulse_recovery.agent_engine.runtime.AgentEngineRuntime`.

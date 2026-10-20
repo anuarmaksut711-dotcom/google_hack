@@ -40,6 +40,9 @@
 - [x] Full pytest with Firestore Emulator, recovery/voice evaluations, packaging and git diff check.
 - [x] Independent review of account authority, transaction freshness and ambiguous writes; fix blocking findings.
 - [x] Document exact GCP configuration/contract for Merey.
-- [ ] Commit and push integration branch for cross-team visibility. Automatic approval review rejected this export because the human's explicit push instruction named Merey's work. Local implementation is complete; waiting for explicit approval of this branch's push.
+- [x] Commit the integration and merge both workstreams into `main` as explicitly requested by the user; source merge `9c2d16d` contains integration `71bf31f` and Merey's final `dca27c3`. No merge conflicts occurred.
+
+The user explicitly authorized publication of the combined `main`. Remote SHA
+verification after its normal push is reported in the delivery message.
 
 Final results and limits: setup/RECOVERY-WEB-VALIDATION.md.

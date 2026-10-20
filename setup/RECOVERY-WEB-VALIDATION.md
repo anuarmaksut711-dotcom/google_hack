@@ -1,10 +1,11 @@
 # Recovery website integration validation
 
-Date: 2026-10-20. Branch: `codex/recovery-web-integration`.
-Tested base: `origin/main` at `0f52fdf3d147c52ef8fd73d2b818c2b6c02fd6cb`,
-plus the local integration changes. These changes have not been committed,
-pushed or deployed in this session. The source manifest and diff are preserved
-locally under `.validation/recovery-web-integration.*`.
+Date: 2026-10-20. Delivery branch: `main`.
+Tested source merge: `9c2d16d6a8164e382207cf3024a1ed566c2b67a9`.
+It contains website integration `71bf31f` and Merey's final GCP branch `dca27c3`,
+including previous main `0f52fdf`. Both workstreams merged without conflicts.
+The final follow-up changes only documentation to record this verification.
+No production deployment was performed by this integration session.
 
 ## Implemented
 
@@ -25,14 +26,15 @@ locally under `.validation/recovery-web-integration.*`.
 
 | Check | Result | Local evidence |
 | --- | --- | --- |
-| Full pytest on the latest merged base, real local Firestore Emulator and portable PowerShell | **2069 passed**, 35 dependency deprecation warnings, no failures/skips; 169.19 seconds | `.validation/recovery-merged-final.log`, `.xml` |
-| Offline recovery evaluation | **347 passed**, 95 dependency warnings | `.validation/recovery-web-final-eval.log` |
-| Literal-loopback voice evaluation | **53 passed** | `.validation/recovery-web-final-voice.log` |
-| Wheel and sdist | Both built successfully after the main fast-forward | `.validation/recovery-merged-build.log` |
+| Full pytest on the final merged main, real local Firestore Emulator and portable PowerShell | **2069 passed**, 35 dependency deprecation warnings, no failures/skips; 173.56 seconds | `.validation/main-integrated-pytest.log`, `.xml` |
+| Offline recovery evaluation on merged main | **347 passed**, 95 dependency warnings | `.validation/main-integrated-recovery.log` |
+| Literal-loopback voice evaluation on merged main | **53 passed** | `.validation/main-integrated-voice.log` |
+| Wheel and sdist | Both built successfully from merged main | `.validation/main-integrated-build.log` |
 | Installed dependency consistency | `pip check`: no broken requirements | Terminal verification |
-| Existing GCP composition check | `offline_mcp_composition_ok`; no tools dispatched | `.validation/upstream-composition.log` |
+| Existing GCP composition check | `offline_mcp_composition_ok`; no tools dispatched; latest deploy script compiled | Terminal verification |
 | Independent review | Four findings fixed; final review found no remaining actionable P0–P2 issues; 23 targeted tests passed | Review agent response |
 | Whitespace and secret-pattern review | `git diff --check` clean; no credential/private-key patterns in intended changed source, tests and documents | Terminal verification |
+| Native iOS tests | **Blocked before tests**: Xcode 26.3 `xcodebuild` exits 70 while loading `IDESimulatorFoundation`; missing symbol in installed `DVTDownloads` system framework | `.validation/main-integrated-ios.log` |
 
 Reproduction uses the Python 3.12 test environment and README commands:
 
@@ -51,6 +53,8 @@ a scripted model and synthetic Google adapters. The new website end-to-end tests
 exercise the real application/runtime/MCP/solver/approval/verify code while
 replacing external identity, provider and Calendar edges. These are not live
 Gemini or personal Google Calendar acceptance tests.
+The iOS toolchain failure is separate from the passing Python/voice protocol
+checks; no native iOS test pass is claimed and no system Xcode components were changed.
 
 ## Browser check
 
@@ -76,11 +80,11 @@ performed. No fixture or authentication bypass was added to product code.
 The first broad run also exposed three legacy test configurations without the
 optional application field; account binding now preserves that compatibility.
 One pre-existing emulator contention test failed once, passed in isolation and
-passed in both subsequent full runs; its implementation was not changed.
+passed in the subsequent full runs, including the final merged main; its implementation was not changed.
 
 ## Deployment boundary
 
-Merey's GCP branch was fetched and its committed resource receipts were read.
+Merey's final GCP branch was fetched, merged into main and its committed resource receipts were read.
 This session did not independently query or change GCP. The current Engine/MCP
 bootstrap deployment must be updated with this final source and real private
 account bindings before activating recovery on the website. See

@@ -1,8 +1,9 @@
 # Recovery website integration handoff
 
-Integration branch: `codex/recovery-web-integration`. GCP work belongs on
-`codex/gcp-recovery-deployment`. This document describes the code contract being
-implemented and tested locally; it is not a claim of deployment or a passed cloud smoke.
+Delivery branch: `main`. Website integration from `codex/recovery-web-integration`
+(`71bf31f`) and Merey's final `codex/gcp-recovery-deployment` (`dca27c3`) were
+combined in source merge `9c2d16d`. This document describes the implemented code
+contract; it is not a claim of deployment or a passed cloud smoke.
 
 ## Shared private operation
 
@@ -57,16 +58,16 @@ authorize personal resources automatically, or replace existing chat behavior.
 
 ## Merge/deployment coordination
 
-Fetch both branches before final rollout. Infrastructure changes should stay in
-`deploy/` and their own GCP handoff document. Do not overwrite application code
-from an older wheel. Build the final merged source once and pin its image/wheel
+Use the final `main` before rollout; both workstreams are incorporated there.
+Infrastructure changes live in `deploy/` and their own GCP handoff document.
+Do not overwrite application code from an older wheel. Build the final merged source once and pin its image/wheel
 hash in deployment receipts. Validate operation schema and run read-only checks
 before any separately authorized apply/verify in a dedicated test Calendar.
 
 ## GCP work received during integration
 
-Fetched `codex/gcp-recovery-deployment` at `dca27c3` and advanced the local integration
-base to `origin/main` `0f52fdf`. Merey's committed GCP handoff reports:
+Merged `codex/gcp-recovery-deployment` at `dca27c3`, including the earlier
+`origin/main` `0f52fdf`. Merey's committed GCP handoff reports:
 
 - Engine: `projects/585736102295/locations/us-central1/reasoningEngines/3019439524657758208`.
 - MCP: `https://campuspulse-recovery-mcp-585736102295.us-central1.run.app`.
