@@ -64,6 +64,7 @@ SCRIPT = r"""'use strict';
       }
     });
     setNavigationOpen(false);
+    requestAnimationFrame(resizeComposer);
   }
   function focusPanel() {
     if (location.hash !== '#panel') location.hash = 'panel';
@@ -268,7 +269,17 @@ SCRIPT = r"""'use strict';
     if (!node) throw new Error('Сначала загрузите сохранённую версию плана.');
     return {plan_id: node.dataset.planId, version: Number(node.dataset.version), payload_hash: node.dataset.hash};
   }
+  function resizeComposer() {
+    const field = $('recovery-message');
+    if (!field.getClientRects().length) return;
+    field.style.height = '0px';
+    const limit = parseFloat(getComputedStyle(field).maxHeight);
+    const height = Math.min(field.scrollHeight, limit);
+    field.style.height = height + 'px';
+    field.style.overflowY = field.scrollHeight > Math.ceil(height) ? 'auto' : 'hidden';
+  }
   function controls() {
+    resizeComposer();
     document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy; });
     $('start').disabled = busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
     $('reload').disabled = busy || chatBusy;
@@ -488,6 +499,7 @@ SCRIPT = r"""'use strict';
   $('start').addEventListener('click', () => act('start'));
   $('chat-form').addEventListener('submit', sendMessage);
   $('recovery-message').addEventListener('input', controls);
+  window.addEventListener('resize', resizeComposer);
   $('recovery-message').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
