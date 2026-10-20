@@ -38,3 +38,4 @@ firebase-debug.log*
 firestore-debug.log*
 build/
 dist/
+/.frontend-workbench/

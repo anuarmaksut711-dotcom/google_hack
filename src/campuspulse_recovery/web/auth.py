@@ -1,4 +1,4 @@
-"""Verified Google sign-in and durable opaque server sessions for T04.
+"""Verified sign-in and durable opaque server sessions for T04.
 
 There is no development identity/header bypass. Injected test verifiers are
 accepted only in explicit local mode, outside all configured cloud markers.
@@ -113,19 +113,26 @@ class SessionCredential:
 
 class WebAuth(_Repository):
     def __init__(self, documents, policy, *, verifier: SignInVerifier, origin: str,
-                 environment: str, clock: Callable[[], datetime] = lambda: datetime.now(UTC)):
+                 environment: str, clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+                 email_credentials=None):
         super().__init__(documents, policy)
         policy.config.require_environment(environment)
         if verifier is None:
             raise ValueError("signin_verifier_required")
         if (environment == "cloud" or CLOUD_MARKERS.intersection(os.environ)) and type(verifier) is not GoogleSignInVerifier:
             raise ValueError("production_google_verifier_required")
+        if email_credentials is not None:
+            from .passwords import EmailCredentials
+
+            if type(email_credentials) is not EmailCredentials or email_credentials.documents is not documents:
+                raise ValueError("matching_email_credentials_required")
         parts = urlsplit(origin)
         if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or parts.path or parts.netloc != parts.netloc.lower()):
             raise ValueError("explicit_https_origin_required")
         self.origin, self.host = origin, parts.netloc
         self.verifier, self.clock = verifier, clock
+        self.email_credentials = email_credentials
         self._authority = object()
 
     def now(self):
@@ -139,6 +146,24 @@ class WebAuth(_Repository):
             raise AccessDenied("cross_site_request_rejected")
         supplied = request.headers.get("origin")
         if (mutation or supplied is not None) and supplied != self.origin:
+            raise AccessDenied("request_origin_rejected")
+
+    def check_login_navigation(self, request):
+        """Accept external top-level links to public authentication documents.
+
+        This grants no identity, challenge or session. All authentication and
+        private routes retain check_request/check_csrf.
+        """
+        mode = request.headers.get("sec-fetch-mode")
+        destination = request.headers.get("sec-fetch-dest")
+        site = request.headers.get("sec-fetch-site")
+        supplied = request.headers.get("origin")
+        if (request.method != "GET" or request.url.path not in ("/login", "/register")
+                or request.url.scheme != "https" or request.headers.get("host") != self.host
+                or mode not in (None, "navigate") or destination not in (None, "document")
+                or supplied not in (None, self.origin)
+                or (site not in (None, "same-origin", "none")
+                    and (mode != "navigate" or destination != "document"))):
             raise AccessDenied("request_origin_rejected")
 
     def check_csrf(self, request, expected: str):
@@ -167,7 +192,12 @@ class WebAuth(_Repository):
         await self.documents.transact(create)
         return handle, csrf, nonce
 
-    async def signin(self, request, token: str):
+    async def challenge_for_signin(self, request):
+        """Validate the one-use browser challenge before expensive identity work.
+
+        This read is not authorization to issue a session. Issuance always
+        rechecks and consumes the exact challenge in its durable transaction.
+        """
         self.check_request(request, mutation=True)
         handle = self._cookie(request, CHALLENGE_COOKIE)
         path = "cp_web_challenges/" + digest(handle)
@@ -176,14 +206,44 @@ class WebAuth(_Repository):
         self.check_csrf(request, challenge.csrf_digest)
         if challenge.consumed or self.now() >= challenge.expires_at:
             raise AccessDenied("signin_challenge_expired")
+        return challenge
 
+    async def signin(self, request, token: str):
+        challenge = await self.challenge_for_signin(request)
         try:
             identity = VerifiedSignIn.model_validate(await self.verifier.verify(token, nonce=challenge.nonce, now=self.now()))
+        except Exception:
+            raise AccessDenied("signin_rejected") from None
+        return await self._issue_session(request, challenge, identity)
+
+    async def signin_password(self, request, proof):
+        """Accept only a configured credential service's internal capability.
+
+        No HTTP field, principal identifier or model claim can substitute for
+        the password service's nonce-bound proof.
+        """
+        if self.email_credentials is None:
+            raise AccessDenied("email_signin_unavailable")
+        challenge = await self.challenge_for_signin(request)
+
+        def current_identity():
+            try:
+                return VerifiedSignIn.model_validate(self.email_credentials.check(
+                    proof, nonce=challenge.nonce, now=self.now()))
+            except Exception:
+                raise AccessDenied("signin_rejected") from None
+
+        identity = current_identity()
+        return await self._issue_session(request, challenge, identity, recheck_identity=current_identity)
+
+    async def _issue_session(self, request, challenge, identity, *, recheck_identity=None):
+        try:
             self.policy.require_principal("backend", identity.principal_id)
             if not identity.authenticated_at <= self.now() < identity.expires_at:
                 raise ValueError()
         except Exception:
             raise AccessDenied("signin_rejected") from None
+        path = "cp_web_challenges/" + digest(self._cookie(request, CHALLENGE_COOKIE))
         cookie, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         expires = min(identity.expires_at, self.now() + timedelta(hours=1))
         binding = ServerRunBinding(owner_id=self.policy.config.student.trusted_user_id,
@@ -196,6 +256,8 @@ class WebAuth(_Repository):
             latest = _decode(await tx.get(path), "web_challenge", LoginChallenge)
             if latest != challenge or latest.consumed or self.now() >= latest.expires_at or self.now() >= expires:
                 raise AccessDenied("signin_challenge_expired")
+            if recheck_identity is not None and recheck_identity() != identity:
+                raise AccessDenied("signin_rejected")
             tx.set(path, _encode("web_challenge", latest.model_copy(update={"consumed": True})))
             tx.create("cp_web_sessions/" + digest(cookie), _encode("web_session", session))
             tx.create("cp_web_session_index/" + digest(binding.session_id),

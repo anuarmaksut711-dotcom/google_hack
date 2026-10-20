@@ -21,6 +21,7 @@ from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
 from ..chat import create_chat_router
 from ..speech import create_speech_router
+from ..workspace import create_workspace_router
 from ..runs import RecoveryRuns, RunView, create_runs_router
 from ..assets.client import SCRIPT
 from ..assets.styles import STYLES
@@ -53,7 +54,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   projection: SafeProjection | None = None, demo_mode: bool = False,
                   chat_agent=None, signin_url=None, moodle_enabled: bool = False,
                   chat_mode: str = 'recovery', owner_chat_history: bool = False,
-                  account_url: str | None = None, planning_url: str | None = None, approval_store=None):
+                  account_url: str | None = None, planning_url: str | None = None, approval_store=None, email_credentials=None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -67,9 +68,10 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     if environment != 'local' and getattr(chat_agent, 'local_preview_only', False):
         raise ValueError('agent_engine_chat_runtime_required')
     app = create_identity_app(policy=policy, documents=documents, verifier=verifier,
-                             origin=origin, environment=environment, clock=clock, approval_store=approval_store)
+                             origin=origin, environment=environment, clock=clock, approval_store=approval_store,
+                             email_credentials=email_credentials)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
-                   environment=environment, clock=clock)
+                   environment=environment, clock=clock, email_credentials=email_credentials)
     app.state.web_auth = auth
     app.include_router(create_speech_router(auth=auth, agent=chat_agent))
     plans = FirestorePlanStore(documents, policy)
@@ -77,6 +79,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
         agent=chat_agent, projection=projection, owner_history=owner_chat_history,
         structured_advice=chat_mode == 'calendar_advice'))
+    app.include_router(create_workspace_router(auth=auth, documents=documents, policy=policy,
+        owner_history=owner_chat_history))
     runs = None if runs_factory is None else runs_factory(auth)
     if runs is not None:
         if not isinstance(runs, RecoveryRuns) or runs.auth is not auth or runs.clock is not clock:

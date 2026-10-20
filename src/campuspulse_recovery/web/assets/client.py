@@ -1,4 +1,5 @@
 """Small browser adapter; GET refreshes never consent or dispatch execution."""
+from .workspace import SCRIPT as WORKSPACE_SCRIPT
 SCRIPT = r"""'use strict';
 (() => {
   const $ = id => document.getElementById(id);
@@ -129,6 +130,71 @@ SCRIPT = r"""'use strict';
   if (!voiceMime) $('voice-status').textContent = 'Голосовой ввод недоступен в этом браузере. Используйте современный браузер и HTTPS.';
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
   let moodleRevision = 0, moodleBusy = false;
+  let activeChat = /^#chat\/([a-f0-9]{32})$/.exec(location.hash)?.[1] || 'default', chatGeneration = 0;
+  const chatDrafts = new Map();
+  const chats = new window.CampusPulseChats({api, selected: () => activeChat,
+    navigate: id => { location.hash = id === 'default' ? 'workspace' : 'chat/' + id; },
+    changed: updateNavigation, blocked: () => !scope || busy || chatBusy});
+  const pendingChatKey = () => activeChat === 'default' ? 'pending-chat' : 'pending-chat:' + activeChat;
+  function selectChat(id) {
+    if (id === activeChat) { chats.selection(); return; }
+    if (busy || chatBusy) {
+      history.replaceState(null, '', location.pathname + location.search + (activeChat === 'default' ? '#workspace' : '#chat/' + activeChat));
+      $('chat-status').textContent = 'Дождитесь завершения текущего запроса, затем откройте другой чат.';
+      return;
+    }
+    chatDrafts.set(activeChat, {text: $('recovery-message').value, pendingText});
+    activeChat = id; ++chatGeneration;
+    $('conversation-index')?.replaceChildren();
+    const draft = chatDrafts.get(id);
+    pendingText = draft?.pendingText ?? null;
+    $('recovery-message').value = draft?.text || '';
+    $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+    $('workspace').classList.remove('has-chat');
+    chatAvailable = false; chatWorking = false; chats.selection(); controls();
+    if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
+  }
+  const views = {
+    assistant: ['Ассистент', 'Спланируем учёбу вместе'],
+    tasks: ['Мои задания', 'Задания и ближайшие сроки'],
+    plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
+    journal: ['Журнал', 'Действия агента и результаты запуска']
+  };
+  function setNavigationOpen(open) {
+    document.body.dataset.navOpen = String(open);
+    $('mobile-nav-toggle')?.setAttribute('aria-expanded', String(open));
+  }
+  function updateNavigation() {
+    const selector = new URLSearchParams(location.search);
+    const selected = location.hash || (selector.has('plan_id') && selector.has('version') ? '#panel' : '#workspace');
+    const chatMatch = /^#chat\/([a-f0-9]{32})$/.exec(selected);
+    if (chatMatch || selected === '#workspace') selectChat(chatMatch?.[1] || 'default');
+    let view = {'#workspace': 'assistant', '#moodle': 'tasks', '#sources': 'plan',
+      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal'}[selected] || 'assistant';
+    if (view === 'tasks' && !moodleEnabled) view = 'plan';
+    document.body.dataset.view = view;
+    if ($('view-title')) $('view-title').textContent = view === 'assistant' ? chats.title() : views[view][0];
+    if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
+    document.title = 'CampusPulse · ' + (view === 'assistant' ? chats.title() : views[view][0]);
+    document.querySelectorAll('.nav-link, .rail-link').forEach(link => {
+      const current = link.dataset.view === view;
+      link.classList.toggle('current', current);
+      if (current) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+      if (current) {
+        const group = link.closest('details');
+        if (group) group.open = true;
+      }
+    });
+    setNavigationOpen(false);
+    requestAnimationFrame(resizeComposer);
+  }
+  function focusPanel() {
+    if (location.hash !== '#panel') location.hash = 'panel';
+    updateNavigation();
+    $('panel').focus({preventScroll: true});
+    $('panel').scrollIntoView({block: 'start', behavior: 'instant'});
+  }
   const feedback = (message, error = false) => {
     $('feedback').textContent = message;
     $('feedback').dataset.error = String(error);
@@ -148,7 +214,7 @@ SCRIPT = r"""'use strict';
       const messages = {403: 'Сессия недействительна или действие отклонено. Войдите через настроенный вход.',
         409: 'План или запрос изменился. Обновите состояние и изучите точную версию.',
         503: 'Результат запроса не подтверждён. Обновите сохранённое состояние.'};
-      if (path === '/api/chat') {
+      if (path.startsWith('/api/chat')) {
         messages[409] = 'Запрос чата уже выполняется, был изменён или достигнут лимит диалога. Обновите историю.';
         messages[503] = 'Агент недоступен. Проверьте настройку Vertex AI на сервере.';
       }
@@ -194,7 +260,12 @@ SCRIPT = r"""'use strict';
     if (calendarFeed) {
       $('moodle-heading').textContent = 'Дедлайны из Moodle';
       const sourceLink = document.querySelector('.nav-link[href="#moodle"]');
-      if (sourceLink) sourceLink.textContent = 'Дедлайны Moodle';
+      if (sourceLink) {
+        const label = sourceLink.querySelector('.nav-label'), short = sourceLink.querySelector('.nav-short');
+        if (label) label.textContent = 'Мои задания';
+        if (short) short.textContent = 'Задания';
+        sourceLink.setAttribute('aria-label', 'Мои задания');
+      }
     }
     let message;
     if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде CampusPulse, чтобы настроить доступ к своему аккаунту.';
@@ -234,10 +305,14 @@ SCRIPT = r"""'use strict';
       const group = !calendarFeed ? 'upcoming' : task.view_group ||
         (new Date(task.due_at).getTime() <= Date.now() ? 'past' : 'upcoming');
       const item = document.createElement('li'), subject = document.createElement('p'), title = document.createElement('h4'),
-        description = document.createElement('p'), details = document.createElement('dl');
+        description = document.createElement('p'), details = document.createElement('dl'),
+        descriptionBox = document.createElement('details'), descriptionSummary = document.createElement('summary');
       subject.className = 'moodle-subject'; subject.textContent = task.course_title;
       title.textContent = task.title; description.className = 'moodle-description';
       description.textContent = task.description || 'Описание не предоставлено в Moodle.';
+      descriptionBox.className = 'moodle-description-details';
+      descriptionSummary.textContent = 'Описание задания';
+      descriptionBox.append(descriptionSummary, description);
       const values = calendarFeed ? [
         ['Срок', moodleDate(task.due_at)],
         ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в CampusPulse' :
@@ -251,7 +326,7 @@ SCRIPT = r"""'use strict';
         const term = document.createElement('dt'), detail = document.createElement('dd');
         term.textContent = label; detail.textContent = value; details.append(term, detail);
       }
-      item.append(subject, title, description, details);
+      item.append(subject, title, details, descriptionBox);
       const href = moodleLink(task.url);
       if (href) {
         const link = document.createElement('a'); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
@@ -317,8 +392,18 @@ SCRIPT = r"""'use strict';
     if (!node) throw new Error('Сначала загрузите сохранённую версию плана.');
     return {plan_id: node.dataset.planId, version: Number(node.dataset.version), payload_hash: node.dataset.hash};
   }
+  function resizeComposer() {
+    const field = $('recovery-message');
+    if (!field.getClientRects().length) return;
+    field.style.height = '0px';
+    const limit = parseFloat(getComputedStyle(field).maxHeight);
+    const height = Math.min(field.scrollHeight, limit);
+    field.style.height = height + 'px';
+    field.style.overflowY = field.scrollHeight > Math.ceil(height) ? 'auto' : 'hidden';
+  }
   function controls() {
     voiceControls();
+    resizeComposer();
     document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy; });
     $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
     $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
@@ -327,6 +412,7 @@ SCRIPT = r"""'use strict';
     $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || !scope || !chatAvailable || !$('recovery-message').value.trim();
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
+    chats.controls();
   }
   // Small, deliberately limited Markdown subset. Model text never becomes HTML.
   function appendChatInline(node, value) {
@@ -386,9 +472,14 @@ SCRIPT = r"""'use strict';
     chatWorking = chat.turns.some(turn => turn.status === 'working');
     const log = $('chat-history');
     log.replaceChildren();
+    const index = $('conversation-index');
+    index.replaceChildren();
     for (const turn of chat.turns) {
       const user = document.createElement('article'), label = document.createElement('span'), text = document.createElement('p');
-      user.className = 'chat-message chat-user'; label.className = 'chat-author';
+      user.className = 'chat-message chat-user'; user.id = 'chat-entry-' + turn.request_key; label.className = 'chat-author';
+      const entry = document.createElement('button');
+      entry.type = 'button'; entry.className = 'conversation-entry'; entry.dataset.chatEntry = user.id;
+      entry.textContent = turn.message; entry.title = turn.message; index.append(entry);
       label.textContent = 'Вы'; text.textContent = turn.message; user.append(label, text); log.append(user);
       const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('div');
       answer.className = 'chat-answer';
@@ -414,9 +505,9 @@ SCRIPT = r"""'use strict';
     const calendarAdvice = document.body.dataset.chatMode === 'calendar_advice';
     $('chat-status').textContent = calendarAdvice ? (chatAvailable ?
       'Составьте план в чате по дедлайнам Moodle. Укажите свободные часы и время на задания.' :
-      'Для составления плана подключите Gemini к локальному серверу.') : (chatAvailable ?
+      'Чат сейчас недоступен. Попробуйте обновить состояние.') : (chatAvailable ?
       'Чат с агентом · изменения календаря применяются через согласование плана.' :
-      'Агент не подключён к этому серверу. Для ответов нужно настроить Vertex AI.');
+      'Чат сейчас недоступен. Если проверка расписания доступна, начните с неё.');
     const providerErrors = {
       provider_request_rejected: 'Gemini отклонил запрос. Проверьте API-ключ и настройки модели.',
       provider_auth_failed: 'Gemini не принял API-ключ. Проверьте ключ при запуске сервера.',
@@ -430,17 +521,17 @@ SCRIPT = r"""'use strict';
     controls();
   }
   async function loadChat() {
-    const revision = generation, session = scope;
+    const revision = generation, session = scope, chatId = activeChat, selection = chatGeneration;
     try {
-      const chat = await (await api('/api/chat')).json();
-      if (revision !== generation || session !== scope) return;
+      const chat = await (await api('/api/chat?chat_id=' + chatId)).json();
+      if (revision !== generation || session !== scope || selection !== chatGeneration) return;
       showChat(chat);
-      const pending = stored('pending-chat');
+      const pending = stored(pendingChatKey());
       if (pending && chat.turns.some(turn => turn.request_key === pending)) {
-        stored('pending-chat', null); pendingText = null;
+        stored(pendingChatKey(), null); pendingText = null;
       }
     } catch (error) {
-      if (revision !== generation || session !== scope) return;
+      if (revision !== generation || session !== scope || selection !== chatGeneration) return;
       chatAvailable = false;
       $('chat-status').textContent = 'История чата недоступна. ' + error.message;
       controls();
@@ -457,12 +548,13 @@ SCRIPT = r"""'use strict';
     chatBusy = true; controls();
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
-      const request_key = keyFor('pending-chat'); pendingText = message;
-      const chat = await (await api('/api/chat', {request_key, message})).json();
-      stored('pending-chat', null); pendingText = null;
+      const request_key = keyFor(pendingChatKey()); pendingText = message;
+      const chat = await (await api('/api/chat', {request_key, message, chat_id: activeChat})).json();
+      stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
       showChat(chat);
-      $('chat-history').lastElementChild?.scrollIntoView({block: 'nearest', behavior: 'instant'});
+      const conversation = $('conversation-scroll');
+      conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
       $('chat-status').textContent = 'Не удалось получить ответ. Текст сохранён в поле. ' + error.message + ' Нажмите «Обновить состояние», чтобы проверить историю.';
     } finally { chatBusy = false; controls(); $('recovery-message').focus({preventScroll: true}); }
@@ -476,6 +568,7 @@ SCRIPT = r"""'use strict';
     $('trace-health').textContent = 'Загрузите журнал выбранного запуска. Обновление не подтверждает результат.';
     try {
       const session = await (await api('/auth/session')).json();
+      if (scope !== session.session_id) { chats.reset(); chatDrafts.clear(); pendingText = null; }
       scope = session.session_id;
       const selector = new URLSearchParams(location.search);
       activeRun = selector.get('run_id') || stored('run');
@@ -490,18 +583,22 @@ SCRIPT = r"""'use strict';
       const parsed = new DOMParser().parseFromString(text, 'text/html');
       $('panel').replaceChildren(...parsed.body.childNodes);
       $('signout').hidden = false;
+      await chats.load();
+      if (revision !== generation) return;
+      updateNavigation();
       await loadChat();
       if (revision !== generation) return;
-      feedback('Сохранённое состояние загружено. Обновление не запускает запись.');
+      feedback('Состояние обновлено. Изменения календаря не запускались.');
       if (activeRun) {
         stored('run', activeRun);
         const locationQuery = new URLSearchParams({run_id: activeRun});
-        history.replaceState(null, '', '/?' + locationQuery);
+        history.replaceState(null, '', '/?' + locationQuery + location.hash);
       }
     } catch (error) {
       if (revision === generation) {
         scope = null; activeRun = null; chatAvailable = false; chatWorking = false;
-        $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+        chats.reset(); chatDrafts.clear(); ++chatGeneration;
+        $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
         $('workspace').classList.remove('has-chat');
         $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       }
@@ -532,12 +629,11 @@ SCRIPT = r"""'use strict';
           await api(action === 'approve' ? '/api/approval' : '/api/approval/revoke', {...plan, request_key});
         }
       }
-      if (activeRun) history.replaceState(null, '', '/?' + new URLSearchParams({run_id: activeRun}));
+      if (activeRun) history.replaceState(null, '', '/?' + new URLSearchParams({run_id: activeRun}) + location.hash);
       cursor = 0; $('trace-records').replaceChildren(); $('trace-more').hidden = true;
       await refresh();
 
-      $('panel').focus({preventScroll: true});
-      $('panel').scrollIntoView({block: 'start', behavior: 'instant'});
+      focusPanel();
     } catch (error) {
 
       $('panel').replaceChildren();
@@ -581,23 +677,59 @@ SCRIPT = r"""'use strict';
   $('start').addEventListener('click', () => act('start'));
   $('chat-form').addEventListener('submit', sendMessage);
   $('recovery-message').addEventListener('input', controls);
+  window.addEventListener('resize', resizeComposer);
   $('recovery-message').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       if (!$('chat-send').disabled) $('chat-form').requestSubmit();
     }
   });
-  const updateNavigation = () => {
-    const selected = location.hash || '#workspace';
-    document.querySelectorAll('.nav-link').forEach(link => {
-      const current = link.getAttribute('href') === selected;
-      link.classList.toggle('current', current);
-      if (current) link.setAttribute('aria-current', 'location');
-      else link.removeAttribute('aria-current');
-    });
-  };
   window.addEventListener('hashchange', updateNavigation);
+  window.addEventListener('popstate', updateNavigation);
+  $('mobile-nav-toggle')?.addEventListener('click', () => {
+    const open = document.body.dataset.navOpen !== 'true';
+    setNavigationOpen(open);
+    if (open) requestAnimationFrame(() => {
+      if (document.body.dataset.navOpen === 'true') $('sidebar')?.querySelector('.nav-link')?.focus();
+    });
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.body.dataset.navOpen === 'true') {
+      setNavigationOpen(false);
+      $('mobile-nav-toggle')?.focus();
+    }
+  });
+  document.addEventListener('click', event => {
+    const prompt = event.target.closest('[data-prompt]');
+    if (prompt && !$('recovery-message').readOnly) {
+      setNavigationOpen(false);
+      prompt.closest('details')?.removeAttribute('open');
+      $('recovery-message').value = prompt.dataset.prompt;
+      $('recovery-message').dispatchEvent(new Event('input', {bubbles: true}));
+      $('recovery-message').focus({preventScroll: true});
+    }
+    const entry = event.target.closest('[data-chat-entry]');
+    if (entry) {
+      location.hash = activeChat === 'default' ? 'workspace' : 'chat/' + activeChat; updateNavigation();
+      requestAnimationFrame(() => $(entry.dataset.chatEntry)?.scrollIntoView({block: 'start'}));
+    }
+    const link = event.target.closest('.nav-link, .chat-link');
+    if (link) {
+      const wasOpen = document.body.dataset.navOpen === 'true';
+      setNavigationOpen(false);
+      if (wasOpen) requestAnimationFrame(() => {
+        const title = $('view-title');
+        if (title) { title.tabIndex = -1; title.focus({preventScroll: true}); }
+      });
+    }
+    if (document.body.dataset.navOpen === 'true' && !event.target.closest('#sidebar, #mobile-nav-toggle'))
+      setNavigationOpen(false);
+  });
   updateNavigation();
+  $('focus-composer')?.addEventListener('click', () => {
+    location.hash = 'workspace'; updateNavigation();
+    requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
+  });
   $('reload').addEventListener('click', () => {
     loadMoodle(); refresh().catch(error => feedback(error.message, true));
   });
@@ -632,16 +764,18 @@ SCRIPT = r"""'use strict';
   $('signout').addEventListener('click', async () => {
     if (busy || chatBusy) return;
     try { await api('/auth/signout', {}); ++generation; scope = null; activeRun = null;
+      chats.reset(); chatDrafts.clear(); activeChat = 'default'; ++chatGeneration;
       ++moodleRevision; moodleBusy = false;
       clearMoodle('Войдите в CampusPulse, чтобы увидеть свои задания и баллы.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
-      $('chat-history').replaceChildren(); $('chat-history').hidden = true;
+      $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
       $('workspace').classList.remove('has-chat'); $('recovery-message').value = '';
       chatAvailable = false; chatWorking = false; pendingText = null;
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
-      history.replaceState(null, '', '/'); feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
+      history.replaceState(null, '', '/'); updateNavigation();
+      feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
       if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
     } catch (error) { feedback(error.message, true); }
   });
@@ -650,3 +784,4 @@ SCRIPT = r"""'use strict';
   refresh().catch(error => feedback(error.message, true));
 })();
 """
+SCRIPT = WORKSPACE_SCRIPT + SCRIPT

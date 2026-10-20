@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Annotated, Literal, Protocol
 
 from fastapi import APIRouter, Request
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, TypeAdapter
 
 from ..domain.models import Contract, Instant, canonical_json
 from ..domain.chat_plan import ClassSchedule, render_advice
@@ -19,6 +19,7 @@ from ..observability.events import TechnicalId
 from ..security.context import AccessDenied
 from ..storage.plans import _Repository, _decode, _encode, _key
 from .app import body, _json
+from .workspace import ChatId, WorkspaceStore
 
 Message = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=4000)]
 Reply = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=12000)]
@@ -27,6 +28,7 @@ Reply = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=1
 class ChatRequest(Contract):
     request_key: TechnicalId
     message: Message
+    chat_id: ChatId = 'default'
 
 
 class ChatTurn(Contract):
@@ -52,18 +54,20 @@ class ChatStore(_Repository):
         super().__init__(*args, **kwargs)
         self.owner_history = owner_history
 
-    def path(self, context):
+    def path(self, context, chat_id='default'):
+        TypeAdapter(ChatId).validate_python(chat_id)
         c = self._request(context)
-        return 'cp_conversations/' + _key(c.trusted.project_id, c.trusted.owner_id,
+        legacy = _key(c.trusted.project_id, c.trusted.owner_id,
             c.trusted.calendar_id, c.trusted.config_revision,
             'owner-history-v1' if self.owner_history else c.session_id)
+        return 'cp_conversations/' + (legacy if chat_id == 'default' else _key(legacy, chat_id))
 
-    async def read(self, context):
-        saved = await self.documents.get(self.path(context))
+    async def read(self, context, chat_id='default'):
+        saved = await self.documents.get(self.path(context, chat_id))
         return Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
 
     async def claim(self, context, value, now):
-        path = self.path(context)
+        path = self.path(context, value.chat_id)
         async def transact(tx):
             saved = await tx.get(path)
             chat = Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
@@ -88,8 +92,8 @@ class ChatStore(_Repository):
             return chat, True
         return await self.documents.transact(transact)
 
-    async def finish(self, context, key, *, response, duration_ms):
-        path = self.path(context)
+    async def finish(self, context, key, *, response, duration_ms, chat_id='default'):
+        path = self.path(context, chat_id)
         async def transact(tx):
             chat = _decode(await tx.get(path), 'chat-v1', Conversation)
             turns = list(chat.turns)
@@ -112,6 +116,7 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                        structured_advice=False):
     router = APIRouter()
     store = ChatStore(documents, policy, owner_history=owner_history)
+    workspace = WorkspaceStore(documents, policy, owner_history=owner_history)
 
     async def fresh(request, original):
         current = await auth.load(request)
@@ -135,20 +140,29 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
     @router.get('/api/chat')
     async def history(request: Request):
         credential = await auth.load(request)
+        if set(request.query_params) - {'chat_id'} or len(request.query_params.getlist('chat_id')) > 1:
+            raise ValueError('invalid_chat_selector')
+        chat_id = TypeAdapter(ChatId).validate_python(request.query_params.get('chat_id', 'default'))
         with auth.request_scope(credential) as context:
-            chat = await store.read(context)
+            if chat_id != 'default':
+                await workspace.require_chat(context, chat_id)
+            chat = await store.read(context, chat_id)
             await fresh(request, credential)
             return _json(view(chat))
 
     @router.post('/api/chat')
     async def send(request: Request):
         credential = await auth.load(request, mutation=True)
+        if request.query_params:
+            raise ValueError('chat_selectors_in_body_required')
         value = await body(request, ChatRequest)
         if not value.message.strip():
             raise ValueError('empty_chat_message')
         if agent is None:
             return _json({'error': 'chat_not_configured'}, 503)
         with auth.request_scope(credential) as context:
+            if value.chat_id != 'default':
+                await workspace.require_chat(context, value.chat_id)
             chat, claimed = await store.claim(context, value, auth.now())
             await fresh(request, credential)
             if not claimed:
@@ -187,7 +201,7 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                 response = None
             await fresh(request, credential)
             chat = await store.finish(context, value.request_key, response=response,
-                                      duration_ms=round((monotonic() - started) * 1000))
+                                      duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id)
             await fresh(request, credential)
             return _json(view(chat))
 

@@ -4,6 +4,8 @@ These checks do not prove human approval, Firestore or Calendar execution.
 """
 import asyncio
 from datetime import timedelta
+from html.parser import HTMLParser
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +23,29 @@ from campuspulse_recovery.web.views.app import SafeSources, create_ui_app
 from campuspulse_recovery.web.views.render import render_panel, render_shell, safe_calendar_link
 from tests.storage.test_plans import NOW, run, sources
 from tests.web.test_approval import Setup, ORIGIN, action, login
+
+
+class Markup(HTMLParser):
+    """Inspect semantic ownership of controls without coupling to layout CSS."""
+    def __init__(self, html):
+        super().__init__()
+        self.nodes, self.stack = [], []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attributes):
+        node = {"tag": tag, "attrs": dict(attributes), "parents": tuple(self.stack)}
+        self.nodes.append(node)
+        if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}:
+            self.stack.append(node)
+
+    def handle_endtag(self, tag):
+        for index in range(len(self.stack) - 1, -1, -1):
+            if self.stack[index]["tag"] == tag:
+                del self.stack[index:]
+                break
+
+    def by_id(self, identifier):
+        return next(node for node in self.nodes if node["attrs"].get("id") == identifier)
 
 
 class Fixture(Setup):
@@ -98,10 +123,17 @@ def test_exact_stored_diff_escaping_and_approval_render():
         html = render("proposed", plan, sources=SafeSources(assignments=("<script>alert(1)</script>",), calendar=()))
         assert 'data-status="waiting_approval"' in html
         assert plan.payload_hash in html and 'data-version="1"' in html
+        reference = Markup(html).by_id("plan-reference")
+        assert {key: reference["attrs"][key] for key in ("data-plan-id", "data-version", "data-hash")} == {
+            "data-plan-id": plan.payload.plan_id, "data-version": str(plan.payload.version),
+            "data-hash": plan.payload_hash,
+        }
+        assert any(parent["tag"] == "details" for parent in reference["parents"])
         assert "Точные сохранённые операции" in html and "Нет блока" in html
         assert all(op.operation_id in html and op.event_id in html for op in plan.payload.operations)
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html and "<script>" not in html
         assert 'data-action="approve"' in html and 'data-action="apply"' not in html
+        assert "Само согласование не меняет календарь" in html
         assert "В полученной сводке нет записей" in html
         stale = render("proposed", plan, current=None)
         assert "больше не текущая" in stale and 'data-action="approve"' not in stale
@@ -342,7 +374,31 @@ def test_client_uses_only_explicit_mutations_and_safe_trace_projection():
     assert "refresh().catch" in SCRIPT and "act('apply')" not in SCRIPT
     assert "record.observation" in SCRIPT and "event.operation_id" in SCRIPT
     assert "aria-busy" in SCRIPT
-    assert "@media (max-width: 640px)" in STYLES and ":focus-visible" in STYLES
+    assert re.search(r"@media\s*\(\s*max-width\s*:", STYLES) and ":focus-visible" in STYLES
+
+
+@pytest.mark.parametrize("mode", ["recovery", "calendar_advice"])
+def test_shell_separates_assistant_tasks_and_explicit_recovery_controls(mode):
+    html = render_shell("Asia/Qyzylorda", moodle_enabled=True, chat_mode=mode,
+                        signin_url="/login", account_url="/account")
+    markup = Markup(html)
+    body = next(node for node in markup.nodes if node["tag"] == "body")
+    assert body["attrs"]["data-view"] == "assistant"
+    assert body["attrs"]["data-chat-mode"] == mode
+    navigation = {(node["attrs"].get("data-view"), node["attrs"].get("href"))
+                  for node in markup.nodes if node["tag"] == "a"
+                  and "nav-link" in node["attrs"].get("class", "").split()}
+    assert {("assistant", "#workspace"), ("tasks", "#moodle"), ("plan", "#panel")} <= navigation
+    start = markup.by_id("start")
+    recovery = next(parent for parent in start["parents"]
+                    if "recovery-controls" in parent["attrs"].get("class", "").split())
+    assert ("hidden" in recovery["attrs"]) == (mode == "calendar_advice")
+    assert not any(parent["tag"] == "form" for parent in start["parents"])
+    assert not any(parent["attrs"].get("id") == "panel"
+                   or "recovery-home" in parent["attrs"].get("class", "").split()
+                   for parent in markup.by_id("feedback")["parents"])
+    assert "Запись в Google Calendar в этом режиме недоступна" in html if mode == "calendar_advice" else (
+        "согласования точной версии плана и отдельного нажатия «Применить»" in html)
 
 
 @pytest.mark.parametrize("terminal", ["revoked", "expired", "superseded"])

@@ -66,7 +66,11 @@ function onInput(event) {
 }
 
 function syncPlayback() {
-  if (!timeline || dismissed || complete) return;
+  if (!timeline || dismissed) return;
+  if (complete) {
+    render();
+    return;
+  }
   if (document.hidden || !onScreen) {
     timeline.pause();
     gsap.ticker.remove(render);

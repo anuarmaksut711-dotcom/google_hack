@@ -161,7 +161,9 @@ def test_dashboard_is_opt_in_and_planning_does_not_use_old_sheet_data():
         async with h.client() as client:
             await login(client)
             panel = (await client.get('/ui/state')).text
-            assert 'оценки времени на задания' in panel
+            assert 'сколько времени нужно на задания' in panel
+            assert 'Запись в Google Calendar в этом режиме недоступна' in panel
+            assert 'href="#workspace"' in panel
             assert 'data-runtime="false"' in panel
             assert 'Безопасная сводка источника' not in panel
             assert (await client.post('/api/runs', json={})).status_code == 404
