@@ -1,0 +1,24 @@
+FROM python:3.12.13-slim-bookworm AS verified
+WORKDIR /build
+COPY requirements/dev.lock requirements/cloud-linux.lock /locks/
+RUN python -m pip install --no-cache-dir --require-hashes -r /locks/dev.lock -r /locks/cloud-linux.lock
+COPY pyproject.toml ./
+COPY requirements/LICENSE requirements/cloud-linux.lock requirements/
+COPY src src
+COPY tests tests
+COPY deploy/prepare-agent-engine.py deploy/prepare-agent-engine.py
+# Linux AF_UNIX socketpairs keep asyncio compatible with the tests' network fence.
+# External model, Calendar and credentials remain forbidden by these tests.
+RUN python -m pytest tests/agent_engine -q
+RUN python -m build --no-isolation --wheel --outdir /wheels
+
+FROM python:3.12.13-slim-bookworm
+WORKDIR /app
+COPY requirements/cloud-linux.lock /locks/runtime.lock
+RUN python -m pip install --no-cache-dir --require-hashes -r /locks/runtime.lock
+COPY --from=verified /wheels /wheels
+RUN python -m pip install --no-cache-dir --no-deps /wheels/*.whl && useradd --uid 10001 --create-home app
+USER 10001
+ENV PORT=8080 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+EXPOSE 8080
+CMD ["python", "-m", "campuspulse_recovery.cloud"]
