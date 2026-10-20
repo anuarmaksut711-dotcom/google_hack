@@ -16,7 +16,7 @@ from campuspulse_recovery.security.context import AccessDenied
 from campuspulse_recovery.security.resources import ResourcePolicy
 from campuspulse_recovery.storage.plans import _decode
 from campuspulse_recovery.web.auth import (
-    CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE, LoginChallenge,
+    CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE, LoginChallenge,
     VerifiedSignIn, WebAuth, digest,
 )
 from campuspulse_recovery.web.passwords import EmailCredentials
@@ -25,9 +25,9 @@ from tests.web.test_approval import Clock, ORIGIN, SyntheticVerifier
 
 
 def request(handle, csrf, *, session=None, token=None, origin=ORIGIN, site="same-origin"):
-    cookies = f"{CHALLENGE_COOKIE}={handle}; {CSRF_COOKIE}={csrf}"
+    cookies = f"{CHALLENGE_COOKIE}={handle}; {CHALLENGE_CSRF_COOKIE}={csrf}"
     if session is not None:
-        cookies += f"; {SESSION_COOKIE}={session}"
+        cookies += f"; {SESSION_COOKIE}={session}; {CSRF_COOKIE}={csrf}"
     headers = {"host": "campus.test", "cookie": cookies, "origin": origin,
                "sec-fetch-site": site, "x-csrf-token": csrf if token is None else token}
     return Request({"type": "http", "method": "POST", "scheme": "https",

@@ -88,7 +88,11 @@ SCRIPT = r"""'use strict';
             cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(60000),
             headers: {'Content-Type': voiceMime, 'X-CSRF-Token': csrf(), 'X-Speech-Language': language},
             body: new Blob(chunks, {type: voiceMime})});
-          if (!response.ok) throw new Error('transcription');
+          if (!response.ok) {
+            const error = new Error('transcription');
+            error.status = response.status;
+            throw error;
+          }
           const {text} = await response.json();
           if (revision !== generation || !scope) return;
           const input = $('recovery-message');
@@ -101,8 +105,10 @@ SCRIPT = r"""'use strict';
             $('voice-status').textContent = text ? 'Текст добавлен. Проверьте его и нажмите «Отправить».' :
               'Речь не распознана. Попробуйте говорить ближе к микрофону.';
           }
-        } catch {
-          if (revision === generation) $('voice-status').textContent = 'Не удалось распознать речь. Попробуйте снова или введите сообщение вручную.';
+        } catch (error) {
+          if (revision === generation) $('voice-status').textContent = error.status === 403 ?
+            'Сессия входа недействительна. Войдите заново, затем повторите запись.' :
+            'Не удалось распознать речь. Попробуйте снова или введите сообщение вручную.';
         } finally {
           chunks = []; voiceState = 'idle'; controls();
           if (scope) $('recovery-message').focus({preventScroll: true});
@@ -234,7 +240,12 @@ SCRIPT = r"""'use strict';
   };
   const csrf = () => {
     const values = document.cookie.split(';').map(x => x.trim()).filter(x => x.startsWith('__Host-cp-csrf='));
-    if (values.length !== 1) throw new Error('session');
+    if (values.length !== 1) {
+      const error = new Error('Сессия входа недействительна. Войдите заново.');
+      error.status = 403;
+      error.code = 'session_required';
+      throw error;
+    }
     return decodeURIComponent(values[0].slice('__Host-cp-csrf='.length));
   };
   async function api(path, payload) {
@@ -562,13 +573,13 @@ SCRIPT = r"""'use strict';
   }
   async function loadChat() {
     const revision = generation, session = scope, chatId = activeChat, selection = chatGeneration;
+    const pending = stored(pendingChatKey());
     try {
       const chat = await (await api('/api/chat?chat_id=' + chatId)).json();
       if (revision !== generation || session !== scope || selection !== chatGeneration) return;
       showChat(chat);
-      const pending = stored(pendingChatKey());
       const accepted = pending && chat.turns.find(turn => turn.request_key === pending);
-      if (accepted && accepted.status !== 'working') {
+      if (!chatBusy && pending === stored(pendingChatKey()) && accepted && accepted.status !== 'working') {
         if (accepted.status === 'completed' && $('recovery-message').value.trim() === accepted.message.trim())
           $('recovery-message').value = '';
         stored(pendingChatKey(), null); pendingText = null;
@@ -604,8 +615,16 @@ SCRIPT = r"""'use strict';
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
     } catch (error) {
+      if (error.code === 'session_required') {
+        pendingText = null; stored(pendingChatKey(), null); saveDraft();
+      }
+      if (error.status === 403) {
+        $('chat-status').textContent = 'Сессия входа недействительна. Войдите заново — текст сохранён в поле.';
+        return;
+      }
       if (error.code === 'chat_history_limit') {
         chatLimitReached = true; pendingText = null; stored(pendingChatKey(), null);
+        saveDraft();
         $('chat-status').textContent = 'Этот диалог заполнен. Начните новый диалог — история сохранена.';
         return;
       }

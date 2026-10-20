@@ -9,7 +9,9 @@ from campuspulse_recovery.lms.multiuser import account_config, create_multiuser_
 from campuspulse_recovery.security.context import AccessDenied
 from campuspulse_recovery.storage.plans import _decode
 from campuspulse_recovery.storage.sqlite_documents import SqliteDocuments
-from campuspulse_recovery.web.auth import CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE, WebSession, digest
+from campuspulse_recovery.web.auth import (
+    CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE, WebSession, digest,
+)
 from campuspulse_recovery.web.passwords import EMAIL_ISSUER
 from tests.lms.test_multiuser import Agent, ORIGIN, Verifier, client, fetch, login, post, run_async, url
 import httpx
@@ -123,7 +125,7 @@ async def test_email_generic_failed_signin_duplicate_registration_and_one_use_ch
         # Reinstall the exact old browser challenge and CSRF cookies to exercise
         # durable consumption rather than merely the cookie deletion.
         anonymous.cookies.set(CHALLENGE_COOKIE, cookie)
-        anonymous.cookies.set(CSRF_COOKIE, csrf)
+        anonymous.cookies.set(CHALLENGE_CSRF_COOKIE, csrf)
         assert (await anonymous.post('/auth/email/signin', json=payload, headers=headers)).status_code == 403
 
 
@@ -151,6 +153,34 @@ async def test_email_origin_csrf_expiry_and_browser_identity_fields_fail_closed(
         # None of the rejected requests may have provisioned an account.
         now += timedelta(seconds=1)
         assert (await email_action(person, payload['email'], register=True)).status_code == 200
+
+
+@pytest.mark.parametrize('login_method', ['google', 'email'])
+@run_async
+async def test_failed_login_challenge_preserves_existing_account_session(tmp_path, login_method):
+    now = datetime.now(UTC)
+    app = application(tmp_path, clock=lambda: now)
+    async with client(app) as person:
+        csrf = await login(person, 'alice')
+        session = await session_for(app, person)
+        challenge = (await person.get('/auth/challenge')).json()
+        assert person.cookies[CSRF_COOKIE] == csrf
+        path, payload, status = (
+            ('/auth/signin', {'credential': 'forged'}, 403) if login_method == 'google' else
+            ('/auth/email/signin', {'email': 'missing@example.com', 'password': PASSWORD}, 401))
+        failed = await person.post(path, json=payload, headers={'X-CSRF-Token': challenge['csrf_token']})
+        assert failed.status_code == status
+        assert (await session_for(app, person)) == session
+        assert person.cookies[CSRF_COOKIE] == csrf
+        now += timedelta(minutes=6)
+        del person.cookies[CHALLENGE_COOKIE]
+        del person.cookies[CHALLENGE_CSRF_COOKIE]
+        response = await post(person, '/api/chat', {'request_key': 'after-failed-login', 'message': 'hello'})
+        assert response.status_code == 200
+        assert response.json()['turns'][-1]['status'] == 'completed'
+        assert (await post(person, '/auth/signout', {})).status_code == 200
+        assert SESSION_COOKIE not in person.cookies
+        assert CSRF_COOKIE not in person.cookies
 
 
 @run_async

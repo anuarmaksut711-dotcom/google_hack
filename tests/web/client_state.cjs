@@ -17,7 +17,7 @@ function harness() {
   const $ = id => {
     if (!elements.has(id)) elements.set(id, {
       value: '', textContent: '', hidden: false,
-      replaceChildren() {}, setAttribute() {}, classList: {remove() {}},
+      replaceChildren() {}, setAttribute() {}, focus() {}, classList: {remove() {}},
     });
     return elements.get(id);
   };
@@ -30,7 +30,7 @@ function harness() {
     getOwnPropertyDescriptor: () => ({enumerable: true, configurable: true}),
   });
   const sandbox = {
-    $, sessionStorage, URLSearchParams,
+    $, sessionStorage, URLSearchParams, document: {cookie: ''},
     location: {search: '', hash: '#workspace'}, history: {replaceState() {}},
     chats: {reset() {}, async load() {}},
     controls() {}, showChat() {}, updateNavigation() {}, feedback() {},
@@ -40,10 +40,12 @@ function harness() {
   vm.runInContext(`
     let scope='session-1', activeChat='default', pendingText=null, generation=0,
       chatGeneration=0, activeRun=null, cursor=0, chatAvailable=true,
-      chatWorking=false, chatLimitReached=false;
+      chatWorking=false, chatLimitReached=false, chatBusy=false;
     const chatDrafts=new Map();
+    ${between('  const csrf = ', '  async function api(')}
     ${between('  const pendingChatKey', '  function selectChat')}
     ${between('  async function loadChat()', '  async function sendMessage')}
+    ${between('  async function sendMessage(', '  async function refresh()')}
     ${between('  async function refresh()', '  async function act(')}
     function snapshot() { return {scope, pendingText, composer: $('recovery-message').value}; }
   `, sandbox);
@@ -109,9 +111,61 @@ async function pendingWorkingThenCompletedReconciles() {
   assert.equal(h.pending.get('pending-chat'), null);
 }
 
+async function unknownRequestRetainsIdempotencyKey() {
+  const h = harness();
+  h.$('recovery-message').value = 'Edited question';
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='Previous question'; saveDraft()");
+  h.sandbox.api = async () => ({json: async () => ({turns: []})});
+  await h.run('loadChat()');
+  assert.equal(h.run('snapshot().pendingText'), 'Previous question');
+  assert.equal(h.run('snapshot().composer'), 'Edited question');
+  assert.equal(h.pending.get('pending-chat'), 'request-1');
+  assert.equal(JSON.parse(h.data.get('campuspulse-draft-v1:session-1:default')).pendingText, 'Previous question');
+}
+
+async function refreshDuringSendRetainsIdempotencyKey() {
+  const h = harness();
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='In flight'; chatBusy=true");
+  h.sandbox.api = async () => ({json: async () => ({turns: []})});
+  await h.run('loadChat()');
+  assert.equal(h.run('snapshot().pendingText'), 'In flight');
+  assert.equal(h.pending.get('pending-chat'), 'request-1');
+}
+
+async function missingCsrfDoesNotTrapDraft() {
+  const h = harness();
+  h.$('recovery-message').value = 'My question';
+  h.sandbox.keyFor = () => 'request-1';
+  h.sandbox.api = async () => h.run('csrf()');
+  await h.run('sendMessage({preventDefault() {}})');
+  assert.equal(h.run('snapshot().pendingText'), null);
+  assert.equal(h.run('snapshot().composer'), 'My question');
+  assert.match(h.$('chat-status').textContent, /Войдите заново/);
+  assert.equal(h.pending.get('pending-chat'), null);
+}
+
+async function staleRefreshDoesNotClearNewRequest() {
+  const h = harness();
+  let resolveHistory;
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='Previous question'");
+  h.sandbox.api = () => new Promise(resolve => { resolveHistory = resolve; });
+  const refresh = h.run('loadChat()');
+  h.pending.set('pending-chat', 'request-2');
+  h.run("pendingText='New question'");
+  resolveHistory({json: async () => ({turns: [
+    {request_key: 'request-1', message: 'Previous question', status: 'completed'},
+  ]})});
+  await refresh;
+  assert.equal(h.pending.get('pending-chat'), 'request-2');
+  assert.equal(h.run('snapshot().pendingText'), 'New question');
+}
+
 (async () => {
   let failures = 0;
-  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles]) {
+  for (const test of [transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, missingCsrfDoesNotTrapDraft, staleRefreshDoesNotClearNewRequest]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }

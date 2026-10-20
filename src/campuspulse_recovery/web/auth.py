@@ -27,6 +27,7 @@ from ..storage.plans import _Repository, _decode, _encode
 SESSION_COOKIE = "__Host-cp-session"
 CSRF_COOKIE = "__Host-cp-csrf"
 CHALLENGE_COOKIE = "__Host-cp-login"
+CHALLENGE_CSRF_COOKIE = "__Host-cp-login-csrf"
 
 
 def digest(value: str) -> str:
@@ -166,9 +167,9 @@ class WebAuth(_Repository):
                     and (mode != "navigate" or destination != "document"))):
             raise AccessDenied("request_origin_rejected")
 
-    def check_csrf(self, request, expected: str):
+    def check_csrf(self, request, expected: str, *, cookie_name=CSRF_COOKIE):
         self.check_request(request, mutation=True)
-        header, cookie = request.headers.get("x-csrf-token"), request.cookies.get(CSRF_COOKIE)
+        header, cookie = request.headers.get("x-csrf-token"), request.cookies.get(cookie_name)
         if (not header or not cookie or len(header) > 256 or not header.isascii() or not cookie.isascii()
                 or not hmac.compare_digest(header, cookie)
                 or not hmac.compare_digest(digest(header), expected)):
@@ -202,8 +203,8 @@ class WebAuth(_Repository):
         handle = self._cookie(request, CHALLENGE_COOKIE)
         path = "cp_web_challenges/" + digest(handle)
         challenge = _decode(await self.documents.get(path), "web_challenge", LoginChallenge)
-        self._cookie(request, CSRF_COOKIE)
-        self.check_csrf(request, challenge.csrf_digest)
+        self._cookie(request, CHALLENGE_CSRF_COOKIE)
+        self.check_csrf(request, challenge.csrf_digest, cookie_name=CHALLENGE_CSRF_COOKIE)
         if challenge.consumed or self.now() >= challenge.expires_at:
             raise AccessDenied("signin_challenge_expired")
         return challenge

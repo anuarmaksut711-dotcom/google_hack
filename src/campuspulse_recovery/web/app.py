@@ -18,7 +18,7 @@ from ..security.context import AccessDenied
 from ..security.resources import ResourcePolicy
 from ..storage.plans import FirestorePlanStore, plan_reference
 from .approval import ApprovalAction, FirestoreApprovalStore
-from .auth import CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE, WebAuth
+from .auth import CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE, WebAuth
 
 
 class SignInBody(Contract):
@@ -97,7 +97,7 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
         handle, csrf, nonce = await auth.challenge()
         response = _json({"nonce": nonce, "csrf_token": csrf})
         _set(response, CHALLENGE_COOKIE, handle, 300)
-        _set(response, CSRF_COOKIE, csrf, 300, httponly=False)
+        _set(response, CHALLENGE_CSRF_COOKIE, csrf, 300)
         return response
 
     @app.post("/auth/signin")
@@ -111,6 +111,7 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
         _set(response, SESSION_COOKIE, cookie, age)
         _set(response, CSRF_COOKIE, csrf, age, httponly=False)
         response.delete_cookie(CHALLENGE_COOKIE, secure=True, httponly=True, samesite="strict", path="/")
+        response.delete_cookie(CHALLENGE_CSRF_COOKIE, secure=True, httponly=True, samesite="strict", path="/")
         return response
 
     @app.get("/auth/session")
@@ -125,7 +126,7 @@ def create_app(*, policy: ResourcePolicy, documents, verifier, origin: str, envi
     async def signout(request: Request):
         await auth.signout(request)
         response = _json({"status": "signed_out"})
-        for name in (SESSION_COOKIE, CSRF_COOKIE, CHALLENGE_COOKIE):
+        for name in (SESSION_COOKIE, CSRF_COOKIE, CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE):
             response.delete_cookie(name, secure=True, httponly=name != CSRF_COOKIE, samesite="strict", path="/")
         return response
 

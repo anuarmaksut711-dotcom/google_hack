@@ -20,7 +20,7 @@ from campuspulse_recovery.storage.plans import _decode, _encode, _key, _plan_pat
 from campuspulse_recovery.web.app import create_app
 from campuspulse_recovery.web.approval import FirestoreApprovalStore
 from campuspulse_recovery.web.auth import (
-    CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE, GoogleSignInVerifier,
+    CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE, GoogleSignInVerifier,
     VerifiedSignIn, WebAuth, digest,
 )
 from tests.storage.test_plans import FakeDocuments, Harness, NOW, config, make_plan, run, sources
@@ -324,6 +324,8 @@ def test_cookie_flags_login_challenge_one_use_signout_and_session_expiry():
             headers = await login(client)
             assert client.cookies.get(SESSION_COOKIE)
             assert client.cookies.get(CSRF_COOKIE)
+            assert CHALLENGE_COOKIE not in client.cookies
+            assert CHALLENGE_CSRF_COOKIE not in client.cookies
             session_cookie = next(c for c in client.cookies.jar if c.name == SESSION_COOKIE)
             assert session_cookie.secure and session_cookie.has_nonstandard_attr("HttpOnly")
             assert session_cookie.get_nonstandard_attr("SameSite") == "strict"
@@ -339,7 +341,8 @@ def test_cookie_flags_login_challenge_one_use_signout_and_session_expiry():
     run(scenario())
 
 
-@pytest.mark.parametrize("case", ["invalid_token", "foreign_principal", "login_csrf", "reused_challenge", "expired_challenge"])
+@pytest.mark.parametrize("case", ["invalid_token", "foreign_principal", "login_csrf",
+    "login_csrf_missing", "login_csrf_duplicate", "reused_challenge", "expired_challenge"])
 def test_signin_cannot_use_unverified_identity_or_invalid_challenge(case):
     async def scenario():
         h = Setup()
@@ -356,8 +359,13 @@ def test_signin_cannot_use_unverified_identity_or_invalid_challenge(case):
             if case == "reused_challenge":
                 good = await client.post("/auth/signin", headers=headers, json={"credential": "synthetic-signed-token"})
                 assert good.status_code == 200
-                headers["Cookie"] = f"{CHALLENGE_COOKIE}={cookie}; {CSRF_COOKIE}={csrf}"
+                headers["Cookie"] = f"{CHALLENGE_COOKIE}={cookie}; {CHALLENGE_CSRF_COOKIE}={csrf}"
             if case == "login_csrf": headers["X-CSRF-Token"] = "foreign"
+            if case == "login_csrf_missing":
+                headers["Cookie"] = f"{CHALLENGE_COOKIE}={cookie}; {CSRF_COOKIE}={csrf}"
+            if case == "login_csrf_duplicate":
+                headers["Cookie"] = (f"{CHALLENGE_COOKIE}={cookie}; {CHALLENGE_CSRF_COOKIE}={csrf}; "
+                    f"{CHALLENGE_CSRF_COOKIE}={csrf}")
             if case == "expired_challenge": h.clock.value += timedelta(minutes=5)
             result = await client.post("/auth/signin", headers=headers,
                 json={"credential": "made-up-claims" if case == "invalid_token" else "synthetic-signed-token"})

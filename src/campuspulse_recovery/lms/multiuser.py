@@ -25,7 +25,7 @@ from ..storage.plans import _decode
 from ..storage.sqlite_documents import SqliteDocuments
 from ..web.app import SignInBody, _set, body
 from ..web.account import render_moodle_settings
-from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
+from ..web.auth import (CHALLENGE_COOKIE, CHALLENGE_CSRF_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
     GoogleSignInVerifier, WebAuth, WebSession, digest)
 from ..web.passwords import (EMAIL_ISSUER, EmailCredentials, EmailRegistrationUnavailable,
     InvalidCredentials, PasswordRateLimited, PasswordValidationError)
@@ -314,7 +314,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         handle, csrf, nonce = await public_auth.challenge()
         response = JSONResponse({'nonce': nonce, 'csrf_token': csrf})
         _set(response, CHALLENGE_COOKIE, handle, 300)
-        _set(response, CSRF_COOKIE, csrf, 300, httponly=False)
+        _set(response, CHALLENGE_CSRF_COOKIE, csrf, 300)
         return response
 
     @app.post('/auth/signin')
@@ -337,6 +337,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         _set(response, SESSION_COOKIE, cookie, age)
         _set(response, CSRF_COOKIE, csrf, age, httponly=False)
         response.delete_cookie(CHALLENGE_COOKIE, secure=True, httponly=True, samesite='strict', path='/')
+        response.delete_cookie(CHALLENGE_CSRF_COOKIE, secure=True, httponly=True, samesite='strict', path='/')
         return response
 
     async def email_signin(request, *, register):
