@@ -68,3 +68,20 @@ jobs:
           python deploy/run-rollout-checks.py
           --source-sha "$SOURCE_SHA"
           --output "$CI_OUTPUT_DIR"
+
+      - name: Keep verification reports and built packages
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: verification-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: warn
+          # Only these synthetic test/build outputs may leave the runner.
+          include-hidden-files: true
+          path: |
+            .validation/ci/qa-summary.json
+            .validation/ci/pytest.xml
+            .validation/ci/*.log
+            .validation/ci/voice-report.json
+            .validation/ci/dist/*.whl
+            .validation/ci/dist/*.tar.gz
