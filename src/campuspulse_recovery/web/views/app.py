@@ -50,7 +50,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   projection: SafeProjection | None = None, demo_mode: bool = False,
                   chat_agent=None, signin_url=None, moodle_enabled: bool = False,
                   chat_mode: str = 'recovery', owner_chat_history: bool = False,
-                  account_url: str | None = None):
+                  account_url: str | None = None, planning_url: str | None = None, approval_store=None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -64,12 +64,12 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     if environment != 'local' and getattr(chat_agent, 'local_preview_only', False):
         raise ValueError('agent_engine_chat_runtime_required')
     app = create_identity_app(policy=policy, documents=documents, verifier=verifier,
-                             origin=origin, environment=environment, clock=clock)
+                             origin=origin, environment=environment, clock=clock, approval_store=approval_store)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
                    environment=environment, clock=clock)
     app.state.web_auth = auth
     plans = FirestorePlanStore(documents, policy)
-    approvals = FirestoreApprovalStore(documents, policy, clock=clock)
+    approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)
     app.include_router(create_chat_router(auth=auth, documents=documents, policy=policy,
         agent=chat_agent, projection=projection, owner_history=owner_chat_history))
     runs = None if runs_factory is None else runs_factory(auth)
@@ -85,7 +85,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
         auth.check_request(request)
         return render_shell(policy.config.student.timezone, demo_mode=demo_mode,
                             live_chat=chat_agent is not None, signin_url=signin_url,
-                            moodle_enabled=moodle_enabled, chat_mode=chat_mode, account_url=account_url)
+                            moodle_enabled=moodle_enabled, chat_mode=chat_mode, account_url=account_url,
+                            planning_url=planning_url)
 
     @app.get("/assets/campuspulse.css")
     async def css():
@@ -150,7 +151,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     @app.middleware("http")
     async def ui_csp(request, call_next):
         response = await call_next(request)
-        if request.url.path in {"/", "/ui/state", "/assets/campuspulse.css", "/assets/campuspulse.js"} or request.url.path.startswith('/assets/logo/'):
+        if request.url.path in {"/", "/ui/state", "/planning", "/assets/recovery-planning.js",
+                "/assets/campuspulse.css", "/assets/campuspulse.js"} or request.url.path.startswith('/assets/logo/'):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
                 "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")

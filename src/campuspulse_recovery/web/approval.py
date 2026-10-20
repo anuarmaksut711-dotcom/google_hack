@@ -158,6 +158,7 @@ class FirestoreApprovalStore(_Repository):
             previous_doc = None
             if previous is not None and previous != approval.plan:
                 previous_doc = await tx.get(self._path(trusted, previous))
+            await self.validate_approval_basis(context, tx, approval.plan, now)
             self._action(context, approval.plan)
 
 
@@ -188,6 +189,10 @@ class FirestoreApprovalStore(_Repository):
             tx.set(self._pointer(trusted), _encode("approval_current", approval.plan))
 
         await self.documents.transact(record)
+
+    async def validate_approval_basis(self, context, transaction, reference, now):
+        """Source-specific stores can reject changed inputs before recording consent."""
+        self.policy.require_context(context)
 
     async def get(self, context, reference: PlanReference) -> Approval | None:
         context = self._request(context)

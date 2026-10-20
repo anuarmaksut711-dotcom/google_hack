@@ -5,11 +5,20 @@ from .authority import utcnow
 
 
 def assignments_resource(settings):
+    from .accounts import account_binding
+    bound = account_binding(settings)
+    if bound is not None:
+        return moodle_resource_id('https://lms.astanait.edu.kz', bound.moodle_user_id)
     cfg = settings.moodle
     return None if cfg is None else moodle_resource_id(cfg.site_url, cfg.expected_user_id)
 
 
 def planning_inputs(settings, policy, documents, *, clock=utcnow):
+    from .accounts import account_binding
+    bound = account_binding(settings)
+    if bound is not None:
+        from ..lms.feed_planning import FeedPlanningStore
+        return FeedPlanningStore(documents, policy, user_id=bound.moodle_user_id, clock=clock)
     cfg = settings.moodle
     if cfg is None:
         return None

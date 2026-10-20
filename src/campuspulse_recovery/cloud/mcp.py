@@ -150,4 +150,6 @@ def create_mcp(settings, policy, documents, *, port, close):
                     raise RuntimeError('mcp_response_interrupted') from None
                 # Authentication errors are redacted; MCP dispatch handles domain errors.
                 await JSONResponse({'error': 'service_or_invocation_rejected'}, status_code=403)(scope, receive, send)
-    return AuthorizedMcp()
+    result = AuthorizedMcp()
+    result.router = inner.app.router
+    return result

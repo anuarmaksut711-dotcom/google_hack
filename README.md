@@ -13,6 +13,9 @@ Python 3.12, Google ADK, Gemini через Vertex AI, MCP, FastAPI и Firestore.
 
 Следующий облачный этап: [runtime Agent Engine, offline-пакет и контракт для команды подключений](setup/AGENT-ENGINE.md).
 
+Подключение recovery к персональному сайту Moodle: [контракт и включение](setup/RECOVERY-WEB-HANDOFF.md).
+Облачная инфраструктура: [handoff GCP](setup/RECOVERY-GCP-HANDOFF.md).
+
 ## Установка для разработки и тестов
 
 Требуется Python **3.12**. Выполняйте команды из корня репозитория.

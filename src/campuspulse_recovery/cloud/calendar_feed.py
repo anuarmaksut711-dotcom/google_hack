@@ -27,9 +27,11 @@ class CloudCalendarFeed(CalendarFeed):
     def _local_statuses(self):
         return self.statuses
 
-    async def load(self):
-        saved, statuses = await asyncio.gather(self.documents.get(self.record),
-                                               self.documents.get(self.status_record))
+    async def load(self, *, reader=None):
+        reader = reader or self.documents
+        # Approval freshness can read these exact documents in its transaction.
+        saved = await reader.get(self.record)
+        statuses = await reader.get(self.status_record)
         if saved is not None:
             if saved['owner_id'] != self.owner_id or saved['binding'] != self._binding:
                 raise ValueError('calendar_binding_mismatch')

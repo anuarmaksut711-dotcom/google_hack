@@ -56,7 +56,7 @@ def interval(value, timezone):
     return f"{stamp(value.start, timezone)} → {stamp(value.end, timezone)}"
 
 
-def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None):
+def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None, planning_url=None):
     notice = ''
     if demo_mode:
         from ...demo import NOTICE
@@ -72,6 +72,9 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
         moodle = moodle.replace('<div id="moodle-courses">',
             f'<p><a href="{e(account_url)}">Моё подключение Moodle</a></p><div id="moodle-courses">')
     sources_target = '#moodle' if moodle_enabled else '#sources'
+    if planning_url:
+        moodle += (f'<p><a href="{e(planning_url)}">Настроить время на задания и свободные часы</a></p>'
+                   '<p>План применяется к подключённому Google Calendar только после вашего согласования.</p>')
     sources_title = 'Задания и баллы' if moodle_enabled else 'Задания и календарь'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>

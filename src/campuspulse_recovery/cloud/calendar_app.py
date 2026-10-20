@@ -7,14 +7,16 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
+from pydantic import model_validator
 
 from ..agent.conversation import AdkConversationAgent, ConversationTarget, require_chat_credentials
 from ..config import AppConfig, ServiceAccount
 from ..domain.models import Contract
 from ..lms.multiuser import create_multiuser_app
 from ..security.context import AccessDenied
-from .authority import ServiceIdentity
+from .authority import ServiceIdentity, utcnow
 from .calendar_feed import CloudCalendarFeed
+from .recovery import CalendarRecoverySettings
 
 
 class CalendarSettings(Contract):
@@ -23,28 +25,43 @@ class CalendarSettings(Contract):
     google_client_id: str
     chat: ConversationTarget
     scheduler_service_account: ServiceAccount
+    recovery: CalendarRecoverySettings | None = None
+
+    @model_validator(mode='after')
+    def matching_recovery(self):
+        if self.recovery is not None:
+            cfg = self.recovery.settings
+            if ((cfg.application.project_id, cfg.application.firestore_database) !=
+                    (self.application.project_id, self.application.firestore_database)
+                    or cfg.backend_origin != self.origin
+                    or cfg.google_signin_client_id != self.google_client_id):
+                raise ValueError('matching_recovery_application_required')
+        return self
 
 
 class CalendarConversation:
     local_preview_only = False
 
-    def __init__(self, target):
-        self.agent = AdkConversationAgent(target, profile='calendar_advice')
+    def __init__(self, target, *, recovery=False):
+        self.agent = AdkConversationAgent(target, profile='recovery' if recovery else 'calendar_advice')
 
     async def reply(self, **kwargs):
         return await self.agent.reply(**kwargs)
 
 
-def create_calendar_cloud_app(settings, documents):
+def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
     settings.application.require_environment('cloud')
     if settings.application.mode != 'cloud':
         raise ValueError('cloud_configuration_required')
     if not settings.scheduler_service_account.endswith('@' + settings.application.project_id + '.iam.gserviceaccount.com'):
         raise ValueError('scheduler_project_mismatch')
-    factory = lambda **kwargs: CloudCalendarFeed(documents=documents, **kwargs)
+    factory = lambda **kwargs: CloudCalendarFeed(documents=documents, clock=clock, **kwargs)
     app = create_multiuser_app(origin=settings.origin, client_id=settings.google_client_id,
         directory=Path('/tmp/campuspulse'), application=settings.application, documents=documents,
-        feed_factory=factory, agent_factory=lambda: CalendarConversation(settings.chat))
+        feed_factory=factory, agent_factory=lambda: CalendarConversation(settings.chat), clock=clock,
+        recovery_factory=(None if settings.recovery is None else
+            lambda principal, clock: settings.recovery.backend(principal, documents, clock=clock)),
+        recovery_chat_factory=lambda: CalendarConversation(settings.chat, recovery=True))
 
     # These routes must precede the multi-user catch-all mount.
     mount = app.router.routes.pop()
