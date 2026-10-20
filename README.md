@@ -34,6 +34,50 @@ Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Fi
 Результаты CI используют синтетические внешние сервисы и локальный эмулятор;
 зелёный CI не подтверждает доступность реальных Gemini, Moodle или Calendar.
 
+## Архитектура и инструменты
+
+```mermaid
+flowchart LR
+    Browser[Веб-интерфейс] --> Backend[Cloud Run / FastAPI]
+    Moodle[Moodle iCalendar] --> Backend
+    Backend --> Store[Firestore]
+    Backend --> Chat[Google ADK / Gemini API]
+    Backend -.-> Engine[Vertex AI Agent Engine]
+    Engine --> Vertex[Gemini через Vertex AI]
+    Engine --> MCP[Приватный MCP]
+    MCP --> Store
+    MCP --> Calendar[Google Calendar]
+```
+
+Пунктир показывает персональный recovery-путь, который ещё нужно включить.
+Обычный чат уже работает через Cloud Run и Gemini API; он не вызывает инструменты
+записи. Recovery использует следующие инструменты:
+
+| Инструмент | Назначение |
+| --- | --- |
+| `read_assignments` | MCP: прочитать задания из настроенного источника и сохранить снимок. |
+| `read_calendar` | MCP: прочитать занятые интервалы и существующие учебные блоки. |
+| `solve_repair` | Function Calling: рассчитать предложение плана в пределах 72 часов. |
+| `apply_plan` | MCP: применить сохранённую версию плана после отдельного подтверждения пользователя. |
+| `verify_plan` | MCP: перечитать источники и независимо проверить результат применения. |
+
+Версия и хеш плана связывают согласование с конкретным предложением. Изменение
+исходных данных делает прежнее согласование недействительным. После неопределённого
+результата записи автоматический повтор не выполняется. Журнал содержит события
+вызовов и результаты проверки, а текст модели не считается доказательством записи.
+
+Структура исходников:
+
+- `src/campuspulse_recovery/agent/` — Google ADK, выбор инструментов и ограничения вызовов.
+- `agent_engine/`, `cloud/` — runtime, транспорт, облачная композиция и привязки аккаунтов.
+- `lms/`, `domain/`, `application/` — Moodle/My DU, расчёт плана, согласование и проверка.
+- `mcp_service/`, `storage/`, `security/` — MCP, состояние и контроль доступа.
+- `web/` — интерфейс и его серверные маршруты.
+- `tests/`, `evals/`, `requirements/` — тесты, отдельные evaluation-прогоны и lock-файлы.
+- `deploy/`, `setup/` — скрипты развёртывания, инструкции и отчёты проверки.
+
+Пути `agent_engine/`–`web/` относятся к `src/campuspulse_recovery/`.
+
 ## Быстрый запуск опубликованного приложения
 
 1. Откройте [CampusPulse](https://campuspulse-585736102295.us-central1.run.app/login)
