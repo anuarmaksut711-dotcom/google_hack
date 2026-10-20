@@ -31,6 +31,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate GitHub Actions workflow
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
