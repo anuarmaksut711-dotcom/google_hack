@@ -139,4 +139,6 @@ async def test_auth_csrf_selectors_replay_and_rejected_feed(tmp_path):
         assert (await alice.get('/api/moodle?userid=43')).status_code == 400
         assert (await post(alice, '/api/account/moodle', {'url': 'https://evil.example'})).status_code == 400
         assert (await alice.get('/api/moodle')).json()['snapshot']['tasks'][0]['title'] == 'Private homework 42'
-        assert 'calendar' in (await anonymous.get('/login')).text or 'календаря' in (await anonymous.get('/login')).text
+        login_page = (await anonymous.get('/login')).text
+        assert 'type="email"' in login_page and 'type="password"' in login_page
+        assert 'id="google-signin"' in login_page

@@ -50,7 +50,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   projection: SafeProjection | None = None, demo_mode: bool = False,
                   chat_agent=None, signin_url=None, moodle_enabled: bool = False,
                   chat_mode: str = 'recovery', owner_chat_history: bool = False,
-                  account_url: str | None = None, planning_url: str | None = None, approval_store=None):
+                  account_url: str | None = None, planning_url: str | None = None, approval_store=None, email_credentials=None):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -64,9 +64,10 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     if environment != 'local' and getattr(chat_agent, 'local_preview_only', False):
         raise ValueError('agent_engine_chat_runtime_required')
     app = create_identity_app(policy=policy, documents=documents, verifier=verifier,
-                             origin=origin, environment=environment, clock=clock, approval_store=approval_store)
+                             origin=origin, environment=environment, clock=clock, approval_store=approval_store,
+                             email_credentials=email_credentials)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
-                   environment=environment, clock=clock)
+                   environment=environment, clock=clock, email_credentials=email_credentials)
     app.state.web_auth = auth
     plans = FirestorePlanStore(documents, policy)
     approvals = approval_store or FirestoreApprovalStore(documents, policy, clock=clock)

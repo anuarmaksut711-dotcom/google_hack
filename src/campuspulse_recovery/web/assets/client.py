@@ -6,6 +6,44 @@ SCRIPT = r"""'use strict';
   let chatBusy = false, chatAvailable = false, chatWorking = false, pendingText = null;
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
   let moodleRevision = 0, moodleBusy = false;
+  const views = {
+    assistant: ['Ассистент', 'Спланируем учёбу вместе'],
+    tasks: ['Мои задания', 'Задания и ближайшие сроки'],
+    plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
+    journal: ['Журнал', 'Действия агента и результаты запуска']
+  };
+  function setNavigationOpen(open) {
+    document.body.dataset.navOpen = String(open);
+    $('mobile-nav-toggle')?.setAttribute('aria-expanded', String(open));
+  }
+  function updateNavigation() {
+    const selector = new URLSearchParams(location.search);
+    const selected = location.hash || (selector.has('plan_id') && selector.has('version') ? '#panel' : '#workspace');
+    let view = {'#workspace': 'assistant', '#moodle': 'tasks', '#sources': 'plan',
+      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal'}[selected] || 'assistant';
+    if (view === 'tasks' && !moodleEnabled) view = 'plan';
+    document.body.dataset.view = view;
+    if ($('view-title')) $('view-title').textContent = views[view][0];
+    if ($('view-subtitle')) $('view-subtitle').textContent = views[view][1];
+    document.title = 'CampusPulse · ' + views[view][0];
+    document.querySelectorAll('.nav-link').forEach(link => {
+      const current = link.dataset.view === view;
+      link.classList.toggle('current', current);
+      if (current) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+      if (current) {
+        const group = link.closest('details');
+        if (group) group.open = true;
+      }
+    });
+    setNavigationOpen(false);
+  }
+  function focusPanel() {
+    if (location.hash !== '#panel') location.hash = 'panel';
+    updateNavigation();
+    $('panel').focus({preventScroll: true});
+    $('panel').scrollIntoView({block: 'start', behavior: 'instant'});
+  }
   const feedback = (message, error = false) => {
     $('feedback').textContent = message;
     $('feedback').dataset.error = String(error);
@@ -71,7 +109,12 @@ SCRIPT = r"""'use strict';
     if (calendarFeed) {
       $('moodle-heading').textContent = 'Дедлайны из Moodle';
       const sourceLink = document.querySelector('.nav-link[href="#moodle"]');
-      if (sourceLink) sourceLink.textContent = 'Дедлайны Moodle';
+      if (sourceLink) {
+        const label = sourceLink.querySelector('.nav-label'), short = sourceLink.querySelector('.nav-short');
+        if (label) label.textContent = 'Мои задания';
+        if (short) short.textContent = 'Задания';
+        sourceLink.setAttribute('aria-label', 'Мои задания');
+      }
     }
     let message;
     if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде CampusPulse, чтобы настроить доступ к своему аккаунту.';
@@ -111,10 +154,14 @@ SCRIPT = r"""'use strict';
       const group = !calendarFeed ? 'upcoming' : task.view_group ||
         (new Date(task.due_at).getTime() <= Date.now() ? 'past' : 'upcoming');
       const item = document.createElement('li'), subject = document.createElement('p'), title = document.createElement('h4'),
-        description = document.createElement('p'), details = document.createElement('dl');
+        description = document.createElement('p'), details = document.createElement('dl'),
+        descriptionBox = document.createElement('details'), descriptionSummary = document.createElement('summary');
       subject.className = 'moodle-subject'; subject.textContent = task.course_title;
       title.textContent = task.title; description.className = 'moodle-description';
       description.textContent = task.description || 'Описание не предоставлено в Moodle.';
+      descriptionBox.className = 'moodle-description-details';
+      descriptionSummary.textContent = 'Описание задания';
+      descriptionBox.append(descriptionSummary, description);
       const values = calendarFeed ? [
         ['Срок', moodleDate(task.due_at)],
         ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в CampusPulse' :
@@ -128,7 +175,7 @@ SCRIPT = r"""'use strict';
         const term = document.createElement('dt'), detail = document.createElement('dd');
         term.textContent = label; detail.textContent = value; details.append(term, detail);
       }
-      item.append(subject, title, description, details);
+      item.append(subject, title, details, descriptionBox);
       const href = moodleLink(task.url);
       if (href) {
         const link = document.createElement('a'); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
@@ -236,9 +283,9 @@ SCRIPT = r"""'use strict';
     const calendarAdvice = document.body.dataset.chatMode === 'calendar_advice';
     $('chat-status').textContent = calendarAdvice ? (chatAvailable ?
       'Составьте план в чате по дедлайнам Moodle. Укажите свободные часы и время на задания.' :
-      'Для составления плана подключите Gemini к локальному серверу.') : (chatAvailable ?
+      'Чат сейчас недоступен. Попробуйте обновить состояние.') : (chatAvailable ?
       'Чат с агентом · изменения календаря применяются через согласование плана.' :
-      'Агент не подключён к этому серверу. Для ответов нужно настроить Vertex AI.');
+      'Чат сейчас недоступен. Если проверка расписания доступна, начните с неё.');
     const providerErrors = {
       provider_request_rejected: 'Gemini отклонил запрос. Проверьте API-ключ и настройки модели.',
       provider_auth_failed: 'Gemini не принял API-ключ. Проверьте ключ при запуске сервера.',
@@ -314,11 +361,11 @@ SCRIPT = r"""'use strict';
       $('signout').hidden = false;
       await loadChat();
       if (revision !== generation) return;
-      feedback('Сохранённое состояние загружено. Обновление не запускает запись.');
+      feedback('Состояние обновлено. Изменения календаря не запускались.');
       if (activeRun) {
         stored('run', activeRun);
         const locationQuery = new URLSearchParams({run_id: activeRun});
-        history.replaceState(null, '', '/?' + locationQuery);
+        history.replaceState(null, '', '/?' + locationQuery + location.hash);
       }
     } catch (error) {
       if (revision === generation) {
@@ -354,12 +401,11 @@ SCRIPT = r"""'use strict';
           await api(action === 'approve' ? '/api/approval' : '/api/approval/revoke', {...plan, request_key});
         }
       }
-      if (activeRun) history.replaceState(null, '', '/?' + new URLSearchParams({run_id: activeRun}));
+      if (activeRun) history.replaceState(null, '', '/?' + new URLSearchParams({run_id: activeRun}) + location.hash);
       cursor = 0; $('trace-records').replaceChildren(); $('trace-more').hidden = true;
       await refresh();
 
-      $('panel').focus({preventScroll: true});
-      $('panel').scrollIntoView({block: 'start', behavior: 'instant'});
+      focusPanel();
     } catch (error) {
 
       $('panel').replaceChildren();
@@ -409,16 +455,40 @@ SCRIPT = r"""'use strict';
       if (!$('chat-send').disabled) $('chat-form').requestSubmit();
     }
   });
-  const updateNavigation = () => {
-    const selected = location.hash || '#workspace';
-    document.querySelectorAll('.nav-link').forEach(link => {
-      const current = link.getAttribute('href') === selected;
-      link.classList.toggle('current', current);
-      if (current) link.setAttribute('aria-current', 'location');
-      else link.removeAttribute('aria-current');
-    });
-  };
   window.addEventListener('hashchange', updateNavigation);
+  window.addEventListener('popstate', updateNavigation);
+  $('mobile-nav-toggle')?.addEventListener('click', () => {
+    const open = document.body.dataset.navOpen !== 'true';
+    setNavigationOpen(open);
+    if (open) requestAnimationFrame(() => {
+      if (document.body.dataset.navOpen === 'true') $('sidebar')?.querySelector('.nav-link')?.focus();
+    });
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.body.dataset.navOpen === 'true') {
+      setNavigationOpen(false);
+      $('mobile-nav-toggle')?.focus();
+    }
+  });
+  document.addEventListener('click', event => {
+    const prompt = event.target.closest('[data-prompt]');
+    if (prompt && !$('recovery-message').readOnly) {
+      $('recovery-message').value = prompt.dataset.prompt;
+      $('recovery-message').dispatchEvent(new Event('input', {bubbles: true}));
+      $('recovery-message').focus({preventScroll: true});
+    }
+    const link = event.target.closest('.nav-link');
+    if (link) {
+      const wasOpen = document.body.dataset.navOpen === 'true';
+      setNavigationOpen(false);
+      if (wasOpen) requestAnimationFrame(() => {
+        const title = $('view-title');
+        if (title) { title.tabIndex = -1; title.focus({preventScroll: true}); }
+      });
+    }
+    if (document.body.dataset.navOpen === 'true' && !event.target.closest('#sidebar, #mobile-nav-toggle'))
+      setNavigationOpen(false);
+  });
   updateNavigation();
   $('reload').addEventListener('click', () => {
     loadMoodle(); refresh().catch(error => feedback(error.message, true));
@@ -458,7 +528,8 @@ SCRIPT = r"""'use strict';
       chatAvailable = false; chatWorking = false; pendingText = null;
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
-      history.replaceState(null, '', '/'); feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
+      history.replaceState(null, '', '/'); updateNavigation();
+      feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
       if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
     } catch (error) { feedback(error.message, true); }
   });

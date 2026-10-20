@@ -1,4 +1,4 @@
-"""Google-authenticated Moodle accounts, composed from unchanged owner policies.
+"""Authenticated Moodle accounts, composed from unchanged owner policies.
 
 The dispatcher only chooses a scoped application from a verified identity or a
 server session. Every private handler then validates that session with its own
@@ -12,20 +12,22 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from ..cloud.login import install_login
 from ..config import AppConfig
 from ..demo.adapters import demo_config
 from ..domain.models import Contract
-from ..domain.ports import BindingConflict
+from ..domain.ports import BindingConflict, PortError
 from ..security.context import AccessDenied
 from ..security.resources import ResourcePolicy
 from ..storage.plans import _decode
 from ..storage.sqlite_documents import SqliteDocuments
 from ..web.app import SignInBody, _set, body
 from ..web.auth import (CHALLENGE_COOKIE, CSRF_COOKIE, SESSION_COOKIE,
-    GoogleSignInVerifier, LoginChallenge, WebAuth, WebSession, digest)
+    GoogleSignInVerifier, WebAuth, WebSession, digest)
+from ..web.passwords import (EMAIL_ISSUER, EmailCredentials, EmailRegistrationUnavailable,
+    InvalidCredentials, PasswordRateLimited, PasswordValidationError)
 from ..web.moodle import install_moodle_routes
 from ..web.my_du import ACCOUNT_MY_DU, MY_DU_SCRIPT, install_my_du_routes
 from ..web.views.app import SafeSources, create_ui_app
@@ -38,11 +40,19 @@ class ConnectFeed(Contract):
     url: str = Field(min_length=1, max_length=4096)
 
 
+class EmailSignInBody(Contract):
+    email: str = Field(strict=True, min_length=1, max_length=320)
+    password: str = Field(strict=True, min_length=1, max_length=128)
+
+
 def account_config(principal, template=None):
-    if not re.fullmatch(r'https://accounts\.google\.com#[A-Za-z0-9_-]{1,128}', principal):
-        raise AccessDenied('google_subject_required')
+    if re.fullmatch(r'https://accounts\.google\.com#[A-Za-z0-9_-]{1,128}', principal):
+        owner = 'google-' + digest(principal)
+    elif re.fullmatch(re.escape(EMAIL_ISSUER) + r'#[0-9a-f]{32}', principal):
+        owner = 'email-' + digest(principal)
+    else:
+        raise AccessDenied('immutable_account_subject_required')
     values = (demo_config() if template is None else template).model_dump()
-    owner = 'google-' + digest(principal)
     values['student'].update(trusted_user_id=owner, allowed_signin_principal=principal,
                              calendar_id=owner, spreadsheet_id=owner)
     return AppConfig.model_validate(values)
@@ -182,7 +192,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
     if documents is None:
         documents = SqliteDocuments(directory, project_id=bootstrap.config.project_id,
                                    database_id=bootstrap.config.firestore_database)
-    public_auth = WebAuth(documents, bootstrap, verifier=verifier, origin=origin, environment=environment, clock=clock)
+    email_credentials = EmailCredentials(documents, clock=clock)
+    public_auth = WebAuth(documents, bootstrap, verifier=verifier, origin=origin,
+                          environment=environment, clock=clock, email_credentials=email_credentials)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     apps, lock = {}, asyncio.Lock()
     app.state.documents = documents
@@ -193,8 +205,13 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         return JSONResponse({'error': 'access_denied'}, status_code=403)
 
     @app.exception_handler(ValueError)
+    @app.exception_handler(ValidationError)
     async def invalid(request, error):
         return JSONResponse({'error': 'invalid_request'}, status_code=400)
+
+    @app.exception_handler(PortError)
+    async def unavailable(request, error):
+        return JSONResponse({'error': 'signin_unavailable'}, status_code=503)
 
     @app.middleware('http')
     async def headers(request, call_next):
@@ -203,13 +220,16 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'DENY'})
         return response
 
-    install_login(app, public_auth, client_id, moodle=True)
+    install_login(app, public_auth, client_id, moodle=True, email_password=True)
 
     async def scoped_app(principal):
         async with lock:
             if principal in apps:
                 return apps[principal]
-            recovery = None if recovery_factory is None else recovery_factory(principal, clock=clock)
+            # Unverified email identifiers cannot acquire a Google Calendar
+            # binding merely by matching a Google account's email address.
+            recovery = (None if recovery_factory is None or not principal.startswith('https://accounts.google.com#')
+                        else recovery_factory(principal, clock=clock))
             policy = (ResourcePolicy(account_config(principal, application), environment=environment)
                       if recovery is None else recovery.policy)
             my_du = MyDuAccount(documents, policy, transport=my_du_transport, clock=clock)
@@ -225,7 +245,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 runs_factory=None if recovery is None else recovery.runs,
                 approval_store=None if recovery is None else recovery.approvals,
                 planning_url=None if recovery is None else '/planning',
-                owner_chat_history=True, account_url='/account')
+                owner_chat_history=True, account_url='/account', email_credentials=email_credentials)
             auth = inner.state.web_auth
             if recovery is not None:
                 from ..web.moodle_planning import install_planning_routes
@@ -246,7 +266,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                     '<p>Откройте Moodle AITU → Календарь → Экспорт календаря. Выберите все события, '
                     'нажмите Get calendar URL и вставьте полученную ссылку сюда.</p>'
                     '<p>Ссылка даёт доступ к вашему календарю. Задания, отметки и переписка с Gemini '
-                    'будут привязаны к этому Google-аккаунту. При составлении плана Gemini получает названия предметов, заданий и сроки. '
+                    'будут привязаны к этому аккаунту. При составлении плана Gemini получает названия предметов, заданий и сроки. '
                     'Календарь не сообщает, сдали ли вы работу: выполненные задания отмечайте здесь.</p>'
                     '<form id="connect-moodle"><label for="moodle-url">Ссылка календаря Moodle</label>'
                     '<input id="moodle-url" type="url" required autocomplete="off" maxlength="4096">'
@@ -294,22 +314,54 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         public_auth.check_request(request, mutation=True)
         if not 1 <= len(value.credential) <= 12000:
             raise ValueError('invalid_credential')
-        handle = public_auth._cookie(request, CHALLENGE_COOKIE)
-        challenge = _decode(await documents.get('cp_web_challenges/' + digest(handle)), 'web_challenge', LoginChallenge)
-        public_auth.check_csrf(request, challenge.csrf_digest)
-        if challenge.consumed or public_auth.now() >= challenge.expires_at:
-            raise AccessDenied('signin_challenge_expired')
+        challenge = await public_auth.challenge_for_signin(request)
         identity = await verifier.verify(value.credential, nonce=challenge.nonce, now=public_auth.now())
         # Only a verified immutable Google subject may provision an account.
         inner = await scoped_app(identity.principal_id)
         auth = inner.state.web_auth
-        cookie, csrf, session = await auth.signin(request, value.credential)
+        return signed_in(auth, await auth.signin(request, value.credential))
+
+    def signed_in(auth, result):
+        cookie, csrf, session = result
         response = JSONResponse({'status': 'authenticated', 'csrf_token': csrf})
         age = max(1, int((session.expires_at - auth.now()).total_seconds()))
         _set(response, SESSION_COOKIE, cookie, age)
         _set(response, CSRF_COOKIE, csrf, age, httponly=False)
         response.delete_cookie(CHALLENGE_COOKIE, secure=True, httponly=True, samesite='strict', path='/')
         return response
+
+    async def email_signin(request, *, register):
+        # Establish browser intent before parsing or hashing a credential. The
+        # final session transaction rechecks and consumes this exact challenge.
+        challenge = await public_auth.challenge_for_signin(request)
+        if request.query_params:
+            raise ValueError('account_selectors_forbidden')
+        value = await body(request, EmailSignInBody)
+        try:
+            action = email_credentials.register if register else email_credentials.authenticate
+            proof = await action(value.email, value.password, nonce=challenge.nonce)
+            identity = email_credentials.check(proof, nonce=challenge.nonce, now=public_auth.now())
+        except PasswordValidationError as error:
+            code = error.code if error.code in ('email_invalid', 'password_length') else 'invalid_request'
+            return JSONResponse({'error': code}, status_code=400)
+        except InvalidCredentials:
+            return JSONResponse({'error': 'invalid_credentials'}, status_code=401)
+        except EmailRegistrationUnavailable:
+            return JSONResponse({'error': 'registration_unavailable'}, status_code=409)
+        except PasswordRateLimited as error:
+            return JSONResponse({'error': 'rate_limited'}, status_code=429,
+                                headers={'Retry-After': str(error.retry_after)})
+        inner = await scoped_app(identity.principal_id)
+        auth = inner.state.web_auth
+        return signed_in(auth, await auth.signin_password(request, proof))
+
+    @app.post('/auth/email/register')
+    async def register_email(request: Request):
+        return await email_signin(request, register=True)
+
+    @app.post('/auth/email/signin')
+    async def signin_email(request: Request):
+        return await email_signin(request, register=False)
 
     async def dispatch(scope, receive, send):
         request = Request(scope)
@@ -338,7 +390,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Google sign-in and private Moodle accounts on this computer')
+    parser = argparse.ArgumentParser(description='Email or Google sign-in and private Moodle accounts on this computer')
     parser.add_argument('--client-id-file', type=Path, required=True)
     parser.add_argument('--port', type=int, default=8961)
     parser.add_argument('--chat-target', type=Path)
