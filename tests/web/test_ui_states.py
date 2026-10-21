@@ -364,13 +364,13 @@ def test_resources_csp_and_missing_runtime_fail_closed():
 
 
 def test_client_uses_only_explicit_mutations_and_safe_trace_projection():
-    # Periodic work is limited to Moodle reads. Consent/apply stays explicit.
+    # Periodic background work reads Moodle. Consent/apply stays explicit.
     assert SCRIPT.count("setInterval") == 1
     periodic = SCRIPT.split("window.setInterval(", 1)[1].splitlines()[0]
     assert "loadMoodle()" in periodic and "document.hidden" in periodic and "scope" in periodic
     assert "act(" not in periodic and "api(" not in periodic
-    # The one-shot timer stops user-started microphone capture at one minute.
-    assert SCRIPT.count('setTimeout(') == 1
+    # One-shot timers also observe user-started chat work. The Node state tests
+    # execute the polling lifecycle and assert GET-only reads without replay.
     assert "innerHTML" not in SCRIPT and "textContent" in SCRIPT
     # Persistence and per-tab draft isolation are exercised by client_state.cjs.
     assert "request_key" in SCRIPT

@@ -14,6 +14,7 @@ from pydantic import Field, StrictInt, StringConstraints, TypeAdapter
 
 from ..domain.models import Contract, Instant, canonical_json
 from ..domain.chat_plan import ClassSchedule, render_advice
+from ..domain.study_progress import StudyProgress, StudyToolProgress
 from ..domain.ports import BindingConflict
 from ..observability.events import TechnicalId
 from ..security.context import AccessDenied
@@ -55,6 +56,7 @@ class ChatTurn(Contract):
     duration_ms: int | None = None
     tool_trace: Annotated[tuple[ChatToolTrace, ...], Field(max_length=12)] = ()
     agent_run_id: TechnicalId | None = None
+    agent_progress: StudyProgress | None = None
 
 
 class Conversation(Contract):
@@ -115,7 +117,7 @@ class ChatStore(_Repository):
         return await self.documents.transact(transact)
 
     async def finish(self, context, key, *, response, duration_ms, chat_id='default',
-                     tool_trace=(), agent_run_id=None):
+                     tool_trace=(), agent_run_id=None, agent_progress=None):
         path = self.path(context, chat_id)
         async def transact(tx):
             await self.workspace.require_chat(context, chat_id, reader=tx)
@@ -129,7 +131,8 @@ class ChatStore(_Repository):
                     turns[index] = ChatTurn(**{**turn.model_dump(),
                         'status': 'failed' if response is None else 'completed',
                         'response': response, 'duration_ms': duration_ms,
-                        'tool_trace': tool_trace, 'agent_run_id': agent_run_id})
+                        'tool_trace': tool_trace, 'agent_run_id': agent_run_id,
+                        'agent_progress': agent_progress})
                     result = Conversation(turns=tuple(turns))
                     tx.set(path, _encode('chat-v1', result))
                     return result
@@ -150,7 +153,21 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
         if current.session != original.session:
             raise AccessDenied('chat_session_changed')
 
-    def view(chat):
+    async def progress(context, chat_id, request_key):
+        read = getattr(agent, 'read_progress', None)
+        if not callable(read):
+            return None
+        try:
+            async with asyncio.timeout(2):
+                return await read(user_id=context.trusted.owner_id, session_id=context.session_id,
+                                  chat_id=chat_id, request_key=request_key)
+        except AccessDenied:
+            raise
+        except Exception:
+            # Observability outages must not hide durable replies/history.
+            return None
+
+    async def view(chat, context, chat_id):
         turns = [t.model_dump(mode='json') for t in chat.turns]
         for original, turn in zip(chat.turns, turns):
             if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=working_seconds):
@@ -159,6 +176,14 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                 turn.pop('tool_trace')
             if turn['agent_run_id'] is None:
                 turn.pop('agent_run_id')
+            live = (await progress(context, chat_id, original.request_key)
+                    if original.status == 'working' else original.agent_progress)
+            if live is not None:
+                if turn['status'] != 'working':
+                    live = live.settled(success=turn['status'] == 'completed')
+                turn['agent_progress'] = live.model_dump(mode='json', exclude_none=True)
+            else:
+                turn.pop('agent_progress')
         result = {'available': agent is not None, 'turns': turns,
                   'limit_reached': history_limit_reached(chat)}
         if callable(getattr(agent, 'transcribe', None)):
@@ -177,8 +202,9 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
         chat_id = TypeAdapter(ChatId).validate_python(request.query_params.get('chat_id', 'default'))
         with auth.request_scope(credential) as context:
             chat = await store.read(context, chat_id)
+            value = await view(chat, context, chat_id)
             await fresh(request, credential)
-            return _json(view(chat))
+            return _json(value)
 
     @router.post('/api/chat')
     async def send(request: Request):
@@ -202,8 +228,9 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             if not claimed:
                 turn = next(t for t in chat.turns if t.request_key == value.request_key)
                 await workspace.record_activity(context, value.chat_id, chat.turns[0].message, turn.created_at)
+                result = await view(chat, context, value.chat_id)
                 await fresh(request, credential)
-                return _json(view(chat))
+                return _json(result)
             started = monotonic()
             response = None
             tool_trace, agent_run_id = (), None
@@ -221,8 +248,12 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                             'now': auth.now().isoformat(), 'timezone': policy.config.student.timezone,
                             'horizon_hours': 72}
                     await fresh(request, credential)
-                    response = await agent.reply(history=chat.turns[:-1], message=value.message,
+                    reply_for_turn = getattr(agent, 'reply_for_turn', None)
+                    arguments = dict(history=chat.turns[:-1], message=value.message,
                         user_id=context.trusted.owner_id, session_id=context.session_id, sources=sources)
+                    response = (await reply_for_turn(chat_id=value.chat_id,
+                        request_key=value.request_key, **arguments) if callable(reply_for_turn)
+                        else await agent.reply(**arguments))
                     runtime_schedule = None
                     if isinstance(response, ChatReply):
                         tool_trace, agent_run_id = response.tool_trace, response.agent_run_id
@@ -267,9 +298,20 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
             except Exception:
                 response = None
             await fresh(request, credential)
+            final_progress = await progress(context, value.chat_id, value.request_key)
+            if tool_trace:
+                # The completed runtime response survives an auxiliary progress
+                # outage. Use its independently typed facts to settle all calls.
+                final_progress = StudyProgress(phase='completed' if response is not None else 'failed',
+                    tool_calls=tuple(StudyToolProgress(call_id=index,
+                        **item.model_dump(exclude={'schema_version'}))
+                        for index, item in enumerate(tool_trace[:8], 1)))
+            elif final_progress is not None:
+                final_progress = final_progress.settled(success=response is not None)
+            await fresh(request, credential)
             chat = await store.finish(context, value.request_key, response=response,
                 duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id,
-                tool_trace=tool_trace, agent_run_id=agent_run_id)
+                tool_trace=tool_trace, agent_run_id=agent_run_id, agent_progress=final_progress)
             turn = next(t for t in chat.turns if t.request_key == value.request_key)
             title = None
             if await workspace.needs_title(context, value.chat_id) and callable(getattr(agent, 'suggest_title', None)):
@@ -280,7 +322,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                     pass  # A title failure must not hide an already saved reply.
             await fresh(request, credential)
             await workspace.record_activity(context, value.chat_id, chat.turns[0].message, turn.created_at, title=title)
+            result = await view(chat, context, value.chat_id)
             await fresh(request, credential)
-            return _json(view(chat))
+            return _json(result)
 
     return router

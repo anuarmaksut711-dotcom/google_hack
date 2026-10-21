@@ -150,6 +150,129 @@ def test_managed_request_remains_working_after_90_seconds_and_revocation_blocks_
     run(scenario())
 
 
+class LiveEngine(Engine):
+    async def request(self, reference, *, seconds):
+        saved = await self.grants.consume_invocation(reference)
+        self.calls.append(saved)
+        await self.grants.progress(saved, phase='thinking')
+        await self.grants.issue_tool(saved, 'read_assignments')
+        await self.grants.progress(saved,
+            call={'call_id': 1, 'tool': 'read_assignments', 'status': 'running'})
+        self.entered.set()
+        await self.release.wait()
+        if self.invalid_trace:
+            raise TimeoutError('private-provider-url-must-not-escape')
+        await self.grants.progress(saved, call={'call_id': 1, 'tool': 'read_assignments',
+            'status': 'completed', 'duration_ms': 25, 'result_count': 3})
+        await self.grants.progress(saved, phase='composing')
+        await self.grants.progress(saved, phase='completed')
+        return {'reply': json.dumps(self.reply, ensure_ascii=False),
+                'trace': [{'tool': 'read_assignments', 'status': 'completed',
+                           'duration_ms': 25, 'result_count': 3}],
+                'class_schedule': None, 'run_id': 'study_live_test'}
+
+
+def test_poll_exposes_actual_pending_tool_concurrently_then_persists_final_snapshot():
+    async def scenario():
+        h = Setup()
+        engine = LiveEngine(StudyGrants(h.documents, clock=h.clock))
+        engine.release = asyncio.Event()
+        app, _, _, _ = composition(h, engine)
+        async with h.client(app) as client:
+            headers = await login(client)
+            payload = {'request_key': 'live_progress', 'message': 'Покажи задания'}
+            posting = asyncio.create_task(client.post('/api/chat', headers=headers, json=payload))
+            await engine.entered.wait()
+            live_response = await client.get('/api/chat')
+            assert live_response.status_code == 200
+            live, = live_response.json()['turns']
+            assert live['status'] == 'working'
+            assert live['agent_progress']['phase'] == 'tools'
+            assert live['agent_progress']['tool_calls'][0]['status'] == 'running'
+            assert live['agent_progress']['tool_calls'][0]['call_id'] == 1
+            assert 'tool_trace' not in live and live['response'] is None
+            assert 'owner' not in live['agent_progress'] and 'private' not in live_response.text
+            duplicate = await client.post('/api/chat', headers=headers, json=payload)
+            assert duplicate.json()['turns'][0]['agent_progress'] == live['agent_progress']
+            assert len(engine.calls) == 1
+            engine.release.set()
+            final_response = await posting
+            final, = final_response.json()['turns']
+            assert final['status'] == 'completed'
+            assert final['agent_progress']['phase'] == 'completed'
+            assert final['agent_progress']['tool_calls'][0]['result_count'] == 3
+            assert (await client.get('/api/chat')).json() == final_response.json()
+            assert (await client.post('/api/chat', headers=headers, json=payload)).json() == final_response.json()
+            assert len(engine.calls) == 1
+    run(scenario())
+
+
+def test_lost_engine_result_preserves_partial_trace_as_unknown_and_never_replays():
+    async def scenario():
+        h = Setup()
+        engine = LiveEngine(StudyGrants(h.documents, clock=h.clock))
+        engine.release, engine.invalid_trace = asyncio.Event(), True
+        app, _, _, _ = composition(h, engine)
+        async with h.client(app) as client:
+            headers = await login(client)
+            payload = {'request_key': 'live_lost', 'message': 'Мои задания'}
+            posting = asyncio.create_task(client.post('/api/chat', headers=headers, json=payload))
+            await engine.entered.wait()
+            engine.release.set()
+            response = await posting
+            turn, = response.json()['turns']
+            assert turn['status'] == 'failed'
+            assert turn['agent_progress']['phase'] == 'failed'
+            assert turn['agent_progress']['tool_calls'][0]['status'] == 'unknown'
+            assert 'private-provider' not in response.text
+            assert (await client.get('/api/chat')).json()['turns'] == response.json()['turns']
+            assert (await client.post('/api/chat', headers=headers, json=payload)).json()['turns'] == response.json()['turns']
+            assert len(engine.calls) == 1
+    run(scenario())
+
+
+def test_stalled_progress_read_cannot_hold_successful_reply_open_indefinitely():
+    async def scenario():
+        h = Setup()
+        app, agent, engine, _ = composition(h)
+        async def stalled(**kwargs):
+            await asyncio.Future()
+        agent.read_progress = stalled
+        async with h.client(app) as client:
+            headers = await login(client)
+            response = await asyncio.wait_for(client.post('/api/chat', headers=headers,
+                json={'request_key': 'progress_read_outage', 'message': 'Мои задания'}), timeout=5)
+            turn, = response.json()['turns']
+            assert turn['status'] == 'completed'
+            assert turn['agent_progress']['phase'] == 'completed'
+            assert turn['agent_progress']['tool_calls'][0]['result_count'] == 3
+            assert len(engine.calls) == 1
+    run(scenario())
+
+
+def test_expired_working_turn_poll_has_no_active_tool_and_signout_blocks_progress():
+    async def scenario():
+        h = Setup()
+        engine = LiveEngine(StudyGrants(h.documents, clock=h.clock))
+        engine.release = asyncio.Event()
+        app, _, _, _ = composition(h, engine)
+        async with h.client(app) as client:
+            headers = await login(client)
+            posting = asyncio.create_task(client.post('/api/chat', headers=headers,
+                json={'request_key': 'live_expired', 'message': 'План'}))
+            await engine.entered.wait()
+            h.clock.value += timedelta(seconds=151)
+            expired, = (await client.get('/api/chat')).json()['turns']
+            assert expired['status'] == 'unknown'
+            assert expired['agent_progress']['phase'] == 'failed'
+            assert expired['agent_progress']['tool_calls'][0]['status'] == 'unknown'
+            assert (await client.post('/auth/signout', headers=headers, json={})).status_code == 200
+            assert (await client.get('/api/chat')).status_code == 403
+            engine.release.set()
+            assert (await posting).status_code == 403
+    run(scenario())
+
+
 def test_schedule_disconnected_during_engine_call_does_not_publish_unchecked_plan():
     async def scenario():
         h = Setup()

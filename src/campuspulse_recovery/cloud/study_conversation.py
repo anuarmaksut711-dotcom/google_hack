@@ -30,12 +30,27 @@ class StudyConversation:
         return self._failure.get()
 
     async def reply(self, *, history, message, user_id, session_id, sources):
+        return await self._reply(history=history, message=message, user_id=user_id,
+                                 session_id=session_id, sources=sources)
+
+    async def reply_for_turn(self, *, chat_id, request_key, **kwargs):
+        return await self._reply(progress_id=self.grants.progress_id(self.owner,
+            kwargs['session_id'], chat_id, request_key), **kwargs)
+
+    async def read_progress(self, *, user_id, session_id, chat_id, request_key):
+        if user_id != self.owner:
+            raise AccessDenied('study_owner_mismatch')
+        return await self.grants.read_progress(owner=self.owner, session=session_id,
+                                             chat_id=chat_id, request_key=request_key)
+
+    async def _reply(self, *, history, message, user_id, session_id, sources, progress_id=None):
         self._failure.set(None)
         if user_id != self.owner:
             raise AccessDenied('study_owner_mismatch')
         try:
             reference = await self.grants.issue_invocation(owner=self.owner, session=session_id,
-                message=message, history=history, timezone=self.policy.config.student.timezone)
+                message=message, history=history, timezone=self.policy.config.student.timezone,
+                progress_id=progress_id)
             payload = await self.transport.request(reference, seconds=120)
             # Successful Engine transport alone is insufficient: require the
             # closed runtime result and bounded, independently typed trace.

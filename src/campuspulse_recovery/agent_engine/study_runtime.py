@@ -160,6 +160,25 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
     grants = StudyGrants(documents)
     traces, sources = [], {}
     attempted = 0
+    progress_available = True
+
+    async def report(*, phase=None, call=None):
+        nonlocal progress_available
+        if invocation.get('progress_id') is None or not progress_available:
+            return
+        try:
+            async with asyncio.timeout(1.5):
+                await grants.progress(invocation, phase=phase, call=call)
+        except AccessDenied:
+            raise
+        except Exception:
+            # Auxiliary telemetry must never block real source reads or model
+            # responses. The final typed tool trace remains authoritative.
+            progress_available = False
+
+    async def before_model(callback_context, llm_request):
+        # This is an actual ADK model-dispatch callback, not a timed UI stage.
+        await report(phase='composing' if attempted else 'thinking')
 
     async def read(tool):
         nonlocal attempted
@@ -169,10 +188,14 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
         if tool not in TOOLS or attempted >= MAX_TOOL_CALLS:
             return {'status': 'unavailable', 'error': 'tool_budget_exhausted'}
         attempted += 1
+        call_id = None
         started = monotonic()
         status, count = 'failed', 0
+        reported = False
         try:
-            reference = await grants.issue_tool(invocation, tool)
+            reference, call_id = await grants.issue_tool(invocation, tool, with_call_id=True)
+            await report(call={'call_id': call_id, 'tool': tool, 'status': 'running'})
+            reported = True
             source = _safe_source(tool, await _mcp_call(settings, reference, tool), invocation['timezone'])
             sources[tool] = source
             status = 'completed' if source['status'] == 'available' else source['status']
@@ -186,8 +209,11 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
         except Exception:
             return {'status': 'unavailable', 'error': 'source_read_failed'}
         finally:
-            traces.append(ToolTrace(tool=tool, status=status,
-                duration_ms=min(150000, round((monotonic() - started) * 1000)), result_count=count))
+            trace = ToolTrace(tool=tool, status=status,
+                duration_ms=min(150000, round((monotonic() - started) * 1000)), result_count=count)
+            traces.append(trace)
+            if reported:
+                await report(call={'call_id': call_id, **trace.model_dump(exclude={'schema_version'})})
 
     async def read_assignments() -> dict:
         """Read current user's real Moodle assignment deadlines. No account parameters."""
@@ -201,10 +227,12 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
     runner = stream = None
     run_id = 'study_' + uuid4().hex
     try:
+        await report(phase='thinking')
         agent = Agent(name='campuspulse_study', model=model,
             instruction=CALENDAR_ADVICE_INSTRUCTIONS + STUDY_INSTRUCTIONS + RESPONSE_STYLE +
                 '\nТекущее время: ' + utcnow().isoformat() + '; часовой пояс: ' + invocation['timezone'] + '.',
             tools=[FunctionTool(read_assignments), FunctionTool(read_schedule)],
+            before_model_callback=before_model,
             output_schema=advice_output_schema(),
             generate_content_config=types.GenerateContentConfig(max_output_tokens=4096))
         sessions = InMemorySessionService()
@@ -239,6 +267,7 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
         if parsed.kind == 'plan' and sources['read_schedule']['status'] not in {'available', 'not_connected'}:
             raise ValueError('study_schedule_unavailable')
         await grants.session(documents, invocation['owner'], invocation['session'])
+        await report(phase='completed')
         return {'reply': parsed.model_dump_json(), 'trace': [trace.model_dump() for trace in traces],
                 'class_schedule': sources.get('read_schedule', {}).get('class_schedule'), 'run_id': run_id}
     finally:

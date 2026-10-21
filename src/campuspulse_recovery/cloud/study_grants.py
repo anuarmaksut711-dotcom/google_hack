@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_
 from ..agent.mcp_auth import cloud_run_audience
 from ..config import ServiceAccount
 from ..domain.models import Contract, Identifier, IanaZone, Instant
+from ..domain.study_progress import StudyProgress, StudyToolProgress
 from ..security.context import AccessDenied
 from ..web.agent_client import AgentEngineTarget
 from ..web.auth import digest
@@ -52,6 +53,15 @@ class _Invocation(Contract):
     expires: Instant
     consumed: StrictBool = False
     tool_count: Annotated[StrictInt, Field(ge=0, le=8)] = 0
+    progress_id: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')] | None = None
+
+
+class _Progress(Contract):
+    invocation_id: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    owner: Identifier
+    session: Identifier
+    expires: Instant
+    value: StudyProgress
 
 
 class _ToolGrant(Contract):
@@ -82,7 +92,12 @@ class StudyGrants:
     async def session(self, reader, owner, session):
         return await self.sessions.session(reader, owner, session)
 
-    async def issue_invocation(self, owner, session, message, history, timezone):
+    @staticmethod
+    def progress_id(owner, session, chat_id, request_key):
+        # The browser never chooses an owner or an invocation/document path.
+        return digest(json.dumps([owner, session, chat_id, request_key], separators=(',', ':')))
+
+    async def issue_invocation(self, owner, session, message, history, timezone, progress_id=None):
         reference = secrets.token_urlsafe(32)
         turns = []
         for turn in history:
@@ -94,17 +109,73 @@ class StudyGrants:
             raise ValueError('study_history_too_large')
         record = _Invocation(invocation_id=_reference(reference), owner=owner, session=session,
             message=message, history=tuple(turns), timezone=timezone,
-            expires=self.clock() + timedelta(seconds=150))
+            expires=self.clock() + timedelta(seconds=150), progress_id=progress_id)
         if len(json.dumps(_public(record), ensure_ascii=False).encode()) > 180_000:
             raise ValueError('study_invocation_too_large')
         async def save(tx):
             current = await self.session(tx, owner, session)
             path = 'cp_study_invocations/' + record.invocation_id
             await tx.get(path)
+            progress_path = 'cp_study_progress/' + progress_id if progress_id is not None else None
+            if progress_path is not None and await tx.get(progress_path) is not None:
+                raise AccessDenied('study_progress_replay')
             saved = record.model_copy(update={'expires': min(record.expires, current.expires_at)})
             tx.create(path, saved.model_dump(mode='json'))
+            if progress_path is not None:
+                progress = _Progress(invocation_id=record.invocation_id, owner=owner,
+                    session=session, expires=saved.expires, value=StudyProgress(phase='queued'))
+                tx.create(progress_path, progress.model_dump(mode='json'))
         await self.documents.transact(save)
         return reference
+
+    async def read_progress(self, *, owner, session, chat_id, request_key):
+        path = 'cp_study_progress/' + self.progress_id(owner, session, chat_id, request_key)
+        async def read(tx):
+            await self.session(tx, owner, session)
+            raw = await tx.get(path)
+            if raw is None:
+                return None
+            record = _Progress.model_validate(raw)
+            if (record.owner, record.session) != (owner, session):
+                raise AccessDenied('study_progress_binding_rejected')
+            return record.value if self.clock() < record.expires else record.value.settled(success=False)
+        return await self.documents.transact(read)
+
+    async def progress(self, invocation, *, phase=None, call=None):
+        """Only the worker holding the consumed, live invocation can report facts."""
+        value = _Invocation.model_validate(invocation)
+        if value.progress_id is None:  # Existing in-flight clients remain compatible.
+            return
+        call = None if call is None else StudyToolProgress.model_validate(call)
+        async def update(tx):
+            parent_raw = await tx.get('cp_study_invocations/' + value.invocation_id)
+            if parent_raw is None:
+                raise AccessDenied('study_grant_rejected')
+            parent = _Invocation.model_validate(parent_raw)
+            if not parent.consumed or _public(parent) != _public(value) or self.clock() >= parent.expires:
+                raise AccessDenied('study_grant_rejected')
+            await self.session(tx, parent.owner, parent.session)
+            path = 'cp_study_progress/' + value.progress_id
+            saved = _Progress.model_validate(await tx.get(path))
+            if (saved.invocation_id, saved.owner, saved.session) != (
+                    parent.invocation_id, parent.owner, parent.session):
+                raise AccessDenied('study_progress_binding_rejected')
+            current = saved.value
+            if current.phase in {'completed', 'failed'}:
+                raise AccessDenied('study_progress_settled')
+            calls = {item.call_id: item for item in current.tool_calls}
+            if call is not None:
+                previous = calls.get(call.call_id)
+                if (call.call_id > parent.tool_count or
+                        (previous is not None and (previous.tool != call.tool or previous.status != 'running')) or
+                        (previous is None and call.status != 'running')):
+                    raise AccessDenied('study_progress_call_rejected')
+                calls[call.call_id] = call
+            next_phase = phase or ('tools' if any(item.status == 'running' for item in calls.values())
+                                   else 'thinking')
+            result = StudyProgress(phase=next_phase, tool_calls=tuple(calls[key] for key in sorted(calls)))
+            tx.set(path, {**saved.model_dump(mode='json'), 'value': result.model_dump(mode='json')})
+        await self.documents.transact(update)
 
     async def consume_invocation(self, reference):
         path = 'cp_study_invocations/' + _reference(reference)
@@ -120,7 +191,7 @@ class StudyGrants:
             return _public(record)
         return await self.documents.transact(claim)
 
-    async def issue_tool(self, invocation, tool):
+    async def issue_tool(self, invocation, tool, *, with_call_id=False):
         if tool not in STUDY_TOOLS:
             raise AccessDenied('study_tool_rejected')
         value = _Invocation.model_validate(invocation)
@@ -142,8 +213,9 @@ class StudyGrants:
                 expires=min(parent.expires, current.expires_at, self.clock() + timedelta(seconds=60)))
             tx.set(parent_path, {**parent.model_dump(mode='json'), 'tool_count': parent.tool_count + 1})
             tx.create(child_path, child.model_dump(mode='json'))
-        await self.documents.transact(save)
-        return reference
+            return parent.tool_count + 1
+        call_id = await self.documents.transact(save)
+        return (reference, call_id) if with_call_id else reference
 
     async def consume_tool(self, reference, tool):
         if tool not in STUDY_TOOLS:

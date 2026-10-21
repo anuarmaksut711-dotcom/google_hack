@@ -13,10 +13,11 @@ function between(start, end) {
   return source.slice(from, to);
 }
 function harness() {
-  const elements = new Map(), data = new Map(), pending = new Map();
+  const elements = new Map(), data = new Map(), pending = new Map(), pollers = [];
   const $ = id => {
     if (!elements.has(id)) elements.set(id, {
       value: '', textContent: '', hidden: false,
+      querySelectorAll() { return []; }, scrollHeight: 500, scrollTop: 0, clientHeight: 200,
       replaceChildren() {}, setAttribute() {}, focus() {}, scrollTo() {}, classList: {remove() {}},
     });
     return elements.get(id);
@@ -31,10 +32,23 @@ function harness() {
   });
   const sandbox = {
     $, sessionStorage, URLSearchParams, AbortSignal, document: {cookie: '', body: {dataset: {signinUrl: '/login'}}},
-    window: {location: {assign(url) { sandbox.destination = url; }}},
+    window: {location: {assign(url) { sandbox.destination = url; }}, CampusPulseStudyTrace: {
+      Poller: class {
+        constructor(options) { this.options = options; this.stopped = false; pollers.push(this); }
+        start(requestKey) { this.requestKey = requestKey; }
+        stop() { this.stopped = true; }
+      },
+      update(node, turn) { sandbox.lastProgress = {node, turn}; },
+    }},
     location: {pathname: '/', search: '', hash: '#workspace'}, history: {replaceState() {}},
     chats: {data: {chat_available: true, speech_available: true}, reset() {}, selection() {}, async load() {}},
-    controls() {}, showChat(chat) { sandbox.lastChat = chat; }, updateNavigation() {}, feedback() {}, clearMoodle() {},
+    controls() {}, showChat(chat) {
+      sandbox.lastChat = chat;
+      sandbox.renderTarget = chat;
+      vm.runInContext(`renderedChat=renderTarget; chatWorking=renderTarget.turns.some(turn => turn.status==='working');
+        chatAvailable=renderTarget.available`, sandbox);
+      delete sandbox.renderTarget;
+    }, updateNavigation() {}, feedback() {}, clearMoodle() {},
     keyFor(name) { if (!pending.get(name)) pending.set(name, 'stable-first-send'); return pending.get(name); },
     stored(name, value) {if (value !== undefined) pending.set(name, value); return pending.get(name) ?? null;},
   };
@@ -43,19 +57,146 @@ function harness() {
     let scope='session-1', activeChat='default', pendingText=null, generation=0,
       chatGeneration=0, activeRun=null, cursor=0, chatAvailable=true,
       chatWorking=false, chatLimitReached=false, chatBusy=false, busy=false,
-      moodleEnabled=false, moodleRevision=0, moodleBusy=false;
+      moodleEnabled=false, moodleRevision=0, moodleBusy=false, renderedChat=null, chatPoller=null;
     const chatDrafts=new Map();
     ${between('  const draftChat', '  let activeChat')}
     ${between('  const csrf = ', '  async function api(')}
     ${between('  async function api(', '  function clearMoodle(')}
     ${between('  const pendingChatKey', '  function selectChat')}
+    ${between('  function watchChatProgress(', '  async function loadChat()')}
     ${between('  async function loadChat()', '  async function sendMessage')}
     ${between('  async function sendMessage(', '  async function refresh()')}
     ${between('  async function refresh()', '  async function act(')}
     ${between('  async function signOut()', "  $('signout').addEventListener")}
     function snapshot() { return {scope, pendingText, composer: $('recovery-message').value}; }
   `, sandbox);
-  return {sandbox, data, pending, $, run: text => vm.runInContext(text, sandbox)};
+  return {sandbox, data, pending, pollers, $, run: text => vm.runInContext(text, sandbox)};
+}
+
+async function progressReadsNeverPostOrDiscardLastObservationOnFailure() {
+  const h = harness(), requests = [];
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='Original question'; renderedChat={turns:[{request_key:'request-1',status:'working'}]}");
+  h.sandbox.api = async (...args) => {
+    requests.push(args);
+    return {json: async () => ({turns: [{request_key: 'request-1', status: 'working'}]})};
+  };
+  h.run("watchChatProgress('request-1')");
+  const poller = h.pollers[0], observed = await poller.options.read();
+  assert.equal(observed.turns[0].request_key, 'request-1');
+  assert.deepEqual(requests, [['/api/chat?chat_id=default']], 'Progress uses a GET with no payload or CSRF mutation');
+  const previous = h.run('renderedChat');
+  poller.options.failed(Object.assign(new Error('Temporary failure'), {status: 503}));
+  assert.equal(h.run('renderedChat'), previous, 'Polling errors preserve the last rendered chat');
+  assert.equal(h.run('pendingText'), 'Original question');
+  assert.equal(h.pending.get('pending-chat'), 'request-1', 'A failed progress GET must not clear the original retry key');
+  assert.match(h.$('chat-status').textContent, /Не удалось обновить ход работы/);
+  assert.equal(requests.length, 1, 'A polling error must never replay the message POST');
+}
+
+async function progressUpdatesExistingDisclosureAndPreservesScrollPosition() {
+  const h = harness(), disclosure = {open: false};
+  const reply = {dataset: {requestKey: 'request-1'}, querySelector: () => disclosure};
+  h.$('chat-history').querySelectorAll = () => [reply];
+  h.$('conversation-scroll').scrollTop = 41;
+  h.run("watchChatProgress('request-1')");
+  const chat = {available: true, turns: [{request_key: 'request-1', status: 'working',
+    agent_progress: {phase: 'tools', tool_calls: [{tool: 'read_assignments', status: 'running'}]}}]};
+  h.pollers[0].options.update(chat, chat.turns[0]);
+  assert.equal(h.sandbox.lastProgress.node, disclosure, 'Live observations update the existing disclosure in place');
+  assert.equal(disclosure.open, false, 'A background observation must not reopen details the user collapsed');
+  assert.equal(h.run('renderedChat'), chat);
+  assert.equal(h.run('chatWorking'), true);
+  assert.equal(h.sandbox.lastChat, undefined, 'A progress change must not rebuild conversation history');
+  assert.equal(h.$('conversation-scroll').scrollTop, 41);
+}
+
+async function progressSelectionAndSessionGuardsIgnoreOldChat() {
+  for (const mutation of ["++generation", "scope='new-session'", "activeChat='new-chat'", "++chatGeneration"]) {
+    const h = harness();
+    h.run("watchChatProgress('request-1')");
+    assert.equal(h.pollers[0].options.valid(), true);
+    h.run(mutation);
+    assert.equal(h.pollers[0].options.valid(), false, `Invalidate observation after ${mutation}`);
+  }
+  const h = harness();
+  h.run("watchChatProgress('request-1'); watchChatProgress('request-2')");
+  assert.equal(h.pollers[0].stopped, true, 'Starting another observation stops the previous loop');
+  assert.equal(h.pollers[1].requestKey, 'request-2');
+}
+
+async function terminalProgressReconcilesOriginalDraftAndPreservesEdits() {
+  for (const edited of [false, true]) {
+    const h = harness();
+    h.$('recovery-message').value = edited ? 'New unsent question' : 'Accepted question';
+    h.pending.set('pending-chat', 'request-1');
+    h.run("pendingText='Accepted question'; watchChatProgress('request-1')");
+    const turn = {request_key: 'request-1', status: 'completed', message: 'Accepted question'};
+    h.pollers[0].options.update({turns: [turn]}, turn);
+    assert.equal(h.$('recovery-message').value, edited ? 'New unsent question' : '');
+    assert.equal(h.pending.get('pending-chat'), null);
+    assert.equal(h.run('pendingText'), null);
+  }
+}
+
+async function bootstrapFailureClearsOptimisticWorkingAndAllowsRetry() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Keep my unsent question';
+  h.sandbox.fetch = async url => {requests.push(url); throw new Error('Bootstrap network unavailable');};
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(requests, ['/auth/session'], 'No chat POST was dispatched when CSRF bootstrap failed');
+  assert.equal(h.sandbox.lastChat.turns.length, 0, 'A definitively unsent request must remove its optimistic working row');
+  assert.equal(h.run('chatWorking'), false, 'The composer must not remain blocked on a request that was never sent');
+  assert.equal(h.run('chatBusy'), false);
+  assert.equal(h.run('pendingText'), null);
+  assert.equal(h.pending.get('pending-chat'), null, 'A known-unsent request permits a fresh explicit retry');
+  assert.equal(h.$('recovery-message').value, 'Keep my unsent question');
+  assert(h.pollers.length > 0 && h.pollers.every(poller => poller.stopped), 'No optimistic observation loop may remain running');
+}
+
+async function rejectedDispatchedPostPreservesRetryKeyAndShowsUnknown() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Possibly dispatched question';
+  h.sandbox.fetch = async (url, options) => {
+    requests.push({url, method: options.method || 'GET'});
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: 'valid_session_token_123456789'})} :
+      {ok: false, status: 403};
+  };
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(requests, [{url: '/auth/session', method: 'GET'}, {url: '/api/chat', method: 'POST'}]);
+  assert.equal(h.sandbox.lastChat.turns.length, 1);
+  assert.equal(h.sandbox.lastChat.turns[0].status, 'unknown', 'A server rejection after dispatch cannot be presented as continuing work');
+  assert.equal(h.run('chatWorking'), false);
+  assert.equal(h.run('pendingText'), 'Possibly dispatched question');
+  assert.equal(h.pending.get('pending-chat'), 'stable-first-send', 'Preserve the original idempotency key when dispatch was attempted');
+  assert.equal(h.$('recovery-message').value, 'Possibly dispatched question');
+  assert(h.pollers.length > 0 && h.pollers.every(poller => poller.stopped), 'Rejected session must stop progress polling');
+}
+
+async function idempotentPostStillWorkingRetainsDraftKeyAndPolling() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Original in-flight question';
+  h.pending.set('pending-chat', 'original-key');
+  h.run("pendingText='Original in-flight question'");
+  h.sandbox.api = async (url, payload) => {
+    requests.push({url, payload});
+    return {json: async () => ({available: true, turns: [{request_key: payload.request_key,
+      message: payload.message, status: 'working'}]})};
+  };
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.equal(requests.length, 1, 'The explicit retry makes one POST with the saved key');
+  assert.equal(requests[0].payload.request_key, 'original-key');
+  assert.equal(h.pending.get('pending-chat'), 'original-key', 'A working response is not a settled request');
+  assert.equal(h.run('pendingText'), 'Original in-flight question');
+  assert.equal(h.$('recovery-message').value, 'Original in-flight question');
+  assert.equal(h.run('chatWorking'), true);
+  assert.equal(h.run('chatBusy'), false);
+  assert.equal(h.pollers.at(-1).stopped, false, 'Progress observation must continue until a terminal response');
+  assert.equal(h.pollers.at(-1).requestKey, 'original-key');
 }
 
 async function openingDraftDoesNotReadOrCreateServerChat() {
@@ -461,6 +602,13 @@ async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() 
 
 (async () => {
   let failures = 0;
+  for (const test of [progressReadsNeverPostOrDiscardLastObservationOnFailure,
+    progressUpdatesExistingDisclosureAndPreservesScrollPosition, progressSelectionAndSessionGuardsIgnoreOldChat,
+    terminalProgressReconcilesOriginalDraftAndPreservesEdits, bootstrapFailureClearsOptimisticWorkingAndAllowsRetry,
+    rejectedDispatchedPostPreservesRetryKeyAndShowsUnknown, idempotentPostStillWorkingRetainsDraftKeyAndPolling]) {
+    try {await test(); console.log('PASS', test.name);}
+    catch (error) {++failures; console.error('FAIL', test.name, error.message);}
+  }
   for (const test of [deletedAmbiguousCreationAllowsExplicitFreshSend, lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion, deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory, deletingSelectedChatClearsItsLocalStateAndOpensDraft, deletingOtherChatPreservesCurrentDraft, deletedProjectDraftSendsIntoGeneralList, transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}

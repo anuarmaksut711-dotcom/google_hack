@@ -79,7 +79,9 @@ class ScriptedModel(BaseLlm):
     async def generate_content_async(self, llm_request, stream=False):
         self._requests.append(llm_request.model_copy(deep=True))
         item = self._script.pop(0)
-        if isinstance(item, str):
+        if isinstance(item, tuple):
+            parts = [types.Part(function_call=types.FunctionCall(name=name, args={})) for name in item]
+        elif isinstance(item, str):
             parts = [types.Part(function_call=types.FunctionCall(name=item, args={}))]
         else:
             parts = [types.Part(text='private reasoning', thought=True),
@@ -88,19 +90,31 @@ class ScriptedModel(BaseLlm):
 
 
 def install_tools(monkeypatch, *, unavailable=False, revoked=False, fail_on_repeat=None,
-                  schedule_unavailable=False):
+                  schedule_unavailable=False, progress_events=None, progress_failure=None,
+                  reverse_parallel=False):
     calls = []
+    second_committed = asyncio.Event()
     class Grants:
         def __init__(self, documents):
             pass
-        async def issue_tool(self, value, tool):
+        async def issue_tool(self, value, tool, *, with_call_id=False):
             assert value['owner'] == invocation()['owner']
+            if reverse_parallel and tool == 'read_assignments':
+                await second_committed.wait()
             calls.append(tool)
-            return 'private-capability-' + tool
+            if reverse_parallel and tool == 'read_schedule':
+                second_committed.set()
+            reference = 'private-capability-' + tool
+            return (reference, len(calls)) if with_call_id else reference
         async def session(self, documents, owner, session):
             assert (owner, session) == (invocation()['owner'], invocation()['session'])
             if revoked:
                 raise AccessDenied('session_revoked')
+        async def progress(self, value, *, phase=None, call=None):
+            assert value['progress_id'] == 'd' * 64
+            if progress_failure is not None:
+                raise progress_failure
+            progress_events.append({'phase': phase, 'call': call})
     async def call(settings, reference, tool):
         assert reference == 'private-capability-' + tool
         if tool == fail_on_repeat and calls.count(tool) > 1:
@@ -122,8 +136,11 @@ def run_model(monkeypatch, script, **options):
     model._script = script
     app, study, chat = configuration()
     async def scenario():
+        saved = invocation()
+        if options.get('progress_events') is not None:
+            saved['progress_id'] = 'd' * 64
         return await module._run_study(app, module.StudyAgentSettings.model_validate(study),
-            module.ConversationTarget.model_validate(chat), object(), invocation(), model_factory=lambda: model)
+            module.ConversationTarget.model_validate(chat), object(), saved, model_factory=lambda: model)
     return asyncio.run(scenario()), calls, model
 
 
@@ -147,6 +164,59 @@ def test_model_selects_real_tools_then_returns_plan_with_separate_source_and_tra
     assert 'Real assignment from fake MCP' in json.dumps([
         content.model_dump(mode='json') for content in model._requests[-1].contents])
     assert 'private reasoning' not in result['reply']
+
+
+def test_live_progress_follows_actual_adk_model_and_tool_dispatch_without_reasoning_text(monkeypatch):
+    events = []
+    result, calls, _ = run_model(monkeypatch, ['read_assignments', 'read_schedule', reply(plan=True)],
+                                progress_events=events)
+    assert calls == ['read_assignments', 'read_schedule']
+    assert [item['phase'] for item in events if item['phase']] == [
+        'thinking', 'thinking', 'composing', 'composing', 'completed']
+    observed = [item['call'] for item in events if item['call']]
+    assert [(item['call_id'], item['tool'], item['status']) for item in observed] == [
+        (1, 'read_assignments', 'running'), (1, 'read_assignments', 'completed'),
+        (2, 'read_schedule', 'running'), (2, 'read_schedule', 'not_connected')]
+    assert observed[1]['result_count'] == 1 and observed[3]['result_count'] == 0
+    assert events[-1] == {'phase': 'completed', 'call': None}
+    visible = json.dumps(events)
+    assert 'private reasoning' not in visible and 'Real assignment' not in visible
+    assert 'capability' not in visible and 'session-private' not in visible
+    assert len(result['trace']) == 2
+
+
+def test_greeting_progress_never_invents_tool_or_composing_stages(monkeypatch):
+    events = []
+    _, calls, _ = run_model(monkeypatch, [reply()], progress_events=events)
+    assert calls == []
+    assert [item['phase'] for item in events] == ['thinking', 'thinking', 'completed']
+    assert all(item['call'] is None for item in events)
+
+
+def test_progress_outage_never_prevents_actual_mcp_reads_or_valid_answer(monkeypatch):
+    result, calls, _ = run_model(monkeypatch, ['read_assignments', 'read_schedule', reply(plan=True)],
+        progress_events=[], progress_failure=RuntimeError('Firestore progress is temporarily unavailable'))
+    assert calls == ['read_assignments', 'read_schedule']
+    assert json.loads(result['reply']) == reply(plan=True)
+    assert len(result['trace']) == 2
+
+
+def test_progress_session_revocation_still_blocks_source_dispatch(monkeypatch):
+    with pytest.raises(AccessDenied, match='session_revoked'):
+        run_model(monkeypatch, ['read_assignments', reply()],
+                  progress_events=[], progress_failure=AccessDenied('session_revoked'))
+
+
+def test_parallel_tools_use_grant_commit_indices_when_commit_order_differs_from_model_order(monkeypatch):
+    events = []
+    result, calls, _ = run_model(monkeypatch,
+        [('read_assignments', 'read_schedule'), reply(plan=True)],
+        progress_events=events, reverse_parallel=True)
+    assert calls == ['read_schedule', 'read_assignments']
+    started = [item['call'] for item in events if item['call'] and item['call']['status'] == 'running']
+    assert [(item['call_id'], item['tool']) for item in started] == [
+        (1, 'read_schedule'), (2, 'read_assignments')]
+    assert len(result['trace']) == 2
 
 
 def test_model_decides_to_read_only_assignments_for_deadline_question(monkeypatch):

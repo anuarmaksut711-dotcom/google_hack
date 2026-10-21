@@ -146,6 +146,44 @@ saved in chat history. The browser reported no console errors. Private local
 verification artifacts contain the sanitized trace summary and a screenshot;
 personal conversation/feed contents are not committed to the repository.
 
-The next UI stage can render these saved tool traces. It should preserve the
-distinction between unavailable sources, an empty valid source and missing
-schedule coverage rather than displaying all of them as a successful plan.
+## Real-time MCP trace interface
+
+The subsequent UI integration adds a native, keyboard-accessible "Действия
+агента" disclosure to each chat reply. It shows actual tool names, source
+outcomes, result counts and measured duration, and preserves missing schedule,
+unavailable source and valid empty-source distinctions. Existing saved
+`tool_trace` records also render without rerunning tools. The completed trace
+takes precedence over a partial live observation snapshot.
+
+During `POST /api/chat`, the browser polls the existing authenticated
+`GET /api/chat?chat_id=...`; GET never dispatches the Engine or writes Calendar.
+No model thoughts, prompts, grants, source URLs or account selectors are exposed.
+The optional turn field is:
+
+```text
+agent_progress: {
+  phase: queued | thinking | tools | composing | completed | failed,
+  tool_calls: [{call_id, tool, status, duration_ms?, result_count?}]
+}
+```
+
+Each call is `read_assignments` or `read_schedule`; its status is `running`,
+`completed`, `failed`, `unavailable`, `not_connected` or `unknown`. Counts and
+durations appear only when reported, and missing observations do not imply a
+tool call or success. The worker reports actual tool boundaries and ADK model
+dispatch callbacks. Live progress is separately bound to owner, session, chat,
+request and the one-use parent invocation; bounded snapshots persist with the
+settled chat turn. Auth/revocation checks still fail closed. An observation-only
+storage failure does not abort an otherwise valid tool/model operation.
+
+Polling stops on a settled result, session/chat change or bounded timeout. A
+failed poll preserves the displayed observations and never repeats a POST.
+The UI retains native disclosure state, respects reduced motion and continues
+the existing smooth reveal of the final response.
+
+Deployment of this integration requires the same new artifact in MCP, Engine
+and website: the invocation record now has optional `progress_id`. Update MCP
+first, Engine second, and activate the website last. Older invocations omit the
+field and remain supported. Existing settings version 3, service identities,
+private MCP access and Calendar write restrictions are unchanged. Live rollout
+results for this follow-up are recorded after verification below.
