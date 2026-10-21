@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from ..domain.ports import PortError
 from ..security.context import AccessDenied
 from ..web.chat import ChatReply
+from ..web.workspace import WorkspaceChange
 from .engine_transport import AgentEngineTransport
 from .study_grants import StudyAgentSettings, StudyGrants
 
@@ -68,8 +69,15 @@ class StudyConversation:
             # Never dispatch the same prompt to local Gemini as a fallback.
             raise PortError('study_agent_unavailable') from None
 
-    async def suggest_title(self, **kwargs):
-        return await self.delegate.suggest_title(**kwargs)
+    async def suggest_title(self, *, message):
+        # Naming a finished managed conversation must not initialize a second
+        # local model/client or block other requests with SDK discovery.
+        cleaned = ' '.join(message.split())
+        cleaned = ''.join(c for c in cleaned if ord(c) >= 32 and ord(c) != 127)
+        title = ' '.join(cleaned.split()[:7])[:60].rstrip()
+        if len(title) == 60 and ' ' in title and len(' '.join(cleaned.split()[:7])) > 60:
+            title = title.rsplit(' ', 1)[0]
+        return WorkspaceChange.clean_title(title.strip('"«»“”'))
 
     async def transcribe(self, **kwargs):
         return await self.delegate.transcribe(**kwargs)

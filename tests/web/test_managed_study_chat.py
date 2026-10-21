@@ -34,6 +34,40 @@ class Delegate:
         return 'Составь план'
 
 
+@pytest.mark.parametrize('message, expected', [
+    ('Составь   план\nпо\tмоим заданиям на завтра пожалуйста', 'Составь план по моим заданиям на завтра'),
+    ('Help me plan my real coursework tomorrow please', 'Help me plan my real coursework tomorrow'),
+    ('Алдағы үш күнге тапсырмаларымды жоспарлап берші өтінемін',
+     'Алдағы үш күнге тапсырмаларымды жоспарлап берші өтінемін'),
+    ('Ж' * 100, 'Ж' * 60),
+    ('«Составь\x00 план\x7f по заданиям»', 'Составь план по заданиям'),
+])
+def test_managed_title_is_bounded_user_text_without_model_or_storage_calls(message, expected):
+    async def scenario():
+        h = Setup()
+        _, agent, _, _ = composition(h)
+        async def forbidden(**kwargs):
+            pytest.fail('Managed titles must not call a model or source storage')
+        agent.delegate.suggest_title = forbidden
+        agent.delegate.reply = forbidden
+        agent.transport.request = forbidden
+        agent.grants.issue_invocation = forbidden
+        title = await agent.suggest_title(message=message)
+        assert title == expected
+        assert 0 < len(title) <= 60
+        assert all(ord(c) >= 32 and ord(c) != 127 for c in title)
+    run(scenario())
+
+
+def test_empty_managed_title_uses_existing_workspace_validation_without_network():
+    async def scenario():
+        h = Setup()
+        _, agent, _, _ = composition(h)
+        with pytest.raises(ValueError, match='invalid_title'):
+            await agent.suggest_title(message=' \t\n\x00\x7f ')
+    run(scenario())
+
+
 class Engine:
     def __init__(self, grants):
         self.grants, self.calls = grants, []
