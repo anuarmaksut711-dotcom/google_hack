@@ -79,5 +79,40 @@ const descend=node=>[node,...node.children.flatMap(value=>typeof value==='string
  assert(!downgraded.textContent.includes('Проверено:'),'Old verified timestamp is removed');
  assert(!descend(downgraded).some(node=>node.localName==='a'),'Old verified links are removed');
  assert(nodes.get('calendar-plans-status').textContent.includes('Не удалось загрузить расписание'));
+ sandbox.fetch=async()=>({ok:true,status:200,json:async()=>({items:[{plan,state}]})});
+ await handlers.get('campuspulse:panel-ready')();await settle();
+ const beforeRace=nodes.get('calendar-plan-list').children[0];
+ assert.equal(beforeRace.dataset.status,'verified');
+ let releaseOldRead,releaseFreshRead,reads=0;
+ sandbox.fetch=()=>{
+  reads++;
+  return new Promise(resolve=>{
+   const release=value=>resolve({ok:true,status:200,json:async()=>({items:[{plan,state:value}]})});
+   if(reads===1)releaseOldRead=release;
+   else if(reads===2)releaseFreshRead=release;
+   else throw Error('Refresh must not loop');
+  });
+ };
+ const oldRead=handlers.get('campuspulse:panel-ready')();await settle();
+ await beforeRace.children.find(child=>child.localName==='button').listeners.click();await settle();
+ assert.equal(beforeRace.dataset.status,'applied_unverified','POST result downgrades while old list read is in flight');
+ releaseOldRead(state);await oldRead;await settle();
+ assert.equal(nodes.get('calendar-plan-list').children[0].dataset.status,'applied_unverified',
+   'A pre-mutation verified snapshot must not overwrite the authoritative POST result');
+ assert.equal(reads,2,'One current list read is queued after the invalidated read settles');
+ releaseFreshRead({status:'applied_unverified',operations:[]});await settle();
+ assert.equal(nodes.get('calendar-plan-list').children[0].dataset.status,'applied_unverified');
+ assert(!nodes.get('calendar-plan-list').textContent.includes('Добавлено в Google Calendar'));
+ await settle();assert.equal(reads,2,'Settling the current read must not autoload indefinitely');
+ reads=0;
+ const replacementRead=handlers.get('campuspulse:panel-ready')();await settle();
+ for(const id of ['calendar-plans','calendar-plan-list','calendar-plans-status'])nodes.set(id,element());
+ await handlers.get('campuspulse:panel-ready')();
+ releaseOldRead(state);await replacementRead;await settle();
+ assert.equal(nodes.get('calendar-plan-list').children.length,0,'A previous panel read cannot populate its replacement');
+ assert.equal(reads,2,'Replacing an in-flight panel queues one fresh read');
+ releaseFreshRead({status:'applied_unverified',operations:[]});await settle();
+ assert.equal(nodes.get('calendar-plan-list').children[0].dataset.status,'applied_unverified');
+ await settle();assert.equal(reads,2,'Panel replacement does not start a refresh loop');
  console.log('Student Calendar review checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -99,16 +99,18 @@ SCRIPT = r'''
  unknown:'Результат записи пока неизвестен. Проверьте календарь.',applied_unverified:'Запись пока не подтверждена. Проверьте результат.',
  stale:'Расписание устарело. Составьте и подтвердите новое.',verification_failed:'Не удалось подтвердить запись. Проверьте календарь.'};
  const visible=()=>document.body.dataset.view==='plan';
- let loading=false;
+ let loading=false,readRevision=0,reloadPending=false,mutations=0;
  async function load(){
   const root=document.getElementById('calendar-plans');
-  if(loading||!root||!visible())return;loading=true;
+  if(!root||!visible())return;
+  if(loading||mutations){reloadPending=true;return;}
+  loading=true;reloadPending=false;const revision=readRevision;
   const list=document.getElementById('calendar-plan-list'),notice=document.getElementById('calendar-plans-status');
   try{
    const response=await fetch('/api/google-calendar/plans',{credentials:'same-origin'});
    if(!response.ok)throw Error();
    const data=await response.json();
-   if(document.getElementById('calendar-plans')!==root)return;
+   if(document.getElementById('calendar-plans')!==root||revision!==readRevision)return;
    list.replaceChildren();
    for(const {plan,state} of data.items){
     const card=document.createElement('article');card.className='calendar-plan-card';card.dataset.status=state.status;
@@ -140,6 +142,8 @@ SCRIPT = r'''
     if(state.status==='verified')actions.push(['verify','Проверить в Google Calendar']);
     for(const [action,label] of actions){const button=document.createElement('button');button.type='button';button.textContent=label;
      button.addEventListener('click',async()=>{
+      if(mutations)return;
+      ++mutations;++readRevision;
       const buttons=list.querySelectorAll?.('button')||[button];buttons.forEach(item=>item.disabled=true);
       if(card.dataset.status==='verified'){
        card.dataset.status='unknown';heading.textContent='Проверяем запись в Google Calendar…';evidence.replaceChildren();
@@ -150,15 +154,15 @@ SCRIPT = r'''
        heading.textContent=labels[result.status]||labels.unknown;
        if(result.status!=='verified')evidence.replaceChildren();
        notice.textContent=result.error?'Не удалось подтвердить результат. Проверьте календарь и обновите расписание.':labels[result.status]||'Состояние обновлено.';
-       await load();
       }catch{notice.textContent='Не удалось выполнить действие. Обновите расписание и проверьте подключение Google Calendar.';}
-      finally{buttons.forEach(item=>item.disabled=false);}
+      finally{--mutations;++readRevision;buttons.forEach(item=>item.disabled=false);await load();}
      });card.append(button);}
     list.append(card);
    }
    notice.textContent=data.items.length?'':'Предложенное расписание появится здесь после вашего запроса ассистенту.';
-  }catch{notice.textContent='Не удалось загрузить расписание. Нажмите «Обновить состояние».';}
-  finally{loading=false;if(document.getElementById('calendar-plans')!==root)load();}
+  }catch{if(revision===readRevision&&document.getElementById('calendar-plans')===root)
+    notice.textContent='Не удалось загрузить расписание. Нажмите «Обновить состояние».';}
+  finally{loading=false;if(reloadPending||document.getElementById('calendar-plans')!==root){reloadPending=false;load();}}
  }
  window.addEventListener('hashchange',load);
  window.addEventListener('campuspulse:panel-ready',load);
