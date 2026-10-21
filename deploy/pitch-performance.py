@@ -62,7 +62,7 @@ def _gcloud(args):
         raise PerformanceError('gcloud_not_found')
     result = subprocess.run([executable, *args], capture_output=True,
                             text=True, encoding='utf-8', timeout=180,
-                            check=False)
+                            stdin=subprocess.DEVNULL, check=False)
     if result.returncode:
         raise PerformanceError('gcloud_command_failed')
     return result.stdout
@@ -141,7 +141,7 @@ def _read_service(name):
     if name not in SERVICE_ACCOUNTS:
         raise PerformanceError('unexpected_service_target')
     raw = _gcloud(['run', 'services', 'describe', name, '--project=' + PROJECT,
-                   '--region=' + LOCATION, '--format=json'])
+                   '--region=' + LOCATION, '--quiet', '--format=json'])
     result = _json(raw)
     metadata = result.get('metadata', {})
     account = result.get('spec', {}).get('template', {}).get('spec', {}).get('serviceAccountName')
