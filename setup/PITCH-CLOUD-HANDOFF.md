@@ -279,3 +279,116 @@ folders. User messages, source URLs, tokens and personal source contents are not
 published as repository artifacts. The full tests use synthetic external edges
 or the Firestore emulator; the signed-in checks above establish live connectivity
 only for the tested account and requests.
+
+## First-response performance profile
+
+`deploy/pitch-performance.py` changes only minimum ready capacity for these
+existing resources. It defaults to inspection without mutation; `--apply` is
+required to apply the selected profile. The `pitch` profile keeps one Engine
+instance and one instance of each Cloud Run service ready. Existing maxima,
+CPU/memory, concurrency, code packages, identities, settings, IAM and Calendar
+behavior are not changed by the profile. Ready capacity incurs idle charges.
+
+```sh
+# Inspect the intended change.
+python deploy/pitch-performance.py --project=project-e25873c6-e889-40bb-86d --location=us-central1 --profile=pitch
+# Apply before the pitch.
+python deploy/pitch-performance.py --project=project-e25873c6-e889-40bb-86d --location=us-central1 --profile=pitch --apply
+# Return minimum capacity to zero after the pitch when idle savings are preferred.
+python deploy/pitch-performance.py --project=project-e25873c6-e889-40bb-86d --location=us-central1 --profile=idle --apply
+```
+
+Cloud Run uses the service-level `--min` setting, so the profile does not create
+new revisions or keep old tagged revisions ready. The Engine update uses only
+the `spec.deploymentSpec.minInstances` field mask. The script checks the fixed
+targets and verifies that unrelated configuration remains unchanged.
+
+The study runtime now preloads its ADK, GenAI, MCP and Firestore module
+definitions in `set_up()`. This happens during managed worker preparation;
+fallback preparation runs off the async event loop. Preparation is idempotent,
+does not create clients, read credentials or user data, call a model, or invoke
+tools. Volatile preparation state and its lock are excluded from serialization.
+Request-local clients, sessions, grants and source freshness checks remain.
+Plans request both independent read tools in the same model turn; the model
+still selects tools, and ordinary greetings do not require source calls.
+
+The baseline 66-second request included a confirmed 10.23-second MCP instance
+startup and about 49.28 seconds from saved request creation until the first MCP
+HTTP request. The latter includes worker preparation, authorization and model
+decisions; there is no `consumed_at` history to divide it precisely. Tool spans
+include the full MCP path, not only the external Moodle HTTP request.
+
+Google documents [minimum ready instances](https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/optimize-and-scale)
+and [startup initialization with set_up](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/create-a-custom-agent).
+These measures avoid preparing everything in the user's first request; they do
+not replace real sources with static data or introduce recurring warm-up calls.
+
+### Performance rollout provenance
+
+The runtime changes are source `6f30672bb86206741e3436bbd941a6b1c3f43a55`.
+Regional Cloud Build `54daf2a7-d105-4e41-b2c7-d37a89aab1dc` passed all six
+release checks, including 2387 tests with zero failures, errors or skips. The
+verified wheel SHA-256 is
+`c475b4b04038dcf47d73d8a5203cfb288379bec3397f10fe820986f9cd903d26`.
+GitHub Actions run `39683488900` also passed for that exact source.
+
+During the capacity change, a concurrent team release changed the website and
+MCP to `campuspulse-approved-f1d601ca8e` and
+`campuspulse-mcp-approved-f1d601ca8e`. The capacity command correctly stopped
+with `service_unrelated_configuration_changed` instead of reporting that all
+configuration was unchanged. A fresh read confirmed min1 on all three targets.
+The team confirmed that the parallel deployment had stopped before this
+runtime update proceeded. The other Engine operation had completed, and no
+operation was pending at the final pre-update check.
+
+The other release's actual dependency wheel was inspected as archive bytes;
+its pickle was never loaded. Its read-only runtime, transport, grants, progress,
+settings constructors and model target were compared with the performance
+build. The runtime differences are limited to this preload/parallel-read change.
+The website and MCP keep that team's newer UI and class-import implementation;
+do not deploy the performance build's Cloud Run image over those revisions.
+
+Only the existing Engine was updated, through operation
+`3326092024859328512`, completed `2026-10-21T22:20:58.216842Z`. The downloaded
+deployed dependency wheel matched the verified hash. The complete Engine spec
+was unchanged apart from its package URIs and the earlier min0 to min1 change:
+max1, 1 CPU, 2Gi memory, concurrency2, identities, environment and the single
+`async_query` operation were preserved. The website and MCP kept 100% traffic
+on their approved revisions. No Calendar write was performed by this rollout.
+
+### Signed-in latency acceptance
+
+The same account requested real Moodle tasks and a 22–24 October plan, with
+19:00–21:00 availability in Asia/Qyzylorda and 45 minutes per task. Each new
+conversation returned 15 Moodle records, the explicit `read_schedule:
+not_connected` outcome, and a three-day draft without claiming class conflicts
+had been checked. No Calendar apply/confirmation was used.
+
+| Sample | Managed duration | Full POST /api/chat |
+|---|---:|---:|
+| Earlier cold baseline | 65.758 s | 66.063 s |
+| Ready capacity, previous team runtime | 15.154 s | 15.574 s |
+| First real plan after performance runtime deployment | 6.128 s | 6.426 s |
+| New conversation after a 127.6-second pause | 6.520 s | 6.825 s |
+
+The first performance query was sent at `22:22:23.341 UTC`; no separate model,
+MCP or Engine-query warm-up preceded it in this validation. The next was sent
+at `22:24:41.680 UTC`, after 127.6 seconds without another model/tool/Engine
+request following the first response. Provisioning and minimum ready capacity
+had already prepared the runtime. These are observed samples, not a latency
+guarantee for provider outages or every workload.
+
+The POST measurement excludes creating a new chat. Browser dispatch to the
+server-response boundary, including that bootstrap, was approximately 10.77
+and 7.54 seconds for the two performance samples. Completion of the existing
+answer-reveal animation was not timed. The earlier baseline has no equivalent
+browser-dispatch measurement, so its direct comparison uses POST latency.
+
+Actual optimized tool spans were 2.466/2.536 seconds for assignments and
+1.104/1.204 seconds for the unconnected timetable. All 12 progress GETs in the
+two measured request windows returned 200, with maxima 0.199 and 0.230 seconds.
+Reload retained the same completed run and tool observations; the browser
+reported no console errors. The invalid-invocation Engine check returned the
+expected application 403 only after both real performance samples, without
+source/model calls or Calendar writes. Sanitized timing records and screenshots
+are in the ignored local `first-response-20261022` validation folder.
