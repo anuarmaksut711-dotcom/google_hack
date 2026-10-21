@@ -251,7 +251,8 @@ def test_managed_validated_plan_uses_web_proposer_without_giving_engine_write_to
             turn, = response.json()['turns']
             assert turn['status'] == 'completed'
             assert 'Учёба' in turn['response']
-            assert 'План сохранён для вашего подтверждения' in turn['response']
+            assert 'Откройте «Предложенное расписание»' in turn['response']
+            assert 'проверьте события, подтвердите и добавьте их в Google Calendar' in turn['response']
             assert saved == engine.reply['blocks']
             assert [trace['tool'] for trace in turn['tool_trace']] == ['read_assignments']
     run(scenario())
@@ -290,7 +291,8 @@ def test_legacy_plan_keeps_existing_confirmation_proposer():
                 json={'request_key': 'legacy_plan', 'message': 'План'})
             turn, = response.json()['turns']
             assert turn['status'] == 'completed', response.text
-            assert 'План сохранён для вашего подтверждения' in turn['response']
+            assert 'Откройте «Предложенное расписание»' in turn['response']
+            assert 'проверьте события, подтвердите и добавьте их в Google Calendar' in turn['response']
             assert sources[0]['calendar_write']['enabled'] is True
             assert calls[0][0][0]['title'] == 'Учёба'
             assert calls[0][1] == 'default:legacy_plan'
