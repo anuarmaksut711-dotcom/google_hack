@@ -27,6 +27,7 @@ from ..workspace import create_workspace_router
 from ..runs import RecoveryRuns, RunView, create_runs_router
 from ..assets.client import SCRIPT
 from ..assets.styles import STYLES
+from .navigation import install_page_navigation
 from .render import render_panel, render_shell
 
 
@@ -74,6 +75,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
     app = create_identity_app(policy=policy, documents=documents, verifier=verifier,
                              origin=origin, environment=environment, clock=clock, approval_store=approval_store,
                              email_credentials=email_credentials)
+    install_page_navigation(app)
     auth = WebAuth(documents, policy, verifier=verifier, origin=origin,
                    environment=environment, clock=clock, email_credentials=email_credentials)
     app.state.web_auth = auth

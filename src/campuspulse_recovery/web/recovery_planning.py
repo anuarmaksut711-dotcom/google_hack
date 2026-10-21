@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from .manual_schedule import ACCOUNT_CLASSES, CLASSES_SCRIPT
 from .assets.planning_styles import CSS
+from .views.navigation import install_page_navigation, wrap_page
 
 PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -172,7 +173,9 @@ controls();action(load);
 })();'''
 
 
-def install_recovery_planning_page(app, *, auth, inputs):
+def install_recovery_planning_page(app, *, auth, inputs, google_calendar_enabled=False):
+    install_page_navigation(app)
+
     @app.get('/planning', response_class=HTMLResponse)
     async def page(request: Request):
         await auth.load(request)
@@ -187,6 +190,8 @@ def install_recovery_planning_page(app, *, auth, inputs):
                     '«Предложенное расписание».</p>' + page[end:])
             page = page.replace('<script src="/assets/recovery-planning.js" defer></script>', '')
         page = page.replace('</html>', '<script src="/assets/planning-classes.js" defer></script></html>')
+        page = wrap_page(page, active='planning', title='Пары и время',
+                         google_calendar_enabled=google_calendar_enabled)
         return HTMLResponse(page, headers={'Content-Security-Policy':
             "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"})
 

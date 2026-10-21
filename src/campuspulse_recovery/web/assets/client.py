@@ -1066,6 +1066,7 @@ SCRIPT = r"""'use strict';
     const schedule = event.target.closest('[data-action="compose-schedule"]');
     if (schedule && !schedule.disabled && !busy && !chatBusy && voiceState === 'idle') {
       setNavigationOpen(false);
+      schedule.closest('details')?.removeAttribute('open');
       location.hash = chatHash(activeChat); updateNavigation();
       if (!$('recovery-message').value.trim())
         $('recovery-message').value = 'Помоги составить расписание по моим заданиям Moodle с учётом пар и Google Calendar. Я могу учиться ';

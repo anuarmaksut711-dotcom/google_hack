@@ -2,6 +2,7 @@
 from .workspace import WORKSPACE_STYLES
 from .account_styles import ACCOUNT_STYLES
 from .study_trace import STYLES as STUDY_TRACE_STYLES
+from .page_navigation import STYLES as NAVIGATION_STYLES
 STYLES = r"""
 :root {
   color-scheme: dark;
@@ -67,8 +68,9 @@ summary:hover { color: var(--accent); }
 .demo-notice summary { width: fit-content; }
 .demo-notice p { max-width: 75ch; background: #242119; padding: 12px 16px; border-radius: 8px; }
 .intro { position: static; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; text-align: center; margin: 0; padding: 12px 0 20px; }
-.intro > p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.welcome-logo { position: relative; flex-shrink: 0; width: 264px; max-width: 100%; aspect-ratio: 4 / 3; margin: 0 auto -6px; opacity: 1; transition: opacity 180ms ease-out; }
+.intro > p { max-width: 52ch; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.intro h1 { font-size: clamp(28px, 2.5vw, 36px); margin-bottom: 10px; }
+.welcome-logo { position: relative; flex-shrink: 0; width: 176px; max-width: 100%; aspect-ratio: 4 / 3; margin: 0 auto 0; opacity: 1; transition: opacity 180ms ease-out; }
 .welcome-logo canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .welcome-logo[data-state=loading] canvas { visibility: hidden; }
 .welcome-logo #welcome-fallback { inset: auto; top: 50%; left: 50%; width: 50%; height: auto; transform: translate(-50%, -50%); }
@@ -246,7 +248,7 @@ footer p { max-width: 65ch; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (min-height: 1000px) { .recovery-home { padding-bottom: 40px; } }
 @media (max-width: 1100px) { .sidebar { width: 260px; padding-inline: 18px; } .app-content { margin-left: 332px; } main { padding-inline: 24px; } #view-subtitle { display: none; } }
-@media (max-height: 780px) and (min-width: 761px) { .welcome-logo { width: 216px; margin-bottom: -7px; } .recovery-home { padding-top: 18px; } .prompt-suggestions { margin-block: 12px 18px; } }
+@media (max-height: 780px) and (min-width: 761px) { .welcome-logo { width: 152px; } .recovery-home { padding-top: 18px; } .prompt-suggestions { margin-block: 12px 18px; } }
 @media (max-width: 760px) {
   body { background: var(--surface); }
   .sidebar { left: 0; width: 280px; transform: translateX(-100%); visibility: hidden; background: var(--surround); padding-top: 28px; border-right: 1px solid var(--line); transition: transform 200ms ease-out, visibility 200ms; }
@@ -259,7 +261,7 @@ footer p { max-width: 65ch; }
   main { padding-inline: 22px; }
   .recovery-home { min-height: calc(100svh - 160px); padding-top: 20px; }
   .intro { margin: 0; padding: 12px 0 20px; }
-  .welcome-logo { width: 192px; margin-bottom: -3px; }
+  .welcome-logo { width: 144px; margin-bottom: 0; }
   h1 { font-size: 27px; letter-spacing: -.03em; }
   .intro > p { font-size: 13px; max-width: 37ch; }
   .command-body { padding: 16px; }
@@ -349,6 +351,9 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 .composer-options .prompt-suggestions { position: absolute; bottom: 48px; left: 0; z-index: 5; display: grid; width: 290px; padding: 8px; margin: 0; border: 1px solid var(--line); border-radius: 14px; background: #23252b; }
 .composer-options .prompt-chip { justify-content: space-between; color: var(--ink); background: transparent; border: 0; text-align: left; }
 .composer-options .prompt-chip:hover { background: #343944; }
+.composer-options .composer-plan-action { justify-content: flex-start; width: 100%; padding: 10px 12px; color: var(--ink); background: transparent; border: 0; text-align: left; font-size: 12px; font-weight: 400; }
+.composer-options .composer-plan-action:hover { background: var(--selected); }
+.composer-options .composer-plan-action:disabled { color: var(--muted); opacity: .5; background: transparent; }
 .chat-help { margin-left: auto; font-size: 13px; color: #b7bbc8; }
 .chat-help > summary { min-height: 44px; }
 .chat-help summary svg { width: 15px; height: 15px; }
@@ -378,6 +383,6 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } .command-bar, #voice-toggle { animation: none !important; } }
 """
-STYLES += WORKSPACE_STYLES + ACCOUNT_STYLES + STUDY_TRACE_STYLES
+STYLES += NAVIGATION_STYLES + WORKSPACE_STYLES + ACCOUNT_STYLES + STUDY_TRACE_STYLES
 from .sidebar import STYLES as SIDEBAR_STYLES
 STYLES += SIDEBAR_STYLES

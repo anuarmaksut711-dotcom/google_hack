@@ -2,7 +2,7 @@
 from .assets.theme import THEME_BUTTON, THEME_HEAD
 
 
-def render_moodle_settings(*, connected, classes_html, google_calendar_html=''):
+def render_moodle_settings(*, connected, classes_html, google_calendar_html='', shared_shell=False):
     instructions = ('<p>Откройте Moodle AITU → Календарь → Экспорт календаря. Выберите все события, '
         'нажмите Get calendar URL и вставьте полученную ссылку сюда.</p>')
     privacy = ('<p>Ссылка даёт доступ к вашему календарю и сохраняется для этого аккаунта Google AI. '
@@ -23,13 +23,14 @@ def render_moodle_settings(*, connected, classes_html, google_calendar_html=''):
         moodle = ('<p id="moodle-connection-status">Подключите календарь Moodle один раз. '
             'При следующих входах в этот аккаунт Google AI он загрузится автоматически.</p>'
             + instructions + privacy + form)
+    header = ('' if shared_shell else '<header class="settings-header"><a class="settings-brand" href="/">Google AI</a>'
+        '<div class="settings-actions">' + THEME_BUTTON + '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
+        '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></div></header>'
+    )
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Настройки · Google AI</title><link rel="stylesheet" href="/assets/campuspulse.css">'
-        + THEME_HEAD + '</head><body class="settings-page">'
-        '<header class="settings-header"><a class="settings-brand" href="/">Google AI</a>'
-        '<div class="settings-actions">' + THEME_BUTTON + '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
-        '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></div></header>'
+        + THEME_HEAD + '</head><body class="settings-page">' + header +
         '<main class="settings-main"><h1>Настройки</h1>'
         '<section class="settings-card" data-connected="' + str(connected).lower() + '" '
         'aria-labelledby="moodle-settings-heading"><div class="settings-card-heading">'

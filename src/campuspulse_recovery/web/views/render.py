@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from ...storage.plans import plan_reference
 from ..assets.theme import THEME_BUTTON, THEME_HEAD
+from .navigation import render_navigation
 
 STATUS = {
     "proposed": ("Предложен план", "Изучите изменения перед согласованием."),
@@ -58,7 +59,6 @@ def interval(value, timezone):
 
 
 def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None, planning_url=None, google_calendar_enabled=False, calendar_plan_available=False):
-    from ..assets.workspace import CHAT_NAV, CHAT_NEW
     notice = ''
     if demo_mode:
         from ...demo import NOTICE
@@ -73,16 +73,9 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     if moodle_enabled and account_url:
         moodle = moodle.replace('<div id="moodle-courses">',
             f'<p><a href="{e(account_url)}">Моё подключение Moodle</a></p><div id="moodle-courses">')
-    sources_target = '#moodle' if moodle_enabled else '#sources'
-    if planning_url:
-        moodle += (f'<p><a href="{e(planning_url)}">Пары и время для учёбы</a></p>'
-                   '<p>Предложенное расписание применяется к подключённому Google Calendar только после вашего подтверждения.</p>')
-    sources_title = 'Мои задания' if moodle_enabled else 'Задания и календарь'
     advice = chat_mode == 'calendar_advice'
     greeting = 'Над чем поработаем?'
-    introduction = 'Задания из Moodle, ваши пары и свободное время — в одном предложенном расписании.'
-    consent_note = ('Календарь изменится только после подтверждения точной версии расписания '
-        'и отдельного нажатия «Применить в Google Calendar».')
+    introduction = 'Помогу разобраться с заданиями и найти время на учёбу.'
     prompts = ('По будням свободен с 18:00 до 21:00. Помоги распределить задания.',
                'Помоги оценить, сколько времени нужно на каждое задание.',
                'Помоги расставить приоритеты по ближайшим дедлайнам.') if advice else (
@@ -92,65 +85,38 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     prompt_labels = ('Распланировать неделю', 'Оценить время', 'С чего начать?') if advice else (
         'Как это работает?', 'Как проверить расписание?', 'После применения')
     suggestions = ''.join(f'<button type="button" class="prompt-chip" data-prompt="{e(prompt)}">{e(label)}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></button>' for prompt, label in zip(prompts, prompt_labels))
-    plan_nav = '''<a class="nav-link" data-view="plan" href="#panel" aria-label="Предложенное расписание" title="Предложенное расписание"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14m-4-4 4 4-4 4M19 17H5m4-4-4 4 4 4"/></svg><span class="nav-label">Предложенное расписание</span></a>'''
-    journal_nav = '<a class="nav-link" data-view="journal" href="#journal-heading" aria-label="Журнал агента"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="nav-label">Журнал агента</span></a>'
-    preparation_nav = (f'<a class="nav-link" href="{e(planning_url)}" aria-label="Пары и время для учёбы" title="Пары и время для учёбы"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-label">Пары и время для учёбы</span></a>') if planning_url else ''
-    schedule_flow = ''
-    if planning_url:
-        steps = ((sources_target, 'Moodle'), (planning_url, 'Пары и время для учёбы'),
-                 ('#panel', 'Предложенное расписание'),
-                 ('#calendar' if google_calendar_enabled else '#panel', 'Google Calendar'))
-        schedule_flow = '<nav class="schedule-flow" aria-label="Как составить расписание"><ol id="schedule-steps">' + ''.join(
-            f'<li><a href="{e(target)}"><b aria-hidden="true">{number}</b><span>{label}</span></a></li>'
-            for number, (target, label) in enumerate(steps, 1)) + '</ol></nav>'
-    account_label = 'Настройки' if account_url == '/settings' else 'Моё подключение'
-    account_link = f'<a class="account-link" href="{e(account_url)}" aria-label="{account_label}" title="{account_label}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>{account_label}</span></a>' if account_url else ''
-    sources_nav = f'<a class="nav-link" data-view="tasks" href="{sources_target}" aria-label="{sources_title}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8 11h8M8 15h5"/></svg><span class="nav-label">{sources_title}</span><span class="nav-short" aria-hidden="true">Задания</span></a>' if moodle_enabled else ''
-    calendar_nav = calendar_section = calendar_assets = ''
+    navigation = render_navigation(home_url='', planning_url=planning_url,
+        account_url=account_url, active='assistant', moodle_enabled=moodle_enabled,
+        google_calendar_enabled=google_calendar_enabled)
+    planning_action = (f'<button id="start" class="composer-plan-action" type="button"'
+        + (' data-action="compose-schedule"' if calendar_plan_available else '')
+        + (' hidden' if advice and not calendar_plan_available else '')
+        + ' disabled>Составить расписание</button>')
+    calendar_section = calendar_assets = ''
     if google_calendar_enabled:
         from ..google_calendar import CALENDAR_SECTION
         calendar_section = CALENDAR_SECTION
-        calendar_nav = '<a class="nav-link" data-view="calendar" href="#calendar" aria-label="Google Calendar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4m8-4v4M4 11h16"/></svg><span class="nav-label">Google Calendar</span></a>'
         calendar_assets = '<link rel="stylesheet" href="/assets/google-calendar.css"><script src="/assets/google-calendar.js" defer></script>'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Google AI · Учебное расписание</title>
 <meta name="color-scheme" content="dark light"><link rel="stylesheet" href="/assets/campuspulse.css">{THEME_HEAD}<script src="/assets/campuspulse.js" defer></script>
+<script src="/assets/sidebar-head.js"></script>
 {calendar_assets}
 <script src="/assets/logo/vendor/gsap.min.js" defer></script>
 <script type="module" src="/assets/logo/welcome.js"></script></head>
 <body data-view="assistant" data-chat-mode="{e(chat_mode)}" data-calendar-plan-available="{str(calendar_plan_available).lower()}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К содержимому</a>
-<nav class="activity-rail" aria-label="Быстрые переходы">
-<a class="rail-link current" data-view="assistant" href="#workspace" aria-label="Открыть ассистента" title="Ассистент"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></a>
-<a class="rail-link" data-view="plan" href="#panel" aria-label="Открыть предложенное расписание" title="Предложенное расписание"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 5 2 2 4-4"/></svg></a>
-<a class="rail-link" data-view="journal" href="#journal-heading" aria-label="Открыть журнал" title="Журнал"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></a>
-{account_link}<button id="signout" type="button" hidden aria-label="Выйти" title="Выйти"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5H5v14h4M10 12h10m-4-4 4 4-4 4"/></svg></button>
-</nav>
-<aside id="sidebar" class="sidebar" aria-label="Навигация Google AI">
-<a class="brand" href="#workspace" aria-label="Google AI — к ассистенту"><span>Google AI</span></a>
-{CHAT_NEW}
-<nav aria-label="Разделы расписания">
-<a id="focus-composer" class="nav-link current" data-view="assistant" href="#workspace" aria-label="Ассистент" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 10h8M7 14h5"/></svg><span class="nav-label">Ассистент</span></a>
-{sources_nav}
-{preparation_nav}
-{plan_nav}
-{calendar_nav}
-{journal_nav}
-</nav>
-{CHAT_NAV}
-<div id="conversation-index" hidden></div>
-</aside>
+{navigation}
 <div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваши задания и расписание</span></div><div class="topbar-actions">{THEME_BUTTON}<button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></div></header>
 <main id="workspace">{calendar_section}{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <canvas id="welcome-fallback" width="409" height="413" hidden></canvas>
-<canvas id="welcome-canvas"></canvas></div><h1 id="home-heading">{greeting}</h1><p>{introduction}</p></div>{schedule_flow}
+<canvas id="welcome-canvas"></canvas></div><h1 id="home-heading">{greeting}</h1><p>{introduction}</p></div>
 <div id="chat-history" class="chat-history" role="log" aria-label="Диалог с Google AI" aria-live="polite" aria-relevant="additions" hidden></div>
-<div class="recovery-controls"{' hidden' if advice and not calendar_plan_available else ''}><div><h2>Готовы составить расписание?</h2><p>{'Укажите, когда можете учиться и сколько времени нужно на задания.' if calendar_plan_available else 'Проверьте пары и время для учёбы. Затем изучите и подтвердите предложенное расписание.'}</p></div><button id="start" type="button"{' data-action="compose-schedule"' if calendar_plan_available else ''} disabled><span>Составить расписание</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div>
-</div><div class="composer-dock"><div class="command-bar"><div class="composer-context"><a href="{sources_target}" title="Открыть задания"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/></svg>{sources_title}</a><a href="#panel" title="Предложенное расписание"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8v3h4v15H4V6h4Zm0 0v5h8V3M8 12h8m-8 4h5"/></svg>Предложенное расписание</a></div>
+</div><div class="composer-dock"><div class="command-bar">
 <div id="chat-limit" hidden role="status"><p>Этот диалог заполнен. Начните новый чат — история останется доступна.</p><button id="chat-limit-new" type="button">Начать новый диалог</button></div>
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение Google AI</label>
-<textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Когда вы свободны и что нужно успеть?" aria-describedby="chat-status"></textarea>
-<div class="chat-submit"><details class="composer-options"><summary aria-label="Примеры вопросов" title="Примеры вопросов"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></summary><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}</div></details><details class="chat-help"><summary>Об ассистенте<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><p id="chat-status" role="status">Проверяем подключение чата…</p></details>
+<textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Что нужно успеть?" aria-describedby="chat-status"></textarea>
+<div class="chat-submit"><details class="composer-options"><summary aria-label="Примеры вопросов" title="Примеры вопросов"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></summary><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}{planning_action}</div></details><details class="chat-help"><summary>Об ассистенте<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><p id="chat-status" role="status">Проверяем подключение чата…</p></details>
 <button id="voice-toggle" type="button" disabled aria-pressed="false" aria-label="Голосовой ввод" title="Голосовой ввод" aria-describedby="voice-status"><svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg><svg class="voice-stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span id="voice-toggle-label" class="message-label">Голосовой ввод</span></button>
 <button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
 <div class="voice-input">
@@ -162,7 +128,6 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <p id="voice-status" role="status" aria-live="polite"></p></div>
 </form>
 </div>
-<p class="consent-note"{' hidden' if advice and not calendar_plan_available else ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7Z"/><path d="m8 12 3 3 5-6"/></svg><span>{consent_note}</span></p>
 </div></section>
 <noscript>Для действий включите JavaScript. Загрузка страницы не подтверждает и не применяет расписание.</noscript>
 <div id="panel" tabindex="-1" aria-busy="true"><p>Загружаем предложенное расписание…</p></div>

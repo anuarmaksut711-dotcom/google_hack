@@ -342,7 +342,8 @@ def test_resources_csp_and_missing_runtime_fail_closed():
             assert 'data-timezone="Asia/Qyzylorda"' in shell.text
             assert 'id="conversation-index" hidden' in shell.text
             assert 'Сообщения чата' not in shell.text and 'О расписании' not in shell.text
-            assert '<div class="sidebar-bottom">' not in shell.text
+            assert shell.text.count('<aside id="sidebar"') == 1
+            assert 'class="activity-rail"' not in shell.text
             for path, expected, mime in (("/assets/campuspulse.css",STYLES,"text/css"),("/assets/campuspulse.js",SCRIPT,"text/javascript")):
                 response = await c.get(path)
                 assert response.text == expected and mime in response.headers["content-type"]
@@ -394,16 +395,19 @@ def test_shell_separates_assistant_tasks_and_explicit_recovery_controls(mode):
                   and "nav-link" in node["attrs"].get("class", "").split()}
     assert {("assistant", "#workspace"), ("tasks", "#moodle"), ("plan", "#panel")} <= navigation
     start = markup.by_id("start")
-    recovery = next(parent for parent in start["parents"]
-                    if "recovery-controls" in parent["attrs"].get("class", "").split())
-    assert ("hidden" in recovery["attrs"]) == (mode == "calendar_advice")
-    assert not any(parent["tag"] == "form" for parent in start["parents"])
+    assert any(parent["tag"] == "details" and
+               "composer-options" in parent["attrs"].get("class", "").split()
+               for parent in start["parents"])
+    assert ("hidden" in start["attrs"]) == (mode == "calendar_advice")
+    assert start["attrs"]["type"] == "button"  # Selecting an action never submits the chat.
+    assert 'class="recovery-controls"' not in html and 'class="schedule-flow"' not in html
+    intro = next(node for node in markup.nodes if "intro" in node["attrs"].get("class", "").split())
+    assert not any(node["tag"] in {"button", "a"} and intro in node["parents"] for node in markup.nodes)
     assert not any(parent["attrs"].get("id") == "panel"
                    or "recovery-home" in parent["attrs"].get("class", "").split()
                    for parent in markup.by_id("feedback")["parents"])
     assert "Запись до 1 минуты. Аудио отправляется в Gemini для распознавания." not in html
-    assert "Запись в Google Calendar в этом режиме недоступна" not in html if mode == "calendar_advice" else (
-        "подтверждения точной версии расписания и отдельного нажатия «Применить в Google Calendar»" in html)
+    assert 'data-action="approve"' not in html and 'data-action="apply"' not in html
 
 
 @pytest.mark.parametrize("terminal", ["revoked", "expired", "superseded"])

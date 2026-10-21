@@ -301,14 +301,16 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 from ..web.moodle_planning import install_planning_routes
                 install_planning_routes(inner, auth=auth, inputs=recovery.planning)
             from ..web.recovery_planning import install_recovery_planning_page
-            install_recovery_planning_page(inner, auth=auth, inputs=None if recovery is None else recovery.planning)
+            install_recovery_planning_page(inner, auth=auth, inputs=None if recovery is None else recovery.planning,
+                google_calendar_enabled=local_google_calendar is not None)
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
             inner.state.class_schedule_importer = selected_chat_agent
             install_class_routes(inner, auth=auth, account=classes)
             if local_google_calendar is not None:
                 from ..web.google_calendar import install_calendar_routes
-                install_calendar_routes(inner, auth=auth, calendar=local_google_calendar)
+                install_calendar_routes(inner, auth=auth, calendar=local_google_calendar,
+                    moodle_enabled=True, planning_url='/planning', account_url='/settings')
 
             @inner.get('/account', response_class=HTMLResponse)
             @inner.get('/settings', response_class=HTMLResponse)
@@ -319,11 +321,14 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 if (await auth.load(request)).session != credential.session:
                     raise AccessDenied('account_session_changed')
                 from ..web.google_calendar import ACCOUNT_GOOGLE_CALENDAR
-                return render_moodle_settings(connected=connected, classes_html=
+                from ..web.views.navigation import wrap_page
+                page = render_moodle_settings(connected=connected, shared_shell=True, classes_html=
                     '<section class="settings-card"><h2>Пары и время для учёбы</h2>'
                     '<p>Загрузите PDF или скриншот расписания и проверьте пары перед сохранением.</p>'
                     '<a href="/planning">Подготовить расписание</a></section>',
                     google_calendar_html=ACCOUNT_GOOGLE_CALENDAR if local_google_calendar is not None else '')
+                return wrap_page(page, active='settings', title='Настройки',
+                    google_calendar_enabled=local_google_calendar is not None)
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):

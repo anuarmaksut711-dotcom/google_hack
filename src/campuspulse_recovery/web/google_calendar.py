@@ -223,7 +223,10 @@ class Completion(Contract):
     state: str = Field(min_length=16, max_length=256)
 
 
-def install_calendar_routes(app, *, auth, calendar):
+def install_calendar_routes(app, *, auth, calendar, moodle_enabled=False,
+                            planning_url=None, account_url=None):
+    from .views.navigation import install_page_navigation, wrap_page
+    install_page_navigation(app)
     owner = auth.policy.config.student.trusted_user_id
     tools = calendar.tools(owner) if hasattr(calendar, 'tools') else LocalCalendarTools(calendar, owner)
     if getattr(calendar, 'cloud_ready', False):
@@ -233,7 +236,9 @@ def install_calendar_routes(app, *, auth, calendar):
     @app.get('/google-calendar', response_class=HTMLResponse)
     async def page(request: Request):
         await auth.load(request)
-        return PAGE
+        return wrap_page(PAGE, active='calendar', title='Google Calendar',
+            moodle_enabled=moodle_enabled, planning_url=planning_url, account_url=account_url,
+            google_calendar_enabled=True)
 
     @app.get('/api/account/google-calendar')
     async def state(request: Request):
