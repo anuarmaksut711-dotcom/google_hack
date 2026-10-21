@@ -57,7 +57,7 @@ function harness() {
     let scope='session-1', activeChat='default', pendingText=null, generation=0,
       chatGeneration=0, activeRun=null, cursor=0, chatAvailable=true,
       chatWorking=false, chatLimitReached=false, chatBusy=false, busy=false,
-      moodleEnabled=false, moodleRevision=0, moodleBusy=false, renderedChat=null, chatPoller=null;
+      moodleEnabled=false, moodleRevision=0, moodleBusy=false, renderedChat=null, chatPoller=null, activeChatSend=null;
     const chatDrafts=new Map();
     ${between('  const draftChat', '  let activeChat')}
     ${between('  const csrf = ', '  async function api(')}
@@ -136,6 +136,103 @@ async function terminalProgressReconcilesOriginalDraftAndPreservesEdits() {
     assert.equal(h.$('recovery-message').value, edited ? 'New unsent question' : '');
     assert.equal(h.pending.get('pending-chat'), null);
     assert.equal(h.run('pendingText'), null);
+  }
+}
+
+async function terminalProgressReleasesSendBeforePostSettles() {
+  const h = harness();
+  let resolvePost;
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Accepted question';
+  h.sandbox.api = () => new Promise(resolve => { resolvePost = resolve; });
+  const sending = h.run('sendMessage({preventDefault(){}})');
+  const turn = {request_key: h.pollers[0].requestKey, message: 'Accepted question',
+    status: 'completed', response: 'Persisted final answer'};
+  h.pollers[0].options.update({available: true, turns: [turn]}, turn);
+  assert.equal(h.sandbox.lastChat.turns[0].status, 'completed');
+  assert.equal(h.run('chatBusy'), false, 'A confirmed terminal GET must release the composer even if the POST connection hangs');
+  assert.equal(h.run('chatWorking'), false);
+  assert.equal(h.pending.get('pending-chat'), null);
+  assert.equal(h.run('pendingText'), null);
+  assert.equal(h.$('recovery-message').value, '');
+  h.$('recovery-message').value = 'My next unsent question';
+  resolvePost({json: async () => ({available: true, turns: [turn]})});
+  await sending;
+  assert.equal(h.$('recovery-message').value, 'My next unsent question', 'The late POST must not clear a newer unsent draft');
+}
+
+async function workingProgressWithoutRenderedReplyKeepsTheSendPending() {
+  const h = harness();
+  let resolvePost;
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Still pending question';
+  h.sandbox.api = () => new Promise(resolve => { resolvePost = resolve; });
+  const sending = h.run('sendMessage({preventDefault(){}})');
+  const turn = {request_key: h.pollers[0].requestKey, message: 'Still pending question', status: 'working'};
+  h.pollers[0].options.update({available: true, turns: [turn]}, turn);
+  assert.equal(h.run('chatBusy'), true, 'Rebuilding a missing working row is not a terminal observation');
+  assert.equal(h.pending.get('pending-chat'), 'stable-first-send');
+  assert.equal(h.run('pendingText'), 'Still pending question');
+  assert.equal(h.$('recovery-message').value, 'Still pending question');
+  resolvePost({json: async () => ({available: true, turns: [{...turn, status: 'completed', response: 'Final answer'}]})});
+  await sending;
+}
+
+async function latePostCannotSettleOrOverwriteTheNextSend() {
+  for (const outcome of ['completed', 'working', 'rejected']) {
+    const h = harness(), posts = [];
+    let sequence = 0;
+    h.sandbox.keyFor = name => {
+      if (!h.pending.get(name)) h.pending.set(name, 'request-' + (++sequence));
+      return h.pending.get(name);
+    };
+    h.sandbox.api = (url, payload) => new Promise((resolve, reject) => posts.push({payload, resolve, reject}));
+    h.sandbox.showChat({available: true, turns: []});
+    h.$('recovery-message').value = 'First question';
+    const first = h.run('sendMessage({preventDefault(){}})');
+    const terminal = {request_key: 'request-1', message: 'First question', status: 'completed', response: 'First answer'};
+    h.pollers[0].options.update({available: true, turns: [terminal]}, terminal);
+    h.$('recovery-message').value = 'Second question';
+    const second = h.run('sendMessage({preventDefault(){}})');
+    const current = h.sandbox.lastChat, status = h.$('chat-status').textContent;
+    if (outcome === 'rejected') posts[0].reject(Object.assign(new Error('Old session rejected'), {status: 403}));
+    else posts[0].resolve({json: async () => ({available: true, turns: [{...terminal, status: outcome}]})});
+    await first;
+    assert.equal(h.sandbox.lastChat, current, 'An old POST cannot render over the later request: ' + outcome);
+    assert.equal(h.run('chatBusy'), true, 'An old finally cannot release the later send: ' + outcome);
+    assert.equal(h.run('chatWorking'), true);
+    assert.equal(h.$('recovery-message').value, 'Second question');
+    assert.equal(h.run('pendingText'), 'Second question');
+    assert.equal(h.pending.get('pending-chat'), 'request-2');
+    assert.equal(h.$('chat-status').textContent, status, 'An old error cannot replace the current status');
+    const completed = {request_key: 'request-2', message: 'Second question', status: 'completed', response: 'Second answer'};
+    posts[1].resolve({json: async () => ({available: true, turns: [terminal, completed]})});
+    await second;
+    assert.equal(h.run('chatBusy'), false);
+  }
+}
+
+async function latePostCannotChangeSelectionOrRefocusAfterTerminalProgress() {
+  for (const change of ["activeChat='other-chat'; ++chatGeneration", "scope='new-session'", '++chatGeneration']) {
+    const h = harness();
+    let rejectPost, focuses = 0;
+    h.$('recovery-message').focus = () => { ++focuses; };
+    h.sandbox.showChat({available: true, turns: []});
+    h.$('recovery-message').value = 'Accepted question';
+    h.sandbox.api = () => new Promise((resolve, reject) => { rejectPost = reject; });
+    const sending = h.run('sendMessage({preventDefault(){}})');
+    const turn = {request_key: h.pollers[0].requestKey, message: 'Accepted question', status: 'completed', response: 'Saved answer'};
+    h.pollers[0].options.update({available: true, turns: [turn]}, turn);
+    h.run(change);
+    h.$('recovery-message').value = 'Keep this draft';
+    h.$('chat-status').textContent = 'Current selection';
+    const current = h.sandbox.lastChat;
+    rejectPost(Object.assign(new Error('Late old rejection'), {status: 403}));
+    await sending;
+    assert.equal(h.sandbox.lastChat, current);
+    assert.equal(h.$('recovery-message').value, 'Keep this draft');
+    assert.equal(h.$('chat-status').textContent, 'Current selection');
+    assert.equal(focuses, 0, 'The retired send cannot refocus after changing selection/session');
   }
 }
 
@@ -604,7 +701,10 @@ async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() 
   let failures = 0;
   for (const test of [progressReadsNeverPostOrDiscardLastObservationOnFailure,
     progressUpdatesExistingDisclosureAndPreservesScrollPosition, progressSelectionAndSessionGuardsIgnoreOldChat,
-    terminalProgressReconcilesOriginalDraftAndPreservesEdits, bootstrapFailureClearsOptimisticWorkingAndAllowsRetry,
+    terminalProgressReconcilesOriginalDraftAndPreservesEdits, terminalProgressReleasesSendBeforePostSettles,
+    workingProgressWithoutRenderedReplyKeepsTheSendPending, latePostCannotSettleOrOverwriteTheNextSend,
+    latePostCannotChangeSelectionOrRefocusAfterTerminalProgress,
+    bootstrapFailureClearsOptimisticWorkingAndAllowsRetry,
     rejectedDispatchedPostPreservesRetryKeyAndShowsUnknown, idempotentPostStillWorkingRetainsDraftKeyAndPolling]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}

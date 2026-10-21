@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url';
 
 const DIR = import.meta.dirname;
 const BASE_NAME = process.argv[2] || 'CampusPulse-AI-Pitch-2026-10-22-final';
-const FULL_TEST_RECEIPT = process.env.PITCH_TEST_RECEIPT || 'Локальный полный pytest: 2472 passed, 0 skipped, 171.44 s. После трёх небольших copy-правок прошли 27 целевых тестов. Отдельно recovery 347 и voice 53. Точный Cloud Build gate новой версии ожидается.';
+const LOCAL_PYTEST_PASSED = process.env.PITCH_PYTEST_PASSED || '…';
+const FULL_TEST_RECEIPT = process.env.PITCH_TEST_RECEIPT || 'Новый полный локальный pytest и Linux release gate объединённой версии выполняются. 2472 passed относится к предыдущей интеграции и не является результатом текущего source. Отдельно ранее прошли recovery 347 и voice 53. Новая облачная приёмка записи и website OCR не завершена.';
 const stagingDir = path.join(DIR,'.build',`${BASE_NAME}-${Date.now()}`);
 const finalizedDir = path.join(stagingDir,'finalized');
 const runtime = path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies');
@@ -27,8 +28,8 @@ console.log(`Font selected from installed inventory: ${font}`);
 
 const C = { ink:'#132238', muted:'#586778', paper:'#FAFAF7', blue:'#4056BD', teal:'#087F8C', light:'#EAF1F3', rule:'#CED7DC', amber:'#A66A12', green:'#247455', white:'#FFFFFF' };
 const p = Presentation.create({slideSize:{width:1280,height:720}});
-const source = 'Интеграция 22.10.2026: origin/main d8c6054 и UI 15bb5fd, рабочая ветка codex/site-integration-2026-10-22. Источник облачного read-only релиза: setup/PITCH-CLOUD-HANDOFF.md, source 1382f49aaba7c37c6571bbd8355349064e039012. Он фиксирует реальный вход, 15 Moodle-записей и вызовы read_assignments/read_schedule. Новые Calendar/OCR изменения локально проверены, их облачная приёмка ещё не завершена. Материалы не содержат личных данных или credentials.';
-const boundary = 'Managed study Agent Engine имеет только инструменты чтения. Backend проверяет типизированный AdviceReply и текущие сохранённые пары, затем ConnectedPlans создаёт предложение. Явное согласие относится к plan_id и payload_hash. Backend вызывает отдельные приватные MCP apply_plan и verify_plan. Классы, Calendar и сессия проверяются на актуальность. Распознавание PDF/PNG/JPEG создаёт только черновик, видимые дни добавляются с удалением точных дублей, даты не выводятся по догадке. Студент подтверждает всю неделю и даты перед сохранением. Пары автоматически в Calendar не переносятся.';
+const source = 'Интеграция 22.10.2026: origin/main 8b51a8a объединён с UI и backend в e987003eae38541cc27e89aec1801d32a5019345, рабочая ветка codex/site-integration-2026-10-22. Источник облачного read-only релиза: setup/PITCH-CLOUD-HANDOFF.md, source 1382f49aaba7c37c6571bbd8355349064e039012. Он фиксирует реальный вход, 15 Moodle-записей и вызовы read_assignments/read_schedule. Новая интеграция сохраняет типизированный ConnectedPlans и добавляет единый CampusPulseStudyTrace / «Действия агента». Полный локальный и Linux gate текущего source ещё выполняются, облачная приёмка новой записи и website OCR не завершена. Пользователь вошёл на сайт, Calendar пока not_connected. Материалы не содержат личных данных или credentials.';
+const boundary = 'Managed study Agent Engine имеет только инструменты чтения. Backend проверяет типизированный AdviceReply и текущие сохранённые пары, затем ConnectedPlans создаёт предложение. Явное согласие относится к plan_id и payload_hash. Backend вызывает отдельные приватные MCP apply_plan и verify_plan. Классы, Calendar и сессия проверяются на актуальность. Распознавание PDF/PNG/JPEG создаёт только черновик, видимые дни добавляются с удалением точных дублей, даты не выводятся по догадке. Студент подтверждает всю неделю и даты перед сохранением. Пары автоматически в Calendar не переносятся. Единственный CampusPulseStudyTrace показывает наблюдаемые agent_progress во время запроса и сохранённый итоговый tool_trace после ответа. Полный итог имеет приоритет над частичным прогрессом. GET polling не запускает модель или Calendar запись и не показывает внутренние мысли модели.';
 function notes(s, specific) { s.speakerNotes.text = `${specific} ${boundary} ${source} ${FULL_TEST_RECEIPT}`; }
 
 
@@ -134,22 +135,22 @@ function arrow(s,a,b,from='right',to='left',dash=false,color=C.blue) {
  text(s,'Подтверждено в облаке',64,302,550,45,30,C.teal,true);
  text(s,'Обычный вход на сайт\n15 записей реального Moodle\nВызовы read_assignments / read_schedule\nTrace сохранён в истории чата',64,366,560,190,26,C.ink);
  text(s,'Новая интегрированная версия',700,302,516,45,30,C.blue,true);
- text(s,'UI и backend объединены локально\nИмпорт видимых дней с проверкой\nConnectedPlans с apply и verify\nПовтор записи без дубликатов',700,366,516,190,26,C.ink);
+ text(s,'Единый блок «Действия агента»\nНаблюдаемый прогресс MCP-вызовов\nConnectedPlans с apply и verify\nПолная проверка новой версии идёт',700,366,516,190,26,C.ink);
  text(s,'Облачная приёмка новой записи Calendar и распознавания ещё не завершена.',64,594,1152,52,25,C.amber,true);
  notes(s,'setup/PITCH-CLOUD-HANDOFF.md фиксирует успешный Cloud Build и реальный вход 22 октября для source 1382f49. В том релизе read_assignments вернул 15 записей. read_schedule сообщил not_connected, поэтому план корректно остался черновиком. Реальная запись Calendar и новый импорт файлов не входят в ту приёмку. Новые live результаты нужно сверять с итоговым rollout receipt.');
 }
 // 7. Local evidence and practical limits, no invented full-suite count.
 {
- const s=slide('Локальная проверка и следующий шаг',7,'22 октября 2026: локальные тесты, браузер и один реальный OCR-пример');
- text(s,'2472',64,302,330,85,64,C.blue,true);
- text(s,'pytest-теста без пропусков',64,395,350,44,25,C.ink);
+ const s=slide('Локальная проверка и следующий шаг',7,'22 октября 2026: новая интеграция, браузер и два реальных OCR-примера');
+ text(s,String(LOCAL_PYTEST_PASSED),64,302,330,85,64,C.blue,true);
+ text(s,'pytest: итог нового прогона',64,395,350,64,25,C.ink);
  text(s,'1 / 0',462,302,330,85,64,C.blue,true);
  text(s,'событие / дублей при повторе',462,395,350,64,25,C.ink);
  text(s,'4',860,302,350,85,64,C.blue,true);
  text(s,'пары на одном скриншоте',860,395,350,44,25,C.ink);
- text(s,'Vertex Gemini распознал видимые пары понедельника. Даты остались пустыми.\nЭто один проверенный пример, а не измеренная точность OCR.\nConnected fixture использует тестовые внешние сервисы.',64,470,1152,94,25,C.muted);
+ text(s,'Vertex Gemini распознал скриншот и учебный PDF. Даты остались пустыми.\nЭто два проверенных примера, а не измеренная точность OCR.\nConnected fixture использует тестовые внешние сервисы.',64,470,1152,94,25,C.muted);
  text(s,'Следующий шаг: принять новую версию на реальном сайте с записью, независимой проверкой и повтором без дубликатов.',64,583,1152,64,27,C.ink,true);
- notes(s,'Реальный настроенный Vertex Gemini через адаптер extract_classes распознал личный исходный скриншот: четыре пары понедельника 16:00–16:50, 17:00–17:50, 18:00–18:50, 19:00–19:50, даты null, другие дни не добавлены. Это вызов адаптера с пользовательскими gcloud credentials, не website HTTP и не статистическая оценка качества OCR. Исходник и приватный ответ в Git не включаются. Свежий connected_browser_fixture.py --check прошёл: один Engine invocation, один schedule import, одно Calendar-создание, apply и verify, повторный apply без второго создания. Часы 17.10.2026 21:00 Asia/Almaty. Отдельные evaluation receipts подтверждают 347 offline recovery и 53 voice loopback checks. Полный локальный pytest 2472 passed, 0 skipped за 171.44 s, после трёх copy-правок 27 целевых тестов прошли. Полный gate точной облачной сборки ещё ожидается.');
+ notes(s,'Реальный настроенный Vertex Gemini через адаптер extract_classes распознал личный исходный скриншот: четыре пары понедельника 16:00–16:50, 17:00–17:50, 18:00–18:50, 19:00–19:50, даты null, другие дни не добавлены. Тот же реальный настроенный Vertex PDF-адаптер распознал synthetic weekly PDF: одна субботняя пара 22:00–22:20, даты null. Это два вызова адаптеров с пользовательскими gcloud credentials, не website HTTP и не статистическая оценка качества OCR. Исходник и приватный ответ в Git не включаются. Свежий connected_browser_fixture.py --check прошёл: один Engine invocation, один schedule import, одно Calendar-создание, apply и verify, повторный apply без второго создания. Часы 17.10.2026 21:00 Asia/Almaty. Отдельные evaluation receipts подтверждают 347 offline recovery и 53 voice loopback checks. 2472 passed, 0 skipped за 171.44 s и последующие 27 целевых тестов относятся к предыдущему source. Новый полный локальный и Linux gate выполняются. Текущая интеграция имеет один CampusPulseStudyTrace, не два параллельных trace UI. Полный gate точной облачной сборки ещё ожидается.');
 }
 
 await fs.mkdir(path.join(DIR,'previews'),{recursive:true});

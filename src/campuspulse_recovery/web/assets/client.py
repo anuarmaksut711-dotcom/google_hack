@@ -8,7 +8,7 @@ SCRIPT = r"""'use strict';
   const answerReveal = new window.CampusPulseAnswerReveal();
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
-  let renderedChat = null, chatPoller = null;
+  let renderedChat = null, chatPoller = null, activeChatSend = null;
   let speechAvailable = false, voiceState = 'idle', voiceSession = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -704,11 +704,18 @@ SCRIPT = r"""'use strict';
           const top = conversation.scrollTop;
           showChat(chat, {animateRequestKey: turn.status === 'completed' ? requestKey : null});
           if (!nearEnd) conversation.scrollTop = top;
-          if (!chatBusy && stored(pendingChatKey()) === requestKey) {
+          if (turn.status !== 'working' && activeChatSend?.requestKey === requestKey && activeChatSend.chatId === chatId &&
+              activeChatSend.session === session && activeChatSend.selection === selection) {
+            // The authenticated history already settled this turn. Its POST
+            // may still be hung; retire it before allowing another send.
+            activeChatSend = null; chatBusy = false;
+          }
+          if (turn.status !== 'working' && !chatBusy && stored(pendingChatKey()) === requestKey) {
             if (turn.status === 'completed' && $('recovery-message').value.trim() === turn.message.trim())
               $('recovery-message').value = '';
-            stored(pendingChatKey(), null); pendingText = null; saveDraft(); controls();
+            stored(pendingChatKey(), null); pendingText = null; saveDraft();
           }
+          controls();
         }
         if (nearEnd) conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
       },
@@ -773,8 +780,11 @@ SCRIPT = r"""'use strict';
       return;
     }
     const hadPending = !!stored(pendingChatKey());
+    const sending = {}; activeChatSend = sending;
     chatBusy = true; controls();
     let submitted = null;
+    const selected = () => !submitted || (submitted.chatId === activeChat &&
+      submitted.session === scope && submitted.selection === chatGeneration);
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
       const request_key = keyFor(pendingChatKey()); pendingText = message;
@@ -799,15 +809,15 @@ SCRIPT = r"""'use strict';
         chats.selection(); updateNavigation({preserveNavigation: true});
       }
       const turn = {request_key, message, status: 'working', created_at: new Date().toISOString(), response: null, duration_ms: null};
-      submitted = {chatId: activeChat, session: scope, selection: chatGeneration, requestKey: request_key,
-        previous: renderedChat};
+      submitted = Object.assign(sending, {chatId: activeChat, session: scope, selection: chatGeneration,
+        requestKey: request_key, previous: renderedChat});
       showChat({...renderedChat, available: true, turns: [...(renderedChat?.turns || []).filter(item => item.request_key !== request_key), turn]});
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
       const response = api('/api/chat', {request_key, message, chat_id: activeChat});
       watchChatProgress(request_key);
       const chat = await (await response).json();
-      if (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration) return;
+      if (activeChatSend !== sending || !selected()) return;
       const settled = chat.turns.find(item => item.request_key === request_key);
       if (settled?.status === 'working') {
         showChat(chat); watchChatProgress(request_key); return;
@@ -823,7 +833,7 @@ SCRIPT = r"""'use strict';
       await chats.load();
       updateNavigation({preserveNavigation: true});
     } catch (error) {
-      if (submitted && (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration)) return;
+      if (activeChatSend !== sending || !selected()) return;
       if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
       if (draftChat(activeChat) && error.code === 'workspace_item_deleted') {
         stored(pendingChatKey() + ':creation', null); stored(pendingChatKey(), null);
@@ -851,7 +861,12 @@ SCRIPT = r"""'use strict';
         return;
       }
       $('chat-status').textContent = 'Не удалось получить ответ. Текст сохранён в поле. ' + error.message + ' Нажмите «Обновить состояние», чтобы проверить историю.';
-    } finally { chatBusy = false; controls(); $('recovery-message').focus({preventScroll: true}); }
+    } finally {
+      if (activeChatSend === sending) {
+        activeChatSend = null; chatBusy = false; controls();
+        if (selected()) $('recovery-message').focus({preventScroll: true});
+      }
+    }
   }
   async function refresh() {
     const revision = ++generation;
