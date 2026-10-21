@@ -1,0 +1,63 @@
+{
+  "slides": 7,
+  "pdf_pages": 7,
+  "editable_shapes_by_slide": [
+    10,
+    11,
+    13,
+    17,
+    7,
+    11,
+    14
+  ],
+  "native_connectors_by_slide": [
+    0,
+    0,
+    4,
+    8,
+    0,
+    0,
+    0
+  ],
+  "native_tables_by_slide": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0
+  ],
+  "notes": 7,
+  "pdf_text_on_all_pages": true,
+  "fresh_local_verification": {
+    "date": "2026-10-21",
+    "pytest": {
+      "passed": 2256,
+      "skipped": 26,
+      "warnings": 35,
+      "seconds": 248.26,
+      "skipped_firestore_emulator": 12,
+      "skipped_powershell": 14
+    },
+    "offline_recovery": {
+      "passed": 347,
+      "warnings": 95
+    },
+    "voice_loopback": {
+      "passed": 53
+    },
+    "browser": {
+      "full_synthetic_chain_passed": true,
+      "calendar_writes": 2,
+      "apply_plan_calls": 1,
+      "verify_plan_calls": 1,
+      "calendar_reads": 8
+    },
+    "scope": "Local synthetic external services; not live GCP/Gemini/personal Calendar"
+  },
+  "sha256": {
+    "CampusPulse-AI-Pitch-2026-10-22-final.pptx": "393350b5fea83a6e7b3a5e0c844618f633796b606912686a3fa38650b3ef5cb7",
+    "CampusPulse-AI-Pitch-2026-10-22-final.pdf": "9c55c0d01961f7eed296912b1c30a92049737c7224c39f28b2aa000658868424"
+  }
+}
