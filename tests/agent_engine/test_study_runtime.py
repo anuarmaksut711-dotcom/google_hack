@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import json
 import pickle
 import socket
+import threading
 from types import SimpleNamespace
 
 from google.adk.models.base_llm import BaseLlm
@@ -309,6 +310,7 @@ def test_invalid_credentials_rejected_before_identity_or_firestore(monkeypatch, 
         raise AssertionError('invalid credential reached external boundary')
     monkeypatch.setattr(module, 'ServiceIdentity', forbidden)
     monkeypatch.setattr(module, '_documents', forbidden)
+    monkeypatch.setattr(module, '_preload_runtime', forbidden)
     result = asyncio.run(module.StudyAgentRuntime(*configuration()).async_query(reference, token))
     assert result == module._failure(403)
 
@@ -371,6 +373,87 @@ def test_serialization_rebuilds_only_validated_configuration():
     restored = pickle.loads(pickle.dumps(runtime))
     assert not hasattr(restored, 'private_runtime_token')
     assert restored.register_operations() == {'async': ['async_query']}
+
+
+def test_startup_preloads_definitions_once_without_clients_network_or_sources(monkeypatch):
+    calls, preload = [], module._preload_runtime
+    def observed():
+        calls.append('preload')
+        preload()
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Startup must not create clients, models, sessions or source grants')
+    monkeypatch.setattr(module, '_preload_runtime', observed)
+    monkeypatch.setattr(module, 'AdkConversationAgent', forbidden)
+    monkeypatch.setattr(module, 'StudyGrants', forbidden)
+    monkeypatch.setattr('google.cloud.firestore.AsyncClient', forbidden)
+    monkeypatch.setattr('google.genai.Client', forbidden)
+    monkeypatch.setattr('mcp.ClientSession', forbidden)
+    monkeypatch.setattr('httpx.AsyncClient', forbidden)
+    runtime = module.StudyAgentRuntime(*configuration())
+    runtime.set_up()
+    runtime.set_up()
+    assert calls == ['preload'] and runtime._setup_ready
+    restored = pickle.loads(pickle.dumps(runtime))
+    assert not restored._setup_ready
+    assert restored._setup_lock is not runtime._setup_lock
+    assert restored.register_operations() == {'async': ['async_query']}
+
+
+def test_concurrent_direct_queries_setup_once_off_loop_before_identity(monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    calls, identities = [], []
+    def preload():
+        calls.append(threading.get_ident())
+        entered.set()
+        assert release.wait(3)
+    class Identity:
+        def __init__(self, *args): pass
+        async def verify(self, request):
+            identities.append('verified-after-setup')
+            raise AccessDenied('foreign-service')
+    monkeypatch.setattr(module, '_preload_runtime', preload)
+    monkeypatch.setattr(module, 'ServiceIdentity', Identity)
+    async def scenario():
+        runtime = module.StudyAgentRuntime(*configuration())
+        first = asyncio.create_task(runtime.async_query('a' * 43, 'synthetic-token'))
+        second = asyncio.create_task(runtime.async_query('b' * 43, 'synthetic-token'))
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            assert identities == []
+            # A blocking importer must not prevent a separate route/task from
+            # running in the same event loop while startup is still pending.
+            assert await asyncio.wait_for(asyncio.sleep(0, result='responsive'), .25) == 'responsive'
+        finally:
+            release.set()
+        assert await first == module._failure(403)
+        assert await second == module._failure(403)
+        assert len(calls) == 1 and calls[0] != threading.get_ident()
+        assert identities == ['verified-after-setup', 'verified-after-setup']
+    asyncio.run(scenario())
+
+
+def test_cancellation_during_fallback_setup_never_reaches_identity_or_sources(monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    def preload():
+        entered.set()
+        assert release.wait(3)
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Cancelled query reached an external boundary')
+    monkeypatch.setattr(module, '_preload_runtime', preload)
+    monkeypatch.setattr(module, 'ServiceIdentity', forbidden)
+    monkeypatch.setattr(module, '_documents', forbidden)
+    async def scenario():
+        runtime = module.StudyAgentRuntime(*configuration())
+        task = asyncio.create_task(runtime.async_query('a' * 43, 'synthetic-token'))
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert task.cancelled()
+        finally:
+            release.set()
+    asyncio.run(scenario())
 
 
 def test_foreign_model_project_rejected():

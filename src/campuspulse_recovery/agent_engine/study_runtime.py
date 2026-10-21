@@ -6,11 +6,13 @@ parameters. Clients are constructed inside the invocation's event loop.
 """
 import asyncio
 from contextlib import asynccontextmanager
+import importlib
 import inspect
 import json
 import logging
 import os
 import re
+import threading
 from time import monotonic
 from typing import Literal
 from uuid import uuid4
@@ -31,6 +33,18 @@ from ..security.context import AccessDenied
 QUERY_SECONDS = 105
 MAX_TOOL_CALLS = 8
 TOOLS = frozenset({'read_assignments', 'read_schedule'})
+_RUNTIME_MODULES = (
+    'google.adk.agents', 'google.adk.agents.run_config', 'google.adk.events',
+    'google.adk.runners', 'google.adk.sessions', 'google.adk.tools',
+    'google.adk.models.google_llm', 'google.genai.types',
+    'mcp', 'mcp.client.streamable_http', 'httpx', 'google.cloud.firestore',
+)
+
+
+def _preload_runtime():
+    """Load class definitions during worker startup; never create runtime clients."""
+    for name in _RUNTIME_MODULES:
+        importlib.import_module(name)
 
 STUDY_INSTRUCTIONS = """
 Ты работаешь в облачном Agent Engine. Для актуальных заданий и дедлайнов сам
@@ -38,6 +52,8 @@ STUDY_INSTRUCTIONS = """
 read_schedule: он читает расписание пар текущего пользователя. Не используй
 старый ответ из истории как доказательство актуальных источников. Выбирай
 нужные инструменты по запросу: приветствие не требует обращения к источникам.
+Для плана read_assignments и read_schedule независимы: запроси оба в одном
+ходе модели, чтобы они выполнились параллельно.
 Инструменты только читают данные. У тебя нет записи в календарь, Moodle,
 задания или расписание. Не утверждай, что записал, изменил или синхронизировал
 события. Составь полезный план в чате по реальным заданиям и доступному времени
@@ -304,12 +320,20 @@ class StudyAgentRuntime:
         self._application_json = app.model_dump_json()
         self._study_json = study.model_dump_json()
         self._chat_json = chat.model_dump_json()
+        self._setup_ready = False
+        self._setup_lock = threading.Lock()
 
     def register_operations(self):
         return {'async': ['async_query']}
 
     def set_up(self):
         logging.disable(logging.CRITICAL)
+        if self._setup_ready:
+            return
+        with self._setup_lock:
+            if not self._setup_ready:
+                _preload_runtime()
+                self._setup_ready = True
 
     def __reduce__(self):
         return (type(self), tuple(json.loads(value) for value in
@@ -317,13 +341,17 @@ class StudyAgentRuntime:
 
     async def async_query(self, invocation: str, service_token: str) -> dict:
         """Run a single saved website conversation; never accept user/account selectors."""
-        self.set_up()
+        logging.disable(logging.CRITICAL)
         if (not isinstance(invocation, str) or re.fullmatch(r'[A-Za-z0-9_-]{43}', invocation) is None
                 or not isinstance(service_token, str)
                 or re.fullmatch(r'[A-Za-z0-9._-]{1,11993}', service_token) is None):
             return _failure(403)
         try:
             async with asyncio.timeout(QUERY_SECONDS):
+                if not self._setup_ready:
+                    # Managed hosting calls set_up during startup. The fallback
+                    # also supports direct callers without blocking their loop.
+                    await asyncio.to_thread(self.set_up)
                 app = AppConfig.model_validate_json(self._application_json)
                 settings = StudyAgentSettings.model_validate_json(self._study_json)
                 target = ConversationTarget.model_validate_json(self._chat_json)
