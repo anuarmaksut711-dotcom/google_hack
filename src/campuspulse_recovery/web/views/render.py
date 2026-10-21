@@ -159,7 +159,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <noscript>Для действий включите JavaScript. Загрузка страницы не согласует и не применяет план.</noscript>
 <div id="panel" tabindex="-1" aria-busy="true"><p>Загружаем сохранённый план…</p></div>
 <section class="journal" aria-labelledby="journal-heading"><div class="section-heading"><h2 id="journal-heading">Журнал запуска</h2>
-<button id="trace" type="button" disabled>Загрузить журнал</button></div>
+<div><button id="trace" type="button" disabled>Перечитать журнал</button> <button id="clear-run" type="button" disabled>Снять выбор запуска</button></div></div>
 <p id="trace-health" role="status">Выберите сохранённый запуск, чтобы прочитать журнал.</p>
 <ol id="trace-records"></ol><button id="trace-more" type="button" hidden>Следующая страница</button></section>
 <p id="feedback" role="status" aria-live="polite">Загружаем сохранённое состояние…</p>
@@ -221,6 +221,12 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         html.append(f'<p class="technical">Run: <code>{e(run.run_id)}</code> · Intent: <code>{e(run.intent_id)}</code></p>')
         if not run.observation_available:
             html.append('<p>Журнал недоступен или неполон. Это не подтверждение результата.</p>')
+    if run is not None:
+        html.append('<p><a href="#journal-heading">Инструменты и результаты этого запуска</a></p>')
+    if plan is not None:
+        consent = 'требуется для этой версии' if can_approve else 'эта версия согласована' if active else 'недоступно для этой версии'
+        html.append(f'<p>Подтверждение: {consent}.</p>')
+    html.append('<p>Проверка записи: ' + ('подтверждена независимым чтением.' if proven else 'не подтверждена.') + '</p>')
     if proven:
         html.append(f'<p>Проверено: <time datetime="{e(run.verification_at.isoformat())}">{stamp(run.verification_at, timezone)}</time></p>')
         links = [safe_calendar_link(event.event_link) for event in sources.verification.observed_events]
@@ -231,7 +237,11 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
     html.append('</section><div class="sources" id="sources">')
     for heading, items in (("Задания", sources.assignments), ("Календарь", sources.calendar)):
         html.append(f'<section><h2>{heading}</h2>')
-        if items is None:
+        if heading == 'Календарь' and moodle_enabled:
+            html.append('<p>Для расчёта занятые интервалы читает <code>read_calendar</code>. '
+                'Фактические события инструмента доступны в журнале запуска.</p>'
+                '<p><a href="/planning">Проверить оставшееся время и сохранённые свободные часы</a></p>')
+        elif items is None:
             html.append('<p>Безопасная сводка источника не подключена.</p>')
         elif not items:
             html.append('<p>В полученной сводке нет записей.</p>')
@@ -243,10 +253,11 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         html.append('<p>Сохранённая версия плана ещё не получена.</p></section>')
         return ''.join(html)
     payload = plan.payload
-    step = 3 if active else 2
+    step = (4 if status in {'verified', 'applied_unverified', 'verification_failed'} else
+            3 if active or status in {'applying', 'partial', 'unknown'} else 2)
     html.append('<ol class="review-flow" aria-label="Этапы работы с планом">' + ''.join(
-        f'<li{" aria-current=step" if number == step else ""}><b>{number}</b>{label}</li>'
-        for number, label in ((1, 'Проверка'), (2, 'Согласование'), (3, 'Применение'))) + '</ol>')
+        f'<li{' aria-current="step"' if number == step else ""}><b>{number}</b>{label}</li>'
+        for number, label in ((1, 'Предложение'), (2, 'Согласование'), (3, 'Применение'), (4, 'Независимая проверка'))) + '</ol>')
     html.append(f'<p class="plan-summary">Версия {ref.version} · операций: {len(payload.operations)}. '
         'Сверьте время «До» и «После» перед согласованием.</p>')
     html.append(f'<details class="plan-details"><summary>Точная версия и идентификаторы плана</summary><dl class="reference" id="plan-reference" data-plan-id="{e(ref.plan_id)}" data-version="{ref.version}" data-hash="{e(ref.payload_hash)}">'

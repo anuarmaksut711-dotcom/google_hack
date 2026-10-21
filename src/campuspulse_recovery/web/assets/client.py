@@ -546,11 +546,12 @@ SCRIPT = r"""'use strict';
   function controls() {
     voiceControls();
     resizeComposer();
-    document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy; });
+    document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy || $('panel').dataset.stale === 'true'; });
     $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
     $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
     $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
+    if ($('clear-run')) $('clear-run').disabled = !activeRun || busy || traceBusy;
     $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || chatLimitReached || !scope || !chatAvailable || !$('recovery-message').value.trim();
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
@@ -780,15 +781,16 @@ SCRIPT = r"""'use strict';
   }
   async function refresh() {
     const revision = ++generation;
+    let sessionChecked = false;
     $('panel').setAttribute('aria-busy', 'true');
 
-    $('panel').replaceChildren();
+    $('panel').setAttribute('data-stale', 'true'); controls();
     $('trace-records').replaceChildren(); cursor = 0; $('trace-more').hidden = true;
     $('trace-health').textContent = 'Загрузите журнал выбранного запуска. Обновление не подтверждает результат.';
     try {
       const session = await (await api('/auth/session')).json();
-      if (scope !== session.session_id) { chats.reset(); clearDrafts(); pendingText = null; }
-      scope = session.session_id;
+      if (scope !== session.session_id) { $('panel').replaceChildren(); chats.reset(); clearDrafts(); pendingText = null; }
+      scope = session.session_id; sessionChecked = true;
       restoreDraft(activeChat);
       const selector = new URLSearchParams(location.search);
       activeRun = selector.get('run_id') || stored('run');
@@ -802,6 +804,7 @@ SCRIPT = r"""'use strict';
 
       const parsed = new DOMParser().parseFromString(text, 'text/html');
       $('panel').replaceChildren(...parsed.body.childNodes);
+      $('panel').setAttribute('data-stale', 'false');
       $('signout').hidden = false;
       await chats.load();
       if (revision !== generation) return;
@@ -813,9 +816,11 @@ SCRIPT = r"""'use strict';
         stored('run', activeRun);
         const locationQuery = new URLSearchParams({run_id: activeRun});
         history.replaceState(null, '', '/?' + locationQuery + location.hash);
+        await trace(true);
       }
     } catch (error) {
-      if (revision === generation) {
+      if (revision === generation && !sessionChecked) {
+        $('panel').replaceChildren();
         if (error.status === 403) clearDrafts(); else chatDrafts.clear();
         scope = null; activeRun = null; chatAvailable = false; chatWorking = false; chatLimitReached = false;
         chats.reset(); ++chatGeneration;
@@ -823,6 +828,8 @@ SCRIPT = r"""'use strict';
         $('workspace').classList.remove('has-chat');
         $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       }
+      if (revision === generation && sessionChecked)
+        $('chat-status').textContent = 'Вход подтверждён. Не удалось перечитать сохранённое состояние; повторите обновление.';
       throw error;
     } finally { $('panel').setAttribute('aria-busy', 'false'); controls(); }
   }
@@ -857,9 +864,9 @@ SCRIPT = r"""'use strict';
       focusPanel();
     } catch (error) {
 
-      $('panel').replaceChildren();
+      $('panel').setAttribute('data-stale', 'true');
       feedback(error.message === 'session' ? 'Войдите через настроенный вход.' :
-        error.message + ' Если ответ потерян, результат остаётся неизвестным. Повтор того же действия использует сохранённый ключ.', true);
+        error.message + ' Результат действия не подтверждён. Нажмите «Обновить состояние»: показанная версия сохранена для просмотра, действия временно заблокированы. Ключ запроса сохранён.', true);
     } finally { busy = false; controls(); }
   }
   async function trace(reset = false) {
@@ -870,26 +877,51 @@ SCRIPT = r"""'use strict';
       if (reset) { cursor = 0; $('trace-records').replaceChildren(); }
       const page = await (await api('/api/runs/' + encodeURIComponent(activeRun) + '/trace?after=' + cursor)).json();
       if (revision !== generation || run !== activeRun) return;
+      const purposes = {
+        read_assignments: 'Читает задания и сроки из настроенного источника',
+        read_calendar: 'Читает занятые интервалы и учебные блоки',
+        solve_repair: 'Рассчитывает предложение плана в пределах 72 часов',
+        apply_plan: 'Применяет только согласованную версию плана',
+        verify_plan: 'Повторно читает источники и проверяет записанные изменения'
+      };
+      const phases = {started: 'Вызов зарегистрирован', result: 'Получен результат',
+        completed: 'Наблюдение завершено', failed: 'Наблюдение с ошибкой'};
+      const statuses = {started: 'ожидается результат', complete: 'чтение завершено',
+        completed: 'завершено', proposed: 'получено предложение',
+        candidate: 'получен кандидат плана', feasible: 'план допустим', optimal: 'найден оптимальный план',
+        unknown: 'результат неизвестен', partial: 'выполнена часть операций',
+        applied_unverified: 'запись не подтверждена проверкой', verified: 'инструмент сообщил о проверке',
+        verification_failed: 'проверка выявила расхождения', denied: 'вызов отклонён',
+        error: 'ошибка', failed: 'ошибка', needs_input: 'нужны данные', stale: 'данные устарели',
+        no_change: 'изменения не требуются', unavailable: 'недоступно'};
       for (const record of page.records) {
-        const o = record.observation, event = o.event;
+        const o = record.observation, event = o.event, result = o.summary;
         const li = document.createElement('li'), details = document.createElement('details'),
-          title = document.createElement('summary'), pre = document.createElement('pre');
-        title.textContent = (event.tool || 'Запуск') + ' · ' + event.phase + ' · ' + event.status;
-
+          title = document.createElement('summary'), pre = document.createElement('pre'),
+          heading = document.createElement('h3'), purpose = document.createElement('p'), returned = document.createElement('p');
+        heading.textContent = (event.tool || 'Запуск') + ' · ' + (phases[event.phase] || event.phase);
+        purpose.textContent = purposes[event.tool] || 'Событие запуска, зарегистрированное сервером';
+        const facts = [statuses[event.status] || event.status];
+        if (event.phase === 'started') facts.push('результат этого вызова ещё не получен');
+        if (result.item_count !== null && result.item_count !== undefined) facts.push('Записей: ' + result.item_count);
+        if (result.operation_count !== null && result.operation_count !== undefined) facts.push('Операций: ' + result.operation_count);
+        if (result.completed_count !== null && result.completed_count !== undefined) facts.push('Завершено операций: ' + result.completed_count);
+        if (result.complete === false) facts.push('источник неполный');
+        if (result.verification_status) facts.push('Проверка: ' + (statuses[result.verification_status] || result.verification_status));
+        if (result.historical_verification) facts.push('историческая проверка; свежий результат не подтверждён');
+        returned.textContent = facts.join(' · ');
+        title.textContent = 'Технические сведения · ' + event.phase + ' · ' + event.status;
         pre.textContent = JSON.stringify({run_id: event.run_id, layer: o.layer, call_id: event.call_id,
           operation_id: event.operation_id, attempt_id: o.attempt_id, sequence: event.sequence,
-          occurred_at: event.occurred_at, duration_ms: event.duration_ms,
-          result: {item_count: o.summary.item_count, operation_count: o.summary.operation_count,
-            completed_count: o.summary.completed_count, complete: o.summary.complete,
-            verification_status: o.summary.verification_status}}, null, 2);
-        details.append(title, pre); li.append(details); $('trace-records').append(li);
+          occurred_at: event.occurred_at, duration_ms: event.duration_ms, result}, null, 2);
+        details.append(title, pre); li.append(heading, purpose, returned, details); $('trace-records').append(li);
       }
       const progressed = page.next > cursor;
       cursor = page.next;
       $('trace-more').hidden = !progressed;
       $('trace-health').textContent = page.records.length ?
         'Показана страница наблюдений. Журнал не заменяет проверку календаря; raw данные источников скрыты.' :
-        'На этой странице нет записей. Пустой журнал не подтверждает результат.';
+        (cursor ? 'Все доступные события загружены. Итог записи смотрите в разделе «Мой план».' : 'На этой странице нет записей. Пустой журнал не подтверждает результат.');
     } catch (error) {
       if (revision === generation && run === activeRun)
         $('trace-health').textContent = 'Журнал недоступен или неполон. ' + error.message;
@@ -980,6 +1012,12 @@ SCRIPT = r"""'use strict';
   $('panel').addEventListener('click', event => {
     const button = event.target.closest('button[data-action]');
     if (button && !button.disabled) act(button.dataset.action);
+  });
+  $('clear-run')?.addEventListener('click', () => {
+    if (busy || traceBusy) return;
+    stored('run', null); activeRun = null;
+    history.replaceState(null, '', '/' + location.hash);
+    refresh().catch(error => feedback(error.message, true));
   });
   $('trace').addEventListener('click', () => trace(true));
   $('trace-more').addEventListener('click', () => trace(false));

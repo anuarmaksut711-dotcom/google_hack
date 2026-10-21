@@ -222,6 +222,11 @@ tbody tr:last-child > * { border: 0; }
 .moodle-tasks > details { margin-top: 16px; }
 .journal > p { color: var(--muted); font-size: 13px; max-width: 75ch; }
 #trace-records { list-style: none; padding: 0; margin: 24px 0; }
+#panel[data-stale=true]::before { content: "Показана сохранённая версия. Перечитайте состояние перед следующим действием."; display: block; padding: 16px; margin-bottom: 16px; border: 1px solid #a17a37; border-radius: 10px; color: var(--ink); background: var(--subtle); }
+#panel[data-stale=true] .outcome { background: var(--subtle); }
+#panel[data-stale=true] .outcome h2 { color: var(--ink); }
+#trace-records h3 { margin: 18px 4px 8px; font-size: 15px; overflow-wrap: anywhere; }
+#trace-records p { margin: 8px 4px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 #trace-records li { border-top: 1px solid var(--line); }
 #trace-records summary { padding: 16px 4px; font-size: 13px; overflow-wrap: anywhere; }
 #trace-records pre { padding: 18px; margin: 0 0 16px; background: var(--subtle); border-radius: 8px; color: #b7c0d8; white-space: pre-wrap; overflow-wrap: anywhere; }
