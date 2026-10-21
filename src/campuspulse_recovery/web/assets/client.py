@@ -751,10 +751,10 @@ SCRIPT = r"""'use strict';
       $('recovery-message').value = '';
       saveDraft();
       showChat(chat, {animateRequestKey: request_key});
-      await chats.load();
-      updateNavigation({preserveNavigation: true});
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
+      await chats.load();
+      updateNavigation({preserveNavigation: true});
     } catch (error) {
       if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
       if (draftChat(activeChat) && error.code === 'workspace_item_deleted') {
