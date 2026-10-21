@@ -152,5 +152,7 @@
     "tests/pitch_ui/test_unified_schedule_ui.cjs",
     "tests/pitch_ui/test_unified_schedule_ui.py",
     "tests/web/test_ui_states.py"
-  ]
+  ],
+  "implementation_commit": "342305472300db9b713fdab8febe9a6354cd367b",
+  "delivery_head_ref": "origin/codex/pitch-ui-demo; final documentation SHA is reported to user after remote verification"
 }
