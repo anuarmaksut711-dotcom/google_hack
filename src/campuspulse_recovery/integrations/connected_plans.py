@@ -6,7 +6,7 @@ is an approval. Existing events are observed, never modified or adopted.
 """
 import asyncio
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, time as wall_time, timedelta
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..domain.models import Instant, canonical_hash, calendar_event_id
 from ..domain.ports import BindingConflict
 from ..security.context import AccessDenied
+from ..lms.manual_schedule import WeeklySchedule
 from .local_calendar import CalendarConnectionError
 
 WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events.owned'
@@ -78,17 +79,70 @@ class ConnectedPlans:
     def path(self, kind, key):
         return 'cp_calendar_' + kind + '/' + key
 
-    async def binding(self, owner, expected=None):
-        value = await self.documents.get('cp_local_google_calendars/' + owner)
+    async def binding(self, owner, expected=None, reader=None):
+        value = await (reader or self.documents).get('cp_local_google_calendars/' + owner)
         if not value or not value.get('connected') or value.get('owner') != owner:
             raise BindingConflict('calendar_not_connected')
         if expected and (value['calendar_id'], value.get('binding_generation', value['generation'])) != (expected['calendar'], expected['generation']):
             raise BindingConflict('calendar_connection_changed')
         return value
 
-    async def propose(self, owner, request_key, raw_blocks, source):
+    async def class_basis(self, owner, blocks, timezone, *, expected=None, reader=None):
+        """Use the same transaction as consent/intent, never a cached projection."""
+        reader = reader or self.documents
+        saved = await reader.get_class_schedule(owner)
+        basis = canonical_hash(saved)
+        if expected is not None and basis != expected:
+            raise BindingConflict('calendar_class_schedule_changed')
+        try:
+            if not saved or saved['owner_id'] != owner:
+                raise ValueError()
+            weekly = WeeklySchedule.model_validate(saved['schedule'])
+            zone = ZoneInfo(timezone)
+            start = datetime.combine(weekly.valid_from, wall_time.min, zone)
+            end = datetime.combine(weekly.valid_until + timedelta(days=1), wall_time.min, zone)
+            if not start <= self.calendar.clock() < self.calendar.clock() + timedelta(hours=72) <= end:
+                raise ValueError()
+            for block in blocks:
+                interval = (datetime.fromisoformat(block['start']), datetime.fromisoformat(block['end']))
+                if not start <= interval[0] < interval[1] <= end:
+                    raise ValueError()
+                day = interval[0].astimezone(zone).date()
+                while day <= interval[1].astimezone(zone).date():
+                    for lesson in weekly.classes:
+                        if lesson.weekday == day.weekday() and overlap(interval, (
+                                datetime.combine(day, wall_time.fromisoformat(lesson.start), zone),
+                                datetime.combine(day, wall_time.fromisoformat(lesson.end), zone))):
+                            raise ValueError()
+                    day += timedelta(days=1)
+        except (ValueError, TypeError, KeyError):
+            raise BindingConflict('calendar_class_schedule_unavailable') from None
+        return basis
+
+    async def current_basis(self, owner, plan, *, reader=None):
+        if not plan.get('class_basis') or not plan.get('class_timezone'):
+            raise BindingConflict('calendar_class_schedule_changed')
+        return await self.class_basis(owner, plan['blocks'], plan['class_timezone'],
+            expected=plan['class_basis'], reader=reader)
+
+    async def preflight(self, owner, plan_id):
+        async def check(tx):
+            plan, state = await self.get(owner, plan_id, tx)
+            await self.binding(owner, plan, tx)
+            await self.current_basis(owner, plan, reader=tx)
+            return plan, state
+        return await self.documents.transact(check)
+
+    async def propose(self, owner, request_key, raw_blocks, source, *, class_timezone):
         binding = await self.binding(owner)
         blocks = validate_blocks(raw_blocks, now=self.calendar.clock())
+        class_basis = await self.class_basis(owner, blocks, class_timezone)
+        horizon = source['horizon']
+        if (datetime.fromisoformat(source['read_at']) > self.calendar.clock() or
+                self.calendar.clock() - datetime.fromisoformat(source['read_at']) > timedelta(minutes=5) or
+                any(not datetime.fromisoformat(horizon['start']) <= datetime.fromisoformat(block['start']) <
+                    datetime.fromisoformat(block['end']) <= datetime.fromisoformat(horizon['end']) for block in blocks)):
+            raise BindingConflict('calendar_source_unavailable')
         for block in blocks:
             interval = (datetime.fromisoformat(block['start']), datetime.fromisoformat(block['end']))
             if any(event.get('transparency') != 'transparent' and overlap(interval, event_interval(event, source['timezone'])) for event in source['events']):
@@ -96,7 +150,8 @@ class ConnectedPlans:
         request = canonical_hash([owner, request_key])
         payload = {'owner': owner, 'calendar': binding['calendar_id'], 'generation': binding.get('binding_generation', binding['generation']),
                    'timezone': source['timezone'], 'blocks': blocks, 'request': request,
-                   'snapshot': relevant_snapshot(source['events'], blocks, source['timezone'])}
+                   'snapshot': relevant_snapshot(source['events'], blocks, source['timezone']),
+                   'class_basis': class_basis, 'class_timezone': class_timezone}
         plan_id = canonical_hash(payload)
         payload['plan_id'] = plan_id
         for i, block in enumerate(blocks):
@@ -112,6 +167,8 @@ class ConnectedPlans:
             plan_path, state_path = self.path('plans', plan_id), self.path('plan_state', plan_id)
             await tx.get(plan_path)
             await tx.get(state_path)
+            await self.binding(owner, payload, tx)
+            await self.current_basis(owner, payload, reader=tx)
             if old:
                 if old != {'plan_id': plan_id}:
                     raise BindingConflict('calendar_request_changed')
@@ -141,23 +198,37 @@ class ConnectedPlans:
         result = []
         for plan_id in index['ids']:
             plan, state = await self.get(owner, plan_id)
+            try:
+                await self.preflight(owner, plan_id)
+            except BindingConflict:
+                # A historical successful write is not evidence that the
+                # proposal still fits the user's current class schedule.
+                state = {**state, 'status': 'stale', 'verified_at': None, 'links': []}
             result.append({'plan': plan, 'state': state})
         return result
 
-    async def approve(self, owner, plan_id, payload_hash, session):
+    async def approve(self, owner, plan_id, payload_hash, session, *, source):
         plan, _ = await self.get(owner, plan_id)
         await self.binding(owner, plan)
+        if (source['timezone'] != plan['timezone'] or
+                relevant_snapshot(source['events'], plan['blocks'], plan['timezone']) != plan['snapshot']):
+            raise BindingConflict('calendar_source_changed')
         async def save(tx):
             plan, state = await self.get(owner, plan_id, tx)
+            await self.binding(owner, plan, tx)
+            await self.current_basis(owner, plan, reader=tx)
             if plan['hash'] != payload_hash or state['status'] != 'draft':
                 raise BindingConflict('calendar_approval_changed')
             tx.set(self.path('plan_state', plan_id), {**state, 'status': 'approved',
                 'approval': {'hash': payload_hash, 'session': session, 'at': self.calendar.clock().isoformat()}})
         await self.documents.transact(save)
 
-    async def state(self, owner, plan_id, **updates):
+    async def state(self, owner, plan_id, *, check_basis=False, **updates):
         async def save(tx):
-            _, state = await self.get(owner, plan_id, tx)
+            plan, state = await self.get(owner, plan_id, tx)
+            if check_basis:
+                await self.binding(owner, plan, tx)
+                await self.current_basis(owner, plan, reader=tx)
             tx.set(self.path('plan_state', plan_id), {**state, **updates})
         await self.documents.transact(save)
 
@@ -167,6 +238,8 @@ class ConnectedPlans:
         async def save(tx):
             saved, state = await self.get(owner, plan_id, tx)
             lock = await tx.get(lock_path)
+            await self.binding(owner, saved, tx)
+            await self.current_basis(owner, saved, reader=tx)
             if state['status'] == 'verified':
                 return False
             approval = state.get('approval')
@@ -247,8 +320,16 @@ class ConnectedPlans:
                 else:
                     if datetime.fromisoformat(block['start']) < self.calendar.clock():
                         raise BindingConflict('calendar_plan_time')
+                    source = await self.calendar.read(owner)
+                    if relevant_snapshot(source['events'], plan['blocks'], plan['timezone'], ours) != plan['snapshot']:
+                        raise BindingConflict('calendar_source_changed')
+                    binding = await self.binding(owner, plan)
                     ops = {**state['operations'], block['operation_id']: 'unknown'}
-                    await self.state(owner, plan_id, operations=ops)
+                    await self.state(owner, plan_id, check_basis=True, operations=ops)
+                    await session_check()
+                    # The final guard transaction follows reconciliation GET
+                    # and precedes the single bounded insert (never retried).
+                    await self.preflight(owner, plan_id)
                     event = await self.io.create(binding, {
                         'id': block['event_id'], 'summary': block['title'],
                         'start': {'dateTime': block['start']}, 'end': {'dateTime': block['end']},
@@ -258,11 +339,17 @@ class ConnectedPlans:
                     if not self.matches(plan, block, event):
                         raise CalendarConnectionError('calendar_write_unknown')
                 _, state = await self.get(owner, plan_id)
-                await self.state(owner, plan_id, operations={**state['operations'], block['operation_id']: 'confirmed'})
+                await self.state(owner, plan_id, check_basis=True,
+                    operations={**state['operations'], block['operation_id']: 'confirmed'})
             await self.state(owner, plan_id, status='applied_unverified')
             return await self.verify(owner, plan_id, session_check=session_check)
         except (Exception, asyncio.CancelledError) as error:
             _, state = await self.get(owner, plan_id)
+            if isinstance(error, BindingConflict) and (str(error).startswith('calendar_class_schedule') or
+                                                        str(error) == 'calendar_source_changed'):
+                await self.state(owner, plan_id, status='stale')
+                await self.release(owner, plan_id)
+                return {'status': 'stale', 'plan_id': plan_id}
             if state['status'] == 'applying':
                 confirmed = sum(v == 'confirmed' for v in state['operations'].values())
                 await self.state(owner, plan_id, status='partial' if confirmed else 'unknown')
@@ -298,7 +385,8 @@ class ConnectedPlans:
                 raise CalendarConnectionError('calendar_final_verification_failed')
             await session_check()
             at = self.calendar.clock().isoformat()
-            await self.state(owner, plan_id, status='verified', operations=operations, verified_at=at, links=links)
+            await self.state(owner, plan_id, check_basis=True, status='verified',
+                             operations=operations, verified_at=at, links=links)
             await self.release(owner, plan_id)
             return {'status': 'verified', 'plan_id': plan_id, 'verified_at': at, 'links': links}
         except Exception:

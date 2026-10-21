@@ -1,0 +1,10 @@
+{
+  "current_receipt": "DECK-INTEGRATION-RECEIPT.json",
+  "historical_receipt": "archive/pre-integration-2026-10-22/QA-RECEIPT.json",
+  "slides": 7,
+  "pdf_pages": 7,
+  "sha256": {
+    "CampusPulse-AI-Pitch-2026-10-22-final.pptx": "b7830286b13af65221c517547964f34d198205a0d713bfa5910681f129241af2",
+    "CampusPulse-AI-Pitch-2026-10-22-final.pdf": "4e9e4df2c865869f11890d24c8a1011f40db1a5890a9e10fb98db12b7c33cda2"
+  }
+}

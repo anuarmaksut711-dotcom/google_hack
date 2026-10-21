@@ -55,9 +55,9 @@ class ManualSchedule:
         self.policy.require_context(context)
         self.policy.require_owner(context, self.owner)
 
-    async def read(self, context):
+    async def read(self, context, *, reader=None):
         self.authorize(context)
-        saved = await self.documents.get(self.record)
+        saved = await (reader or self.documents).get(self.record)
         if saved is None:
             return {'connected': False, 'schedule': None}
         if saved['owner_id'] != self.owner:

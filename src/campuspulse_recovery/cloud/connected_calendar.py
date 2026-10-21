@@ -45,12 +45,21 @@ class EncryptedCalendarDocuments:
     async def get(self, path):
         return self.decode(self.path(path), await self.documents.get(path))
 
+    async def get_class_schedule(self, owner):
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', owner):
+            raise AccessDenied('class_schedule_owner_required')
+        return await self.documents.get('cp_class_schedules/' + owner)
+
     async def transact(self, callback):
         store = self
         async def transaction(tx):
             class Transaction:
                 async def get(self, path):
                     return store.decode(store.path(path), await tx.get(path))
+                async def get_class_schedule(self, owner):
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', owner):
+                        raise AccessDenied('class_schedule_owner_required')
+                    return await tx.get('cp_class_schedules/' + owner)
                 def set(self, path, value):
                     tx.set(store.path(path), store.encode(path, value))
                 def create(self, path, value):

@@ -28,8 +28,8 @@ def test_browser_transport_must_match_configured_https_origin(scheme, host, expe
 
 
 @pytest.mark.parametrize('outcome,label', [
-    ('partial', 'Применён частично'), ('unknown', 'Результат неизвестен'),
-    ('applied_unverified', 'проверка не подтверждена'),
+    ('partial', 'Расписание добавлено частично'), ('unknown', 'Результат неизвестен'),
+    ('applied_unverified', 'Запись пока не подтверждена'),
     ('verification_failed', 'Проверка выявила расхождения'),
 ])
 def test_synthetic_consent_separate_apply_reload_retry_keeps_outcome(outcome, label):

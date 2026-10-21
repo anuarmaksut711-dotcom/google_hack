@@ -1,0 +1,147 @@
+{
+  "audit_date": "2026-10-22",
+  "timezone": "Asia/Almaty",
+  "verdict": "local_validation_passed_cloud_acceptance_incomplete_with_reproducible_findings",
+  "tested_sources": {
+    "pitch": "e57ce4dea0a818040d77afad44b65bd9324dace3",
+    "origin_main": "4a0858a00b3f1c1c2bf382981b0400f212f06fb8",
+    "calendar_release": "c19aee8eba587e499f48de295e7700136023a595",
+    "published_sha": null
+  },
+  "tests": {
+    "pitch_with_firestore_emulator": {
+      "tests": 2282,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 14,
+      "passed": 2268
+    },
+    "calendar_release_before_manual_oauth_install": {
+      "outcome": "collection_error",
+      "missing_module": "google_auth_oauthlib"
+    },
+    "calendar_release_after_manual_oauth_install": {
+      "tests": 2198,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 14,
+      "passed": 2183
+    },
+    "calendar_reproduced_failure": "tests/lms/test_web.py::test_dashboard_is_opt_in_and_planning_does_not_use_old_sheet_data",
+    "recovery_offline_passed": 347,
+    "voice_literal_loopback_passed": 53,
+    "skips_reason": "14 PowerShell deployment checks; PowerShell 7 not installed",
+    "cloud_services_real": false
+  },
+  "test_environment_manual_augmentation": {
+    "scope": "ignored .venv-pitch only; no tracked dependencies changed",
+    "google-auth-oauthlib": "1.5.0",
+    "requests-oauthlib": "2.0.0",
+    "oauthlib": "3.3.1"
+  },
+  "local_http_flow": {
+    "synthetic": true,
+    "outcome": "passed",
+    "clock": "2026-10-17T16:00:00+00:00",
+    "calendar_mutations": 2,
+    "calendar_reads": 8,
+    "same_request_replay_no_extra_writes": true
+  },
+  "evidence_outage_reproduction": {
+    "synthetic": true,
+    "ui_http_before": 200,
+    "ui_http_during_outage": 503,
+    "session_http_during_outage": 200,
+    "error": "storage_outcome_unknown_retry_same_request",
+    "solver_event_present": false
+  },
+  "clean_connected_mcp_startup": {
+    "outcome": "ModuleNotFoundError",
+    "module": "campuspulse_recovery.cloud.live_mcp",
+    "cloud_outage_inferred": false,
+    "legacy_overlay_dependency_documented": true
+  },
+  "published_browser": {
+    "url": "https://campuspulse-403025736340.us-central1.run.app",
+    "read_only": true,
+    "session_preexisting": true,
+    "chat_mode": "calendar_advice",
+    "recovery_runtime": false,
+    "calendar_connected": false,
+    "moodle_task_count": 15,
+    "console_errors_or_warnings": 0,
+    "css_viewport_width": 479,
+    "document_scroll_width": 468,
+    "plan_navigation_checked": true,
+    "real_calendar_mutations_performed": false,
+    "full_recovery_flow_verified": false,
+    "screenshot": "evidence/published-plan-2026-10-22.png"
+  },
+  "presentation": {
+    "pptx_slides": 7,
+    "pptx_sha256": "393350b5fea83a6e7b3a5e0c844618f633796b606912686a3fa38650b3ef5cb7",
+    "pdf_sha256": "9c55c0d01961f7eed296912b1c30a92049737c7224c39f28b2aa000658868424",
+    "visual_review_date": "2026-10-21",
+    "hash_rechecked_date": "2026-10-22",
+    "real_cloud_video_exists": false
+  },
+  "log_hashes": {
+    "pytest.log": {
+      "sha256": "043ce707b37f7b67b31db3b2260dd095eb28eac286b9c383bb31fe46ad4c1c8a",
+      "bytes": 10216
+    },
+    "pytest.xml": {
+      "sha256": "f5c65f531cbc6fa481efd0e55f165fd2b02c8b3af404b0b97157f46ed03495df",
+      "bytes": 346421
+    },
+    "chat-release-pytest.log": {
+      "sha256": "42bbe3c8c48d728f487464dbadc2fb70881355017cf20b27d51fa6729661df7c",
+      "bytes": 2162
+    },
+    "chat-release-augmented.log": {
+      "sha256": "b87a41df111ae4089e91e1f4fea125a8561b6ecbb6789c34052f9e3ab9aa1672",
+      "bytes": 11944
+    },
+    "chat-release-augmented.xml": {
+      "sha256": "85826b84fc5ce535c0eea5b7f1e467e08aa089669a723071068128b3a44c3be4",
+      "bytes": 336519
+    },
+    "recovery.log": {
+      "sha256": "5b178c98a359f366be01a3304246199bcf72d01e23d741963d4a8e57d444fd5b",
+      "bytes": 2077
+    },
+    "voice.log": {
+      "sha256": "13c69997148abdba5989f08b93ebaabff5a9e4f81157a52fa93ec1f9b3dfeb94",
+      "bytes": 99
+    },
+    "build.log": {
+      "sha256": "dea658b2da0c7f011c60f76ec862e494b58f84aa335fb1e16d74c662d0b734dd",
+      "bytes": 60223
+    },
+    "local-flow.log": {
+      "sha256": "ce91f86a291eca89ccb79d4a06443391eb40a12529da6d8e4c18ca094cda9fab",
+      "bytes": 931
+    },
+    "evidence-outage.log": {
+      "sha256": "12ee06f1b35fbbd76810bafc01890ad5f6c311f9fb2d37f66ebd5e62b4fe07bd",
+      "bytes": 809
+    },
+    "public-checks.json": {
+      "sha256": "233d5fc8e49af0a0eefcf758e2d33ec4fad796a266a668565f765523ca511720",
+      "bytes": 1665
+    },
+    "style-provenance.json": {
+      "sha256": "7ab3756c080f816e54347b7c00b064335bc8aa7d409cbb6b2532e56a5335d3e2",
+      "bytes": 587
+    }
+  },
+  "screenshot_sha256": "6a9e69ec54ce10b1f89bb6afec1ad0dff774674c1f62c9f5d96709df0e8d524a",
+  "mutations": {
+    "product_sources": false,
+    "tracked_dependencies": false,
+    "backend_tests": false,
+    "cloud_resources": false,
+    "merge_into_main": false
+  },
+  "cloud_handoff_present": false
+}

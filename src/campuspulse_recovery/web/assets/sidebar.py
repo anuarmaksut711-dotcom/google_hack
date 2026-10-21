@@ -2,11 +2,11 @@
 
 STYLES = r'''
 #sidebar-toggle, #sidebar-resize { display: none; }
+.sidebar .nav-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 @media (min-width: 761px) {
   body { --cp-sidebar-width: min(328px, calc(35vw - 72px)); }
   body[data-sidebar-collapsed=true] { --cp-sidebar-width: 0px !important; }
   .sidebar { left: 72px; width: var(--cp-sidebar-width); max-width: calc(35vw - 72px); padding-inline: 18px; overflow-x: hidden; }
-  .sidebar .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .app-content { margin-left: calc(72px + var(--cp-sidebar-width)); }
   body[data-sidebar-collapsed=true] .sidebar { display: none; }
   .activity-rail #sidebar-toggle { display: grid; place-items: center; flex-shrink: 0; width: 44px; min-height: 36px; padding: 8px; border-radius: 10px; background: transparent; color: var(--muted); }

@@ -136,7 +136,7 @@ def test_calendar_advice_profile_can_plan_in_chat_without_recovery_buttons_or_to
         instruction = str(request.config.system_instruction)
         assert 'конкретные даты' in instruction and 'Moodle assignment due October 24' in instruction
         assert 'Прошедший срок не доказывает' in instruction
-        assert 'Не направляй к кнопке' in instruction
+        assert '«Предложенное расписание»' in instruction and 'отдельными кнопками' in instruction
         assert request.config.response_schema is not None
         # Exercise the real GenAI converter: the Developer API rejects this
         # keyword even when false, while the server still rejects extra fields.

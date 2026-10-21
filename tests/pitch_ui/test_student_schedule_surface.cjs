@@ -1,0 +1,83 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const source = fs.readFileSync(path.join(process.argv[2], 'src/campuspulse_recovery/web/calendar_plans.py'), 'utf8').split("SCRIPT = r'''")[1].split("'''", 1)[0];
+function element(tag = 'div') {
+ let text = '';
+ return {localName:tag, children:[], hidden:false, dataset:{}, listeners:{}, style:{},
+ append(...values){this.children.push(...values);}, replaceChildren(...values){this.children=values;text='';},
+ addEventListener(name, callback){this.listeners[name]=callback;},
+ get textContent(){return text + this.children.map(child=>typeof child==='string'?child:child.textContent).join('');},
+ set textContent(value){text=String(value);this.children=[];}};
+}
+const client = fs.readFileSync(path.join(process.argv[2], 'src/campuspulse_recovery/web/assets/client.py'), 'utf8');
+const panel = element(), recoveryActions = [];
+const panelContext = {$:()=>panel, act:action=>recoveryActions.push(action)};
+vm.createContext(panelContext);
+vm.runInContext(client.slice(client.indexOf("  $('panel').addEventListener('click'"), client.indexOf("  $('clear-run')?")), panelContext);
+panel.listeners.click({target:{closest:()=>({disabled:false,dataset:{action:'compose-schedule'}})}});
+assert.deepEqual(recoveryActions,[],'Compose CTA must not dispatch a recovery write action');
+const composer = {value:'',dispatchEvent(){},focus(){},setSelectionRange(){}}, clickHandlers = [];
+const composerContext = {$:()=>composer, Event, requestAnimationFrame:callback=>callback(),
+ document:{body:{dataset:{}},addEventListener:(name,callback)=>clickHandlers.push(callback)},
+ location:{hash:'#panel'}, busy:false, chatBusy:false, voiceState:'idle', activeChat:'default',
+ setNavigationOpen(){}, chatHash:()=> '#workspace', updateNavigation(){},
+ sendMessage(){throw Error('Preparing a draft must not send a message');},
+ api(){throw Error('Preparing a draft must not perform a request');}};
+vm.createContext(composerContext);
+vm.runInContext(client.slice(client.indexOf("  document.addEventListener('click', event => {"),client.indexOf("  updateNavigation();\n  $('focus-composer')")),composerContext);
+const scheduleEvent={target:{closest:selector=>selector==='[data-action="compose-schedule"]'?{disabled:false}:null}};
+clickHandlers[0](scheduleEvent);
+assert.equal(composerContext.location.hash,'#workspace');assert.match(composer.value,/Я могу учиться/);
+composer.value='Мой собственный запрос';clickHandlers[0](scheduleEvent);
+assert.equal(composer.value,'Мой собственный запрос','Opening scheduling must preserve an existing unsent draft');
+const nodes = new Map(), handlers = new Map(), writes = [];
+const plan = {plan_id:'a'.repeat(64), hash:'b'.repeat(64), timezone:'Asia/Almaty', blocks:[
+ {title:'Homework',start:'2026-10-22T12:00:00Z',end:'2026-10-22T13:00:00Z'}]};
+let state = {status:'draft',operations:[],last_tool_call:null};
+const sandbox = {console, Intl, Date, URL, setTimeout, clearTimeout,
+ document:{body:{dataset:{view:'plan'}}, getElementById:id=>nodes.get(id)||null, createElement:element},
+ window:{addEventListener(name,callback){handlers.set(name,callback);}},
+ fetch:async()=>({ok:true,status:200,json:async()=>({items:[{plan,state}]})}),
+ calendarPost:async(path,value)=>{writes.push({path,value}); state={...state,status:'approved'};return {status:'approved'};}};
+vm.createContext(sandbox); vm.runInContext(source,sandbox);
+assert(handlers.has('campuspulse:panel-ready'),'Plans must initialize when the async review panel arrives');
+for(const id of ['calendar-plans','calendar-plan-list','calendar-plans-status'])nodes.set(id,element());
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const descend=node=>[node,...node.children.flatMap(value=>typeof value==='string'?[]:descend(value))];
+(async()=>{
+ await handlers.get('campuspulse:panel-ready')(); await settle();
+ const card=nodes.get('calendar-plan-list').children[0];assert(card,'The injected panel loads existing proposals');
+ const details=card.children.find(child=>child.localName==='details');
+ assert(details&&details.textContent.includes(plan.hash),'Exact approval metadata remains reviewable');
+ assert.equal(details.open,undefined,'Technical metadata is collapsed');
+ const outside=card.children.filter(child=>child.localName!=='details').map(child=>child.textContent).join(' ');
+ assert(!outside.includes(plan.plan_id)&&!outside.includes(plan.hash),'Opaque identifiers stay out of primary copy');
+ const approve=card.children.find(child=>child.localName==='button');
+ assert.equal(approve.textContent,'Подтвердить расписание');await approve.listeners.click();await settle();
+ assert.equal(writes.length,1);assert.equal(writes[0].path,'/api/google-calendar/plans/approve');
+ assert.equal(writes[0].value.plan_id,plan.plan_id);assert.equal(writes[0].value.payload_hash,plan.hash);
+ const apply=nodes.get('calendar-plan-list').children[0].children.find(child=>child.localName==='button');
+ assert.equal(apply.textContent,'Применить в Google Calendar');
+ state={status:'unknown',operations:[]}; await handlers.get('campuspulse:panel-ready')();await settle();
+ assert(!nodes.get('calendar-plan-list').textContent.includes('Добавлено в Google Calendar'),'Unknown outcomes cannot claim success');
+ state={status:'verified',operations:[],verified_at:'2026-10-22T12:00:00Z',
+   links:['https://calendar.google.com/calendar/event?eid=synthetic']};
+ await handlers.get('campuspulse:panel-ready')();await settle();
+ const verified=nodes.get('calendar-plan-list').children[0];
+ assert(verified.textContent.includes('Добавлено в Google Calendar'));
+ assert(verified.textContent.includes('Проверено:'));
+ assert(descend(verified).some(node=>node.localName==='a'),'The fixture includes verified event links');
+ sandbox.calendarPost=async()=>({status:'applied_unverified'});
+ sandbox.fetch=async()=>{throw Error('Plans refresh unavailable');};
+ const verify=verified.children.find(child=>child.localName==='button');
+ await verify.listeners.click();await settle();
+ const downgraded=nodes.get('calendar-plan-list').children[0];
+ assert.equal(downgraded.dataset.status,'applied_unverified','Authoritative verify status survives a failed list refresh');
+ assert(!downgraded.textContent.includes('Добавлено в Google Calendar'),'Old success heading is removed');
+ assert(!downgraded.textContent.includes('Проверено:'),'Old verified timestamp is removed');
+ assert(!descend(downgraded).some(node=>node.localName==='a'),'Old verified links are removed');
+ assert(nodes.get('calendar-plans-status').textContent.includes('Не удалось загрузить расписание'));
+ console.log('Student Calendar review checks passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

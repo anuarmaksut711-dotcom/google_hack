@@ -65,6 +65,9 @@ class CalendarConversation:
     async def suggest_title(self, **kwargs):
         return await self.agent.suggest_title(**kwargs)
 
+    async def extract_classes(self, **kwargs):
+        return await self.agent.extract_classes(**kwargs)
+
     async def transcribe(self, **kwargs):
         return await self.agent.transcribe(**kwargs)
 

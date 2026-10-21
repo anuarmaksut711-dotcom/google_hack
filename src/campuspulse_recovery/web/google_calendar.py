@@ -34,8 +34,7 @@ CALENDAR_SECTION = ('<section id="google-calendar" class="google-calendar" aria-
     + PAGE.split('<a href="/settings">К настройкам</a>', 1)[1].split('</main>', 1)[0]
         .replace('<h1>Google Calendar</h1>', '<h1 id="calendar-heading">Google Calendar</h1>')
     + '<p><a href="/settings">Настройки подключений</a></p></section>')
-from .calendar_plans import MARKUP, SCRIPT as PLAN_SCRIPT
-CALENDAR_SECTION = CALENDAR_SECTION.replace('<p><a href="/settings">Настройки подключений</a></p>', MARKUP)
+from .calendar_plans import SCRIPT as PLAN_SCRIPT
 
 SCRIPT = r"""'use strict';
 const status=document.getElementById('calendar-status');
@@ -139,7 +138,7 @@ if(location.pathname==='/google-calendar/connect'){
   }catch(error){fail(error);}finally{disconnect.disabled=false;}});
   refresh.addEventListener('click',load);
   const embedded=!!document.getElementById('google-calendar');
-  const visible=()=>!embedded||['calendar','plan'].includes(document.body.dataset.view);
+  const visible=()=>!embedded||document.body.dataset.view==='calendar';
   window.addEventListener('hashchange',()=>{if(visible())load();});
   document.getElementById('reload')?.addEventListener('click',()=>{if(visible())load();});
   if(visible())load();
@@ -156,10 +155,10 @@ CALLBACK_PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 CONNECT_PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение Calendar · Google AI</title>
 <link rel="stylesheet" href="/assets/login.css"></head><body><main>
-<h1>Подключить Google Calendar</h1><p>Войдите через Google и разрешите Google AI читать ваш основной календарь.</p>
-<p>Вы увидите события на ближайшие три дня. Изменять и удалять события этот режим не может.
-Доступ сохраняется в зашифрованном виде. Названия и время событий используются для ответа на ваши вопросы в чате.</p>
-<p>На облачном сайте новые события добавляются только после просмотра и подтверждения плана.</p>
+<h1>Подключить Google Calendar</h1><p>Войдите через Google, чтобы видеть события основного календаря на ближайшие три дня.</p>
+<p>Названия и время событий помогают ассистенту учитывать занятое время. На странице Google вы увидите,
+какой доступ запрашивает приложение. Для добавления расписания нужно разрешение на добавление событий.</p>
+<p>Новые события добавляются только после просмотра, подтверждения расписания и отдельного нажатия «Применить в Google Calendar».</p>
 <button id="calendar-signin" type="button">Войти через Google и подключить календарь</button>
 <p id="calendar-status" role="status" aria-live="polite"></p><a href="/login">Обычный вход в приложение</a>
 </main><script src="/assets/google-calendar.js"></script></body></html>'''
@@ -266,11 +265,13 @@ def install_calendar_public(app, *, origin):
 #calendar-status{padding:24px;border:1px solid var(--line,#d5dcd6);border-radius:14px;margin-top:24px}
 #calendar-range{font-size:13px}
 #calendar-journal{margin:28px 0;font-size:13px}
-body[data-view]:not([data-view=calendar]):not([data-view=plan]) #google-calendar{display:none}
-body[data-chat-mode=calendar_advice][data-view=plan]:has(#google-calendar) #panel,
-body[data-chat-mode=calendar_advice][data-view=plan]:has(#google-calendar) #feedback{display:none}
-.calendar-plan-card{padding:20px;margin:16px 0;border:1px solid var(--line,#d8dedb);border-radius:16px;background:var(--surface,#fff)}
-.calendar-plan-card h3{margin:0 0 12px}.calendar-plan-card button{margin:8px 10px 0 0}
+body[data-view]:not([data-view=calendar]) #google-calendar{display:none}
+#calendar-plans{max-width:100%;min-width:0;overflow-wrap:anywhere}
+.calendar-plan-card{min-width:0;padding:20px;margin:16px 0;border:1px solid var(--line,#d8dedb);border-radius:16px;background:var(--surface,#fff)}
+.calendar-plan-card h3{margin:0 0 12px}.calendar-plan-card button{max-width:100%;margin:8px 10px 0 0}
+.calendar-plan-card details{margin:16px 0;color:var(--muted,#525d56);font-size:13px}
+.calendar-plan-card summary{min-height:36px;padding-block:6px;cursor:pointer}
+.calendar-plan-card pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
 body[data-view=calendar] .recovery-home,body[data-view=calendar] #moodle,
 body[data-view=calendar] #panel,body[data-view=calendar] .journal,
 body[data-view=calendar] #feedback{display:none}

@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-22",
+  "branch": "codex/pitch-ui-demo",
+  "base_commit": "6d0edc92d587bbb9e4049f9d978025dd4d31b781",
+  "upstream_main_included": "624624be3681fdb5f818e1568dd17c09e1f19f26",
+  "final_commit": "resolve branch ref; SHA reported outside self-referential commit",
+  "source_sha256": {
+    "src/campuspulse_recovery/web/assets/client.py": "0424f185bc8b82697d6b20dfe8abb4de990a60a7f82abad7bf8b46d59e08c9a7",
+    "src/campuspulse_recovery/web/assets/styles.py": "3c188c30e7e8d366e006d5764b079c2b58867c606add2cfab8f24ed24844d5b1",
+    "src/campuspulse_recovery/web/views/app.py": "03cdc8bfac69046e23ff8ddedb78b15bc4feab05784fa9d32137ce0250feb0bb",
+    "src/campuspulse_recovery/web/views/render.py": "45453eacd9caaf7dcb019603b5e26626984b75955044cb79cc9e9ffdaa70538f",
+    "tests/pitch_ui/test_projection_failure.py": "ec9f6b17dc813a4132bf7084a4d57ba58a4075e6d2a8b723f4ca023b218238f6",
+    "tests/pitch_ui/browser_fixture.py": "ee2d9d76a368f0902512693792d928b0732fe6d2c8fd0518bedc1f5b2059c7cc"
+  },
+  "final_pytest": {
+    "tests": 2288,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 2288
+  },
+  "pitch_ui_focused_passed": 19,
+  "recovery_offline_passed": 347,
+  "voice_literal_loopback_passed": 53,
+  "build": "wheel_and_sdist_success",
+  "pip_check": "no_broken_requirements",
+  "composition": "offline_mcp_composition_ok",
+  "browser": {
+    "synthetic_external_services": true,
+    "fixed_clock": "2026-10-17T16:00:00+00:00",
+    "before_upstream_assets_merge": {
+      "synthetic": true,
+      "clock": "2026-10-17T16:00:00+00:00",
+      "engine_invocations": 8,
+      "model_responses": 7,
+      "tools": [
+        "read_assignments",
+        "read_calendar",
+        "read_assignments",
+        "read_calendar",
+        "read_assignments",
+        "read_calendar",
+        "apply_plan",
+        "verify_plan"
+      ],
+      "calendar_mutations": 2,
+      "calendar_reads": 8
+    },
+    "after_upstream_assets_merge": {
+      "synthetic": true,
+      "clock": "2026-10-17T16:00:00+00:00",
+      "engine_invocations": 8,
+      "model_responses": 11,
+      "tools": [
+        "read_assignments",
+        "read_calendar",
+        "read_assignments",
+        "read_calendar",
+        "read_assignments",
+        "read_calendar",
+        "read_assignments",
+        "read_calendar",
+        "apply_plan",
+        "verify_plan"
+      ],
+      "calendar_mutations": 2,
+      "calendar_reads": 9
+    },
+    "outage_status": "applied_unverified",
+    "outage_mutation_controls": 0,
+    "outage_reload_status": "applied_unverified",
+    "restored_status": "verified",
+    "final_console_errors_or_warnings": 0,
+    "viewport_checks": [
+      1280,
+      390
+    ],
+    "viewport_method": "real iframe media-query viewport; screenshots crop physical browser panel",
+    "final_source_full_flow_repeated": true
+  },
+  "backend_candidates": {
+    "base_commit": "c19aee8eba587e499f48de295e7700136023a595",
+    "applied_to_working_branch": false,
+    "applied_to_temporary_snapshot": true,
+    "pytest": {
+      "tests": 2198,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 14,
+      "passed": 2184
+    },
+    "focused_passed": 6,
+    "lock_resolver": "uv==0.13.1; all-extras universal Python3.12.13, repository constraints and hashes",
+    "lock_delta": "only three declared OAuth packages, nine added lines",
+    "fresh_install_ci_claimed": false,
+    "test_environment": "isolated venv manually augmented with declared OAuth 1.5.0/2.0.0/3.3.1 in preceding audit"
+  },
+  "powershell": {
+    "release": "7.6.7",
+    "official_release_url": "https://github.com/PowerShell/PowerShell/releases/tag/v7.6.7",
+    "archive_sha256": "50dde99bb066adacbb9a748182d09eb9beff25119dc3b12e85c84b6b6b1c5da9",
+    "sha256_verified": true,
+    "installation": "temporary portable CLI, no global installation",
+    "initial_default_autoload": "failed to discover standard modules on this Mac",
+    "environment_bootstrap": "explicit Import-Module Microsoft.PowerShell.Management,Microsoft.PowerShell.Utility before actual scripts; parameters splatted by name",
+    "bootstrap_scope": "only existing offline Prepare test parameters; deploy scripts unchanged",
+    "separate_prepare_tests_passed": 14,
+    "included_in_final_full_pytest": true,
+    "cloud_commands_executed": false
+  },
+  "independent_review": {
+    "actionable_findings": 0,
+    "store_failure_probes": "plan, approval, current each sanitized503 before optional projection",
+    "reviewer_loopback_test": "sandbox blocked; root approved full run passed"
+  },
+  "cloud": {
+    "handoff_present": false,
+    "deployment_performed": false,
+    "iam_or_secrets_modified": false,
+    "published_acceptance_verified": false,
+    "real_cloud_video_created": false
+  },
+  "patch_sha256": {
+    "0001-include-declared-oauth-test-dependencies.patch": "9e1b73ff59aa1c2c29fd0fc818435a95cbb0ad841037b1f2b4632500536486b9",
+    "0002-check-recovery-actions-in-advice-mode.patch": "be09d60ba355d941feb1a440e6c3e1f3b3d78eab2bef7c2e61322be4f84f3e8c"
+  },
+  "log_sha256": {
+    "final-pytest.log": "a6ca4ad3f459528f122a9fe4eb1dea4829dc8bfc0eb8dff9e01cccf2c699d9bf",
+    "final-pytest.xml": "3e886144c4e18997c0158fc8488c10756d2f3fe87cc5cab4f14dc2c27f7a2f1f",
+    "recovery.log": "ef2c67967513787f565b103bc31641860ba2d463a13a28ec95e85f0d18bba446",
+    "voice.log": "32e068143249f5314f2a9d317605c93dd6efa26944372d5b3177cc667e200460",
+    "final-build.log": "f544a40fa6cdd15936c4934f60bdeecd5757c872a2bb50eb685addbf4662e903",
+    "pip-check.log": "251a135a246fa7e9306e4b60205f58f65fc664a19c5e484d2a276d828332b8ec",
+    "composition.log": "66d8749e6ec092fc3da2efa2c89c34d9c4c80f6aac8a9ae49261f6f53788114c",
+    "backend-candidate-pytest.log": "81abe64c08596eb3881e611da48f831ac7f0b4cc13b99bab2caf7aac41a9e79d",
+    "backend-candidate.xml": "3a37a62a67a4bdaf9a9df04faa3e46cdc47a029a73cffcbfb14c12ca7d00218f",
+    "backend-candidate-focused.log": "3203da9a6568ec5379469a9996e349706c94be424dac52aab20f1a055bba846a",
+    "powershell-bootstrap-tests.log": "5164d1a77318aaa96e5984ecb5fc6e88f1533ea4a8218d3d25e1daa9750f3780"
+  }
+}

@@ -5,10 +5,11 @@ submission/grade status; a grade alone never proves that work is finished.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated
 from uuid import uuid4
 
-from pydantic import Field, StrictInt, model_validator
+from pydantic import Field, PrivateAttr, StrictInt, model_validator
 
 from ..domain.models import (
     Assignment, AssignmentsSnapshot, Contract, Deadline, Instant, Interval,
@@ -20,6 +21,7 @@ from ..domain.time_rules import instant, planning_horizon
 from ..security.context import AccessDenied
 from ..integrations.assignments import AssignmentsReader
 from ..storage.plans import _Repository, _decode, _encode, _key
+from .manual_schedule import ManualSchedule, WeeklySchedule
 from .models import normalize_site_url
 from .sync import utcnow
 
@@ -50,6 +52,9 @@ class PlanningValues(Contract):
 class PlanningState(PlanningValues):
     revision: Annotated[StrictInt, Field(ge=0)] = 0
     updated_at: Instant | None = None
+    # Loaded with the owner's current input, never accepted or serialized in the
+    # public planning API or copied into the durable availability record.
+    _weekly_classes: WeeklySchedule | None = PrivateAttr(default=None)
 
 
 class PlanningUpdate(PlanningValues):
@@ -95,8 +100,13 @@ class MoodlePlanningStore(_Repository):
     async def get(self, context, *, reader=None):
         context = self._request(context)
         state = self._load(await (reader or self.documents).get(self.path))
+        state._weekly_classes = await self._classes(context, reader=reader)
         self.policy.require_context(context)
         return state
+
+    async def _classes(self, context, *, reader=None):
+        saved = await ManualSchedule(self.documents, self.policy, clock=self.clock).read(context, reader=reader)
+        return WeeklySchedule.model_validate(saved['schedule']) if saved['connected'] else None
 
     async def cached(self, context, *, reader=None):
         context = self._request(context)
@@ -127,6 +137,7 @@ class MoodlePlanningStore(_Repository):
             windows = request.working_windows if 'working_windows' in request.model_fields_set else old.working_windows
             state = self.state_model(revision=old.revision + 1, working_windows=windows,
                 estimates=tuple(estimates[key] for key in sorted(estimates)), updated_at=self.clock())
+            state._weekly_classes = await self._classes(context, reader=tx)
             self.policy.require_context(context)
             tx.set(self.path, _encode('moodle_planning', self.record_model(
                 owner_id=self.connection.owner_id, resource_id=self.resource_id, state=state)))
@@ -134,6 +145,9 @@ class MoodlePlanningStore(_Repository):
         return await self.documents.transact(save)
 
     def constraints(self, state, *, now):
+        # Pydantic intentionally revalidates contracts and drops private attrs.
+        # Preserve the already owner-checked class basis across that validation.
+        weekly = state._weekly_classes if isinstance(state, self.state_model) else None
         state = self.state_model.model_validate(state)
         start, end = planning_horizon(now)
         windows = None
@@ -141,9 +155,46 @@ class MoodlePlanningStore(_Repository):
             windows = tuple(Interval(start=max(w.start, start), end=min(w.end, end))
                 for w in sorted(state.working_windows, key=lambda w: w.start)
                 if w.start < end and w.end > start)
+        if weekly is not None:
+            classes = ManualSchedule(self.documents, self.policy, clock=lambda: start).planning_schedule(
+                {'connected': True, 'schedule': weekly})
+            # A saved period that cannot establish the whole recovery horizon
+            # is incomplete input, including an expired saved empty schedule.
+            if (classes.status != 'ready' or classes.coverage.start > start or classes.coverage.end < end):
+                windows = None
+            elif windows is not None:
+                windows = _exclude_classes(windows, classes.busy)
         return PlanningConstraints(config_revision=self.policy.config.config_revision,
             timezone=self.policy.config.student.timezone, horizon=Interval(start=start, end=end),
             working_windows=windows)
+
+
+def _exclude_classes(windows, classes):
+    """Subtract half-open busy spans, rounding occupied bounds out to the grid."""
+    def floor(value):
+        return value.replace(minute=value.minute // 15 * 15, second=0, microsecond=0)
+
+    def ceil(value):
+        lower = floor(value)
+        return lower if value == lower else lower + timedelta(minutes=15)
+
+    busy = sorted(((floor(c.start), ceil(c.end)) for c in classes), key=lambda span: span[0])
+    available = []
+    for window in windows:
+        cursor = window.start
+        for start, end in busy:
+            if end <= cursor:
+                continue
+            if start >= window.end:
+                break
+            if cursor < start:
+                available.append(Interval(start=cursor, end=start))
+            cursor = max(cursor, end)
+            if cursor >= window.end:
+                break
+        if cursor < window.end:
+            available.append(Interval(start=cursor, end=window.end))
+    return tuple(available)
 
 
 def current_cache(cached, now):
@@ -169,7 +220,10 @@ def project_assignments(snapshot, state, *, resource_id, timezone):
 
 
 def input_version(state):
-    return 'moodle_' + canonical_hash(state) + '_'
+    weekly = state._weekly_classes if isinstance(state, PlanningState) else None
+    basis = state if weekly is None else {
+        'planning': state.model_dump(mode='json'), 'weekly_classes': weekly.model_dump(mode='json')}
+    return 'moodle_' + canonical_hash(basis) + '_'
 
 
 class MoodleAssignmentsReader(AssignmentsReader):
