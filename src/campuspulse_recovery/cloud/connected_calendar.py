@@ -6,6 +6,7 @@ import secrets
 import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet
 
@@ -14,6 +15,8 @@ from ..storage.plans import _decode
 from ..web.auth import WebSession, digest
 from ..security.context import AccessDenied
 from ..agent.mcp_auth import PlatformIdTokenIssuer, cloud_run_audience
+from ..integrations.local_calendar import SCOPES
+from ..integrations.connected_plans import ConnectedPlans, WRITE_SCOPE
 
 
 class EncryptedCalendarDocuments:
@@ -23,7 +26,7 @@ class EncryptedCalendarDocuments:
 
     @staticmethod
     def path(path):
-        if not re.fullmatch(r'cp_local_(?:google_calendars|calendar_pending)/[A-Za-z0-9_-]{1,160}', path):
+        if not re.fullmatch(r'cp_(?:local_(?:google_calendars|calendar_pending)|calendar_(?:plans|plan_state|plan_index|plan_requests|plan_locks|owned_events))/[A-Za-z0-9_-]{1,160}', path):
             raise ValueError('calendar_document_path_required')
         return path
 
@@ -71,24 +74,27 @@ class CalendarReadGrants:
             raise AccessDenied('calendar_session_rejected')
         return value
 
-    async def issue(self, owner, session_id):
+    async def issue(self, owner, session_id, *, action='read_calendar', plan_id=None):
+        if action not in ('read_calendar', 'apply_plan', 'verify_plan') or (action != 'read_calendar' and not plan_id):
+            raise AccessDenied('calendar_grant_action')
         reference = secrets.token_urlsafe(32)
         async def save(tx):
             session = await self.session(tx, owner, session_id)
             path = 'cp_calendar_read_grants/' + digest(reference)
             await tx.get(path)
             tx.create(path, {'owner': owner, 'session': session_id, 'consumed': False,
+                'action': action, 'plan_id': plan_id,
                 'expires': min(session.expires_at, self.clock() + timedelta(seconds=60)).isoformat()})
         await self.documents.transact(save)
         return reference
 
-    async def consume(self, reference):
+    async def consume(self, reference, *, action='read_calendar'):
         if not re.fullmatch(r'[A-Za-z0-9_-]{43}', reference):
             raise AccessDenied('calendar_grant_rejected')
         async def claim(tx):
             path = 'cp_calendar_read_grants/' + digest(reference)
             value = await tx.get(path)
-            if not value or value['consumed'] or self.clock() >= datetime.fromisoformat(value['expires']):
+            if not value or value.get('action', 'read_calendar') != action or value['consumed'] or self.clock() >= datetime.fromisoformat(value['expires']):
                 raise AccessDenied('calendar_grant_rejected')
             await self.session(tx, value['owner'], value['session'])
             tx.set(path, {**value, 'consumed': True})
@@ -98,12 +104,28 @@ class CalendarReadGrants:
 
 class CloudConnectedCalendar(ConnectedCalendar):
     cloud_ready = True
+    scopes = (*SCOPES, WRITE_SCOPE)
+    # A connected Calendar account is distinct from the website login account.
+    # Signed Google subject, nonce, live owner session and PKCE still bind consent.
+    # The prelogin flow separately verifies the exact subject before signing in.
+    require_matching_login = False
+
+    def window(self, now, timezone):
+        local = now.astimezone(ZoneInfo(timezone))
+        start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        return start, now.astimezone(UTC) + timedelta(hours=72)
 
     def __init__(self, documents, *, key, mcp_origin, **kwargs):
         cloud_run_audience(kwargs['origin'])
         self.raw_documents, self.mcp_origin = documents, cloud_run_audience(mcp_origin)
         self.grants = CalendarReadGrants(documents, kwargs.get('clock', lambda: datetime.now(UTC)))
         super().__init__(EncryptedCalendarDocuments(documents, key), **kwargs)
+        self.plans = ConnectedPlans(self)
+
+    async def status(self, owner):
+        value = await self.documents.get('cp_local_google_calendars/' + owner)
+        return {'connected': bool(value and value.get('connected')),
+                'can_write': bool(value and value.get('connected') and WRITE_SCOPE in value.get('tokens', {}).get('scopes', []))}
 
     def tools(self, owner):
         return RemoteCalendarTools(self, owner)
@@ -114,14 +136,17 @@ class RemoteCalendarTools:
         self.calendar, self.owner = calendar, owner
 
     async def read(self, *, session):
+        return await self.call('read_calendar', session=session)
+
+    async def call(self, action, *, session, plan_id=None):
         import httpx
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
         started = time.monotonic()
-        trace = {'tool': 'read_calendar', 'run_id': 'run_' + uuid4().hex, 'call_id': 'call_' + uuid4().hex}
+        trace = {'tool': action, 'run_id': 'run_' + uuid4().hex, 'call_id': 'call_' + uuid4().hex}
         try:
             async with asyncio.timeout(45):
-                reference = await self.calendar.grants.issue(self.owner, session)
+                reference = await self.calendar.grants.issue(self.owner, session, action=action, plan_id=plan_id)
                 issued = await PlatformIdTokenIssuer()(self.calendar.mcp_origin, 5)
                 headers = {'Authorization': 'Bearer ' + issued.value}
                 async with httpx.AsyncClient(headers=headers, trust_env=False, timeout=40,
@@ -130,7 +155,7 @@ class RemoteCalendarTools:
                             http_client=client) as (read, write, _):
                         async with ClientSession(read, write) as channel:
                             await channel.initialize()
-                            result = await channel.call_tool('read_calendar', {'reference': reference})
+                            result = await channel.call_tool(action, {'reference': reference})
                 if result.isError:
                     raise CalendarConnectionError('calendar_read_failed')
                 data = result.structuredContent
@@ -140,8 +165,8 @@ class RemoteCalendarTools:
                     raise CalendarConnectionError('calendar_read_failed')
                 await self.calendar.grants.session(self.calendar.raw_documents, self.owner, session)
                 trace.update(status='completed', duration_ms=round((time.monotonic()-started)*1000),
-                             result={'event_count': len(data['events'])})
+                             result={'event_count': len(data.get('events', [])), 'status': data.get('status')})
                 return {**data, 'trace': trace}
         except Exception:
             trace.update(status='failed', duration_ms=round((time.monotonic()-started)*1000))
-            return {'error': 'calendar_read_failed', 'trace': trace}
+            return {'error': 'calendar_read_failed' if action == 'read_calendar' else 'calendar_operation_unknown', 'trace': trace}

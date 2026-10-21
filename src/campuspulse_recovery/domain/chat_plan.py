@@ -57,7 +57,7 @@ def intersects(first, second):
     return first.start < second.end and second.start < first.end
 
 
-def render_advice(raw, *, schedule, now, timezone):
+def render_advice(raw, *, schedule, now, timezone, validated_blocks=None):
     """No raw model timetable is shown or saved, including on validation failure."""
     try:
         advice = AdviceReply.model_validate_json(raw)
@@ -91,6 +91,8 @@ def render_advice(raw, *, schedule, now, timezone):
         header = 'План проверен: пересечений с загруженными парами и между учебными блоками нет.'
     else:
         header = 'Черновик плана. Расписание занятий не заполнено: пересечения с парами не проверены.'
+    if validated_blocks is not None:
+        validated_blocks.extend([b.model_dump() for b in advice.blocks])
     zone = ZoneInfo(timezone)
     lines = [header, 'Время: ' + timezone + '.']
     for block, interval in sorted(zip(advice.blocks, intervals), key=lambda item: item[1].start):

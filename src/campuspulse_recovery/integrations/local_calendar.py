@@ -21,6 +21,30 @@ class CalendarConnectionError(RuntimeError):
     """Only an allowlisted code crosses the Google boundary."""
 
 
+def fetch_google_token(flow, *, code, scopes):
+    """Accept a Google-granted superset, never a missing requested permission.
+
+    oauthlib 3.3 raises a Warning even when Google returns additional scopes
+    already granted to this client. Use its parsed token, without retrying the
+    one-use code or relaxing scope validation for other requests/processes.
+    """
+    try:
+        flow.fetch_token(code=code, timeout=15)
+    except Warning as warning:
+        from oauthlib.oauth2.rfc6749.tokens import OAuth2Token
+        token = getattr(warning, 'token', None)
+        if (type(warning) is not Warning or not isinstance(token, OAuth2Token)
+                or set(token.old_scopes) != set(scopes) or not set(scopes) <= set(token.scopes)):
+            raise CalendarConnectionError('calendar_granted_scope_missing') from None
+        flow.oauth2session.token = dict(token)
+    session = getattr(flow, 'oauth2session', None)
+    if session is not None and 'scope' in session.token:
+        granted = session.token['scope']
+        granted = granted.split() if isinstance(granted, str) else granted
+        if not isinstance(granted, (list, tuple, set)) or not set(scopes) <= set(granted):
+            raise CalendarConnectionError('calendar_granted_scope_missing')
+
+
 def validate_client(value, *, project_id, origin):
     """Accept a downloaded Web client only, with fixed Google endpoints."""
     client = value.get('web') if isinstance(value, dict) else None
@@ -40,6 +64,8 @@ def validate_client(value, *, project_id, origin):
 
 
 class ConnectedCalendar:
+    scopes = SCOPES
+    require_matching_login = True
     def __init__(self, documents, *, client, project_id, origin,
                  clock=lambda: datetime.now(UTC), api=None):
         self.documents, self.clock, self.origin = documents, clock, origin
@@ -48,7 +74,7 @@ class ConnectedCalendar:
 
     def flow(self, *, state=None, verifier=None):
         from google_auth_oauthlib.flow import Flow
-        return Flow.from_client_config(self.client, scopes=SCOPES, state=state,
+        return Flow.from_client_config(self.client, scopes=self.scopes, state=state,
             code_verifier=verifier, autogenerate_code_verifier=verifier is None,
             redirect_uri=self.origin + CALLBACK)
 
@@ -82,22 +108,30 @@ class ConnectedCalendar:
             from google.oauth2.id_token import verify_oauth2_token
             from .google_credentials import _AuthRequest, _BoundedAuthRequest
             flow = self.flow(state=state, verifier=pending['verifier'])
+            phase = 'token_exchange'
             try:
-                flow.fetch_token(code=code, timeout=15)
+                fetch_google_token(flow, code=code, scopes=self.scopes)
                 credentials = flow.credentials
-                if not credentials.has_scopes(SCOPES) or not credentials.refresh_token:
+                phase = 'granted_scopes'
+                if not credentials.has_scopes(self.scopes) or not credentials.refresh_token:
                     raise ValueError()
+                phase = 'identity_verification'
                 with requests.Session() as transport:
                     transport.trust_env = False
                     claims = verify_oauth2_token(credentials.id_token,
                         _BoundedAuthRequest(_AuthRequest(transport)),
                         audience=self.client['web']['client_id'])
                 subject = claims.get('sub')
+                phase = 'nonce_verification'
                 if (claims.get('nonce') != pending['nonce'] or not isinstance(subject, str) or not subject
-                        or (principal.startswith('https://accounts.google.com#')
-                            and principal != 'https://accounts.google.com#' + subject)):
+                        or len(subject) > 128):
+                    raise ValueError()
+                phase = 'account_binding'
+                if (self.require_matching_login and principal.startswith('https://accounts.google.com#')
+                        and principal != 'https://accounts.google.com#' + subject):
                     raise ValueError()
                 tokens = __import__('json').loads(credentials.to_json())
+                phase = 'calendar_binding'
                 # Resolve primary using THIS consented user's OAuth, never a service account.
                 calendar = self.api(tokens, 'calendarList', {'calendarId': 'primary'})
                 if (calendar.get('primary') is not True or calendar.get('accessRole') != 'owner'
@@ -108,7 +142,12 @@ class ConnectedCalendar:
                 if return_id_token:
                     result['_signin_id_token'] = credentials.id_token
                 return result
-            except Exception:
+            except Exception as error:
+                reason = ('scope_response' if isinstance(error, Warning) else
+                    str(error) if isinstance(error, CalendarConnectionError) and str(error) == 'calendar_granted_scope_missing' else
+                    getattr(error, 'error', '') if getattr(error, 'error', '') in
+                        ('invalid_grant', 'invalid_client', 'invalid_scope', 'access_denied') else 'rejected')
+                print('Calendar authorization status: ' + phase + '; reason=' + reason, flush=True)
                 raise CalendarConnectionError('calendar_authorization_failed') from None
         return await asyncio.to_thread(exchange)
 
@@ -119,7 +158,12 @@ class ConnectedCalendar:
             path = 'cp_local_google_calendars/' + owner
             previous = await tx.get(path)
             generation = (previous or {}).get('generation', 0) + 1
-            tx.set(path, {**connection, 'generation': generation, 'connected': True})
+            same_binding = bool(previous and previous.get('connected') and all(
+                previous.get(key) == connection.get(key) for key in ('owner', 'subject', 'calendar_id')))
+            binding_generation = (previous.get('binding_generation', previous['generation'])
+                                  if same_binding else generation)
+            tx.set(path, {**connection, 'generation': generation,
+                'binding_generation': binding_generation, 'connected': True})
         await self.documents.transact(write)
 
     async def status(self, owner):
@@ -139,8 +183,7 @@ class ConnectedCalendar:
         saved = await self.documents.get(path)
         if not saved or not saved.get('connected') or saved['owner'] != owner:
             raise CalendarConnectionError('calendar_not_connected')
-        start = self.clock().astimezone(UTC)
-        end = start + timedelta(hours=72)
+        start, end = self.window(self.clock(), saved['timezone'])
         def fetch():
             from .calendar_read import normalize_event
             events, seen, event_ids = [], set(), set()
@@ -195,6 +238,10 @@ class ConnectedCalendar:
             'horizon': {'start': start.isoformat(), 'end': end.isoformat()},
             'read_at': self.clock().isoformat()}
 
+    def window(self, now, timezone):
+        start = now.astimezone(UTC)
+        return start, start + timedelta(hours=72)
+
     @staticmethod
     def _google_request(tokens, resource, options):
         """GET only. No Calendar write endpoint is reachable in local mode."""
@@ -204,7 +251,7 @@ class ConnectedCalendar:
         from googleapiclient.discovery import build
         from .google_credentials import _AuthRequest, _BoundedAuthRequest
         from .google_clients import _RequestsHttp
-        credentials = Credentials.from_authorized_user_info(tokens, scopes=SCOPES)
+        credentials = Credentials.from_authorized_user_info(tokens, scopes=tokens.get('scopes') or SCOPES)
         http = None
         try:
             if not credentials.valid:

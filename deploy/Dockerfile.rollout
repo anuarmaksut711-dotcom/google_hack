@@ -25,6 +25,7 @@ WORKDIR /app
 COPY requirements/cloud-linux.lock /locks/runtime.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r /locks/runtime.lock
 COPY --from=verified /out/dist /wheels
+COPY deploy/mcp-entrypoint.py /app/mcp-entrypoint.py
 RUN python -m pip install --no-cache-dir --no-deps /wheels/*.whl && python -m pip check && useradd --uid 10001 --create-home app
 USER 10001
 ENV PORT=8080 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

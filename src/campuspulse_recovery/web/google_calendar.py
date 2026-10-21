@@ -16,10 +16,9 @@ PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <title>Google Calendar · Google AI</title><link rel="stylesheet" href="/assets/login.css">
 <link rel="stylesheet" href="/assets/google-calendar.css"></head>
 <body><main><a href="/settings">К настройкам</a><h1>Google Calendar</h1>
-<p>Основной календарь подключённого Google-аккаунта. Здесь можно посмотреть события
-на ближайшие 72 часа. Доступ запрашивается только для чтения.</p>
+<p>События основного календаря: сегодня и ближайшие три дня.</p>
 <p>Ассистент использует названия и время событий, когда вы отправляете вопрос в чат.</p>
-<button id="calendar-connect" type="button">Подключить Google Calendar</button>
+<button id="calendar-connect" type="button" disabled>Подключить Google Calendar</button>
 <button id="calendar-refresh" type="button" hidden>Обновить события</button>
 <button id="calendar-disconnect" type="button" hidden>Отключить календарь</button>
 <p id="calendar-status" role="status" aria-live="polite"></p>
@@ -35,17 +34,18 @@ CALENDAR_SECTION = ('<section id="google-calendar" class="google-calendar" aria-
     + PAGE.split('<a href="/settings">К настройкам</a>', 1)[1].split('</main>', 1)[0]
         .replace('<h1>Google Calendar</h1>', '<h1 id="calendar-heading">Google Calendar</h1>')
     + '<p><a href="/settings">Настройки подключений</a></p></section>')
+from .calendar_plans import MARKUP, SCRIPT as PLAN_SCRIPT
+CALENDAR_SECTION = CALENDAR_SECTION.replace('<p><a href="/settings">Настройки подключений</a></p>', MARKUP)
 
 SCRIPT = r"""'use strict';
 const status=document.getElementById('calendar-status');
-const calendarSigninCsrfKey='campuspulse-calendar-signin-csrf';
 async function calendarPost(path,value={}){
-  const cookie=document.cookie.split(';').map(s=>s.trim()).find(s=>s.startsWith('__Host-cp-csrf='));
-  const csrf=path.startsWith('/auth/google-calendar/signin/')?
-    sessionStorage.getItem(calendarSigninCsrfKey):(cookie?decodeURIComponent(cookie.split('=')[1]):null);
-  if(!csrf)throw Error('signin');
+  const csrf=document.cookie.split(';').map(s=>s.trim()).find(s=>s.startsWith('__Host-cp-csrf='));
+  const token=path.startsWith('/auth/google-calendar/signin/')?
+    sessionStorage.getItem('cp-calendar-login-csrf'):(csrf?decodeURIComponent(csrf.split('=')[1]):null);
+  if(!token)throw Error('signin');
   const response=await fetch(path,{method:'POST',credentials:'same-origin',
-    headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(value)});
+    headers:{'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify(value)});
   if(!response.ok)throw Error(response.status===403?'signin':'request');
   return response.json();
 }
@@ -65,9 +65,8 @@ if(location.pathname==='/google-calendar/connect'){
     try{
       const challenge=await fetch('/auth/challenge',{credentials:'same-origin'});
       if(!challenge.ok)throw Error();
-      const data=await challenge.json();
-      if(!data.csrf_token)throw Error('signin');
-      sessionStorage.setItem(calendarSigninCsrfKey,data.csrf_token);
+      sessionStorage.setItem('cp-calendar-login-csrf',(await challenge.json()).csrf_token);
+      sessionStorage.setItem('cp-calendar-flow','signin');
       const result=await calendarPost('/auth/google-calendar/signin/start');
       location.assign(result.authorization_url);
     }catch(error){fail(error);event.target.disabled=false;}
@@ -76,27 +75,40 @@ if(location.pathname==='/google-calendar/connect'){
   const query=new URLSearchParams(location.search);
   const payload={code:query.get('code')||'',state:query.get('state')||''};
   history.replaceState(null,'','/auth/google-calendar/callback');
+  async function recoverCallback(message){
+    const back=document.getElementById('calendar-return')||document.querySelector('main a');
+    try{
+      const response=await fetch('/api/account/google-calendar',{credentials:'same-origin'});
+      if(response.ok&&(await response.json()).connected){
+        status.textContent='Повторное подключение не завершилось. Сохранённое подключение не удалено — откройте календарь, чтобы проверить события.';
+        back.textContent='Открыть мой календарь';back.href='/#calendar';return;
+      }
+    }catch{}
+    status.textContent=message;back.textContent='Подключить календарь заново';back.href='/google-calendar/connect';
+  }
   if(query.has('error')||!payload.code||!payload.state){
-    status.textContent='Доступ не предоставлен. Вернитесь к подключению и попробуйте снова.';
+    recoverCallback(query.has('error')?'Google не предоставил доступ. Вы можете начать подключение заново.':
+      'Эта ссылка подключения уже использована или устарела. Начните новое подключение.');
   }else{
     status.textContent='Завершаем подключение…';
-    const signin=document.cookie.split(';').some(s=>s.trim()==='__Host-cp-calendar-flow=signin');
+    const flow=sessionStorage.getItem('cp-calendar-flow');
+    const signin=flow?flow==='signin':document.cookie.split(';').some(s=>s.trim()==='__Host-cp-calendar-flow=signin');
     calendarPost(signin?'/auth/google-calendar/signin/complete':'/api/account/google-calendar/complete',payload)
-      .then(()=>location.replace('/#calendar')).catch(fail)
-      .finally(()=>{if(signin)sessionStorage.removeItem(calendarSigninCsrfKey);});
+      .then(()=>{sessionStorage.removeItem('cp-calendar-login-csrf');sessionStorage.removeItem('cp-calendar-flow');location.replace('/#calendar');})
+      .catch(()=>recoverCallback('Не удалось завершить подключение Google. Начните подключение заново.'));
   }
 }else{
   const connect=document.getElementById('calendar-connect'),refresh=document.getElementById('calendar-refresh'),
     disconnect=document.getElementById('calendar-disconnect'),list=document.getElementById('calendar-events');
   async function load(){
-    refresh.disabled=true;list.replaceChildren();document.getElementById('calendar-range').textContent='';
+    connect.disabled=refresh.disabled=true;list.replaceChildren();document.getElementById('calendar-range').textContent='';
     status.textContent='Читаем календарь…';
     try{
       const stateResponse=await fetch('/api/account/google-calendar',{credentials:'same-origin'});
       if(!stateResponse.ok)throw Error(stateResponse.status===403?'signin':'request');
       const state=await stateResponse.json();
       refresh.hidden=disconnect.hidden=!state.connected;
-      connect.textContent=state.connected?'Подключить заново':'Подключить Google Calendar';
+      connect.textContent=state.connected?(state.can_write===false?'Разрешить добавление событий':'Подключить заново'):'Подключить Google Calendar';
       if(!state.connected){status.textContent='Календарь ещё не подключён.';return;}
       const response=await fetch('/api/google-calendar/events',{credentials:'same-origin'}),data=await response.json();
       if(data.trace){document.getElementById('calendar-journal').hidden=false;
@@ -116,9 +128,10 @@ if(location.pathname==='/google-calendar/connect'){
         list.append(item);
       }
       status.textContent=data.events.length?'События загружены.':'На ближайшие 72 часа событий нет.';
-    }catch(error){fail(error);}finally{refresh.disabled=false;}
+    }catch(error){fail(error);}finally{connect.disabled=refresh.disabled=false;}
   }
   connect.addEventListener('click',async()=>{connect.disabled=true;try{
+    sessionStorage.setItem('cp-calendar-flow','account');
     const result=await calendarPost('/api/account/google-calendar/start');location.assign(result.authorization_url);
   }catch(error){fail(error);connect.disabled=false;}});
   disconnect.addEventListener('click',async()=>{disconnect.disabled=true;try{
@@ -126,7 +139,7 @@ if(location.pathname==='/google-calendar/connect'){
   }catch(error){fail(error);}finally{disconnect.disabled=false;}});
   refresh.addEventListener('click',load);
   const embedded=!!document.getElementById('google-calendar');
-  const visible=()=>!embedded||document.body.dataset.view==='calendar';
+  const visible=()=>!embedded||['calendar','plan'].includes(document.body.dataset.view);
   window.addEventListener('hashchange',()=>{if(visible())load();});
   document.getElementById('reload')?.addEventListener('click',()=>{if(visible())load();});
   if(visible())load();
@@ -134,9 +147,10 @@ if(location.pathname==='/google-calendar/connect'){
 """
 
 CALLBACK_PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение Calendar</title></head>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение Calendar</title>
+<link rel="stylesheet" href="/assets/login.css"></head>
 <body><main><h1>Подключение Google Calendar</h1><p id="calendar-status" role="status"></p>
-<a href="/google-calendar">Вернуться к календарю</a></main>
+<a id="calendar-return" href="/#calendar">Вернуться к календарю</a></main>
 <script src="/assets/google-calendar.js"></script></body></html>'''
 
 CONNECT_PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -145,6 +159,7 @@ CONNECT_PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <h1>Подключить Google Calendar</h1><p>Войдите через Google и разрешите Google AI читать ваш основной календарь.</p>
 <p>Вы увидите события на ближайшие три дня. Изменять и удалять события этот режим не может.
 Доступ сохраняется в зашифрованном виде. Названия и время событий используются для ответа на ваши вопросы в чате.</p>
+<p>На облачном сайте новые события добавляются только после просмотра и подтверждения плана.</p>
 <button id="calendar-signin" type="button">Войти через Google и подключить календарь</button>
 <p id="calendar-status" role="status" aria-live="polite"></p><a href="/login">Обычный вход в приложение</a>
 </main><script src="/assets/google-calendar.js"></script></body></html>'''
@@ -158,6 +173,9 @@ class Completion(Contract):
 def install_calendar_routes(app, *, auth, calendar):
     owner = auth.policy.config.student.trusted_user_id
     tools = calendar.tools(owner) if hasattr(calendar, 'tools') else LocalCalendarTools(calendar, owner)
+    if getattr(calendar, 'cloud_ready', False):
+        from .calendar_plans import install_plan_routes
+        install_plan_routes(app, auth=auth, calendar=calendar)
 
     @app.get('/google-calendar', response_class=HTMLResponse)
     async def page(request: Request):
@@ -231,12 +249,12 @@ def install_calendar_public(app, *, origin):
                 or request.headers.get('sec-fetch-mode') not in (None, 'navigate')):
             return Response(status_code=403)
         return HTMLResponse(CALLBACK_PAGE, headers={
-            'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+            'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
             'Referrer-Policy': 'no-referrer'})
 
     @app.get('/assets/google-calendar.js')
     async def script():
-        return Response(SCRIPT, media_type='text/javascript')
+        return Response(SCRIPT + PLAN_SCRIPT, media_type='text/javascript')
 
     @app.get('/assets/google-calendar.css')
     async def css():
@@ -248,7 +266,11 @@ def install_calendar_public(app, *, origin):
 #calendar-status{padding:24px;border:1px solid var(--line,#d5dcd6);border-radius:14px;margin-top:24px}
 #calendar-range{font-size:13px}
 #calendar-journal{margin:28px 0;font-size:13px}
-body[data-view]:not([data-view=calendar]) #google-calendar{display:none}
+body[data-view]:not([data-view=calendar]):not([data-view=plan]) #google-calendar{display:none}
+body[data-chat-mode=calendar_advice][data-view=plan]:has(#google-calendar) #panel,
+body[data-chat-mode=calendar_advice][data-view=plan]:has(#google-calendar) #feedback{display:none}
+.calendar-plan-card{padding:20px;margin:16px 0;border:1px solid var(--line,#d8dedb);border-radius:16px;background:var(--surface,#fff)}
+.calendar-plan-card h3{margin:0 0 12px}.calendar-plan-card button{margin:8px 10px 0 0}
 body[data-view=calendar] .recovery-home,body[data-view=calendar] #moodle,
 body[data-view=calendar] #panel,body[data-view=calendar] .journal,
 body[data-view=calendar] #feedback{display:none}

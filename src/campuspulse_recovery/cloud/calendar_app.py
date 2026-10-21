@@ -17,6 +17,7 @@ from ..security.context import AccessDenied
 from .authority import ServiceIdentity, utcnow
 from .calendar_feed import CloudCalendarFeed
 from .recovery import CalendarRecoverySettings
+from .study_grants import StudyAgentSettings
 
 
 class CalendarSettings(Contract):
@@ -26,6 +27,7 @@ class CalendarSettings(Contract):
     chat: ConversationTarget
     scheduler_service_account: ServiceAccount
     recovery: CalendarRecoverySettings | None = None
+    study_agent: StudyAgentSettings | None = None
 
     @model_validator(mode='after')
     def matching_recovery(self):
@@ -36,6 +38,18 @@ class CalendarSettings(Contract):
                     or cfg.backend_origin != self.origin
                     or cfg.google_signin_client_id != self.google_client_id):
                 raise ValueError('matching_recovery_application_required')
+        if self.study_agent is not None:
+            study = self.study_agent
+            if self.recovery is not None:
+                raise ValueError('choose_study_agent_or_recovery')
+            if (study.target.project_id != self.application.project_id
+                    or study.target.location != self.application.agent_region
+                    or study.backend_service_account == study.agent_service_account
+                    or any(not account.endswith('@' + self.application.project_id + '.iam.gserviceaccount.com')
+                           for account in (study.backend_service_account, study.agent_service_account))
+                    or study.agent_audience == study.mcp_origin
+                    or self.origin in {study.agent_audience, study.mcp_origin}):
+                raise ValueError('matching_study_agent_application_required')
         return self
 
 
@@ -70,15 +84,23 @@ def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
         if (config['project_id'] != settings.application.project_id or config['origin'] != settings.origin
                 or config['database'] != settings.application.firestore_database):
             raise ValueError('calendar_oauth_deployment_mismatch')
+        if settings.study_agent is not None and config['mcp_origin'] != settings.study_agent.mcp_origin:
+            raise ValueError('study_calendar_mcp_mismatch')
         google_calendar = CloudConnectedCalendar(documents, client=config['client'], key=config['key'],
             project_id=config['project_id'], origin=config['origin'], mcp_origin=config['mcp_origin'], clock=clock)
+    def study_agent(*, policy):
+        from .study_conversation import StudyConversation
+        return StudyConversation(settings.study_agent, documents, policy=policy,
+            delegate=CalendarConversation(settings.chat), clock=clock)
+
     app = create_multiuser_app(origin=settings.origin, client_id=settings.google_client_id,
         directory=Path('/tmp/campuspulse'), application=settings.application, documents=documents,
         feed_factory=factory, agent_factory=lambda: CalendarConversation(settings.chat), clock=clock,
         recovery_factory=(None if settings.recovery is None else
             lambda principal, clock: settings.recovery.backend(principal, documents, clock=clock)),
         recovery_chat_factory=lambda: CalendarConversation(settings.chat, recovery=True),
-        cloud_google_calendar=google_calendar)
+        cloud_google_calendar=google_calendar,
+        scoped_agent_factory=study_agent if settings.study_agent is not None else None)
 
     # These routes must precede the multi-user catch-all mount.
     mount = app.router.routes.pop()
@@ -86,7 +108,8 @@ def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
     @app.get('/health')
     async def health():
         await documents.get('cp_system/health')
-        return {'status': 'ok', 'storage': 'firestore', 'chat': settings.chat.model}
+        return {'status': 'ok', 'storage': 'firestore', 'chat': settings.chat.model,
+                'agent_runtime': 'agent_engine' if settings.study_agent is not None else 'direct_gemini'}
 
     @app.get('/favicon.ico')
     async def favicon():

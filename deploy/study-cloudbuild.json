@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "name": "gcr.io/cloud-builders/docker",
+      "args": ["build", "--build-arg", "SOURCE_SHA=${_SOURCE_SHA}", "-f", "deploy/Dockerfile.rollout", "-t", "us-central1-docker.pkg.dev/${PROJECT_ID}/campuspulse/study-agent:${_SOURCE_SHA}", "."]
+    },
+    {
+      "name": "gcr.io/cloud-builders/docker",
+      "args": ["build", "--target", "verified", "--build-arg", "SOURCE_SHA=${_SOURCE_SHA}", "-f", "deploy/Dockerfile.rollout", "-t", "study-verified:${_SOURCE_SHA}", "."]
+    },
+    {
+      "name": "gcr.io/cloud-builders/docker",
+      "args": ["run", "--rm", "--user=0", "-v", "/workspace:/workspace", "--entrypoint", "python", "study-verified:${_SOURCE_SHA}", "-c", "import shutil; shutil.copytree('/out', '/workspace/verification', dirs_exist_ok=True)"]
+    }
+  ],
+  "images": ["us-central1-docker.pkg.dev/${PROJECT_ID}/campuspulse/study-agent:${_SOURCE_SHA}"],
+  "artifacts": {
+    "objects": {
+      "location": "gs://${PROJECT_ID}-calendar-build/study-agent-20261022/${_SOURCE_SHA}/",
+      "paths": ["verification/qa-summary.json", "verification/pytest.xml", "verification/*.log", "verification/voice-report.json", "verification/dist/*"]
+    }
+  },
+  "serviceAccount": "projects/${PROJECT_ID}/serviceAccounts/campuspulse-calendar-build@${PROJECT_ID}.iam.gserviceaccount.com",
+  "options": {"logging": "CLOUD_LOGGING_ONLY"},
+  "timeout": "1800s"
+}

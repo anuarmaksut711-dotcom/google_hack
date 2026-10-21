@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Annotated, Literal, Protocol
 
 from fastapi import APIRouter, Request
-from pydantic import Field, StringConstraints, TypeAdapter
+from pydantic import Field, StrictInt, StringConstraints, TypeAdapter
 
 from ..domain.models import Contract, Instant, canonical_json
 from ..domain.chat_plan import ClassSchedule, render_advice
@@ -23,6 +23,21 @@ from .workspace import ChatId, WorkspaceStore
 
 Message = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=4000)]
 Reply = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=12000)]
+
+
+class ChatToolTrace(Contract):
+    """Confirmed runtime observations; no prompts, tokens or source contents."""
+    tool: Literal['read_assignments', 'read_schedule']
+    status: Literal['completed', 'failed', 'unavailable', 'not_connected']
+    duration_ms: Annotated[StrictInt, Field(ge=0, le=150_000)]
+    result_count: Annotated[StrictInt, Field(ge=0, le=1000)] = 0
+
+
+class ChatReply(Contract):
+    response: Reply
+    tool_trace: Annotated[tuple[ChatToolTrace, ...], Field(max_length=12)] = ()
+    class_schedule: ClassSchedule | None = None
+    agent_run_id: TechnicalId | None = None
 
 
 class ChatRequest(Contract):
@@ -38,6 +53,8 @@ class ChatTurn(Contract):
     created_at: Instant
     response: Reply | None = None
     duration_ms: int | None = None
+    tool_trace: Annotated[tuple[ChatToolTrace, ...], Field(max_length=12)] = ()
+    agent_run_id: TechnicalId | None = None
 
 
 class Conversation(Contract):
@@ -50,13 +67,14 @@ def history_limit_reached(chat):
 
 class ChatAgent(Protocol):
     async def reply(self, *, history: tuple[ChatTurn, ...], message: str,
-                    user_id: str, session_id: str, sources: dict) -> str: ...
+                    user_id: str, session_id: str, sources: dict) -> str | ChatReply: ...
 
 
 class ChatStore(_Repository):
-    def __init__(self, *args, owner_history=False, **kwargs):
+    def __init__(self, *args, owner_history=False, working_seconds=90, **kwargs):
         super().__init__(*args, **kwargs)
         self.owner_history = owner_history
+        self.working_seconds = working_seconds
         self.workspace = WorkspaceStore(*args, owner_history=owner_history, **kwargs)
 
     def path(self, context, chat_id='default'):
@@ -85,7 +103,7 @@ class ChatStore(_Repository):
             turns = []
             for turn in chat.turns:
                 if turn.status == 'working':
-                    if now < turn.created_at + timedelta(seconds=90):
+                    if now < turn.created_at + timedelta(seconds=self.working_seconds):
                         raise BindingConflict('chat_turn_in_progress')
                     turn = turn.model_copy(update={'status': 'unknown'})
                 turns.append(turn)
@@ -96,7 +114,8 @@ class ChatStore(_Repository):
             return chat, True
         return await self.documents.transact(transact)
 
-    async def finish(self, context, key, *, response, duration_ms, chat_id='default'):
+    async def finish(self, context, key, *, response, duration_ms, chat_id='default',
+                     tool_trace=(), agent_run_id=None):
         path = self.path(context, chat_id)
         async def transact(tx):
             await self.workspace.require_chat(context, chat_id, reader=tx)
@@ -109,7 +128,8 @@ class ChatStore(_Repository):
                         raise BindingConflict('chat_turn_settled')
                     turns[index] = ChatTurn(**{**turn.model_dump(),
                         'status': 'failed' if response is None else 'completed',
-                        'response': response, 'duration_ms': duration_ms})
+                        'response': response, 'duration_ms': duration_ms,
+                        'tool_trace': tool_trace, 'agent_run_id': agent_run_id})
                     result = Conversation(turns=tuple(turns))
                     tx.set(path, _encode('chat-v1', result))
                     return result
@@ -120,7 +140,9 @@ class ChatStore(_Repository):
 def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False,
                        structured_advice=False, additional_sources=None):
     router = APIRouter()
-    store = ChatStore(documents, policy, owner_history=owner_history)
+    owns_sources = getattr(agent, 'owns_sources', False) is True
+    working_seconds = 150 if owns_sources else 90
+    store = ChatStore(documents, policy, owner_history=owner_history, working_seconds=working_seconds)
     workspace = WorkspaceStore(documents, policy, owner_history=owner_history)
 
     async def fresh(request, original):
@@ -131,8 +153,12 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
     def view(chat):
         turns = [t.model_dump(mode='json') for t in chat.turns]
         for original, turn in zip(chat.turns, turns):
-            if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=90):
+            if turn['status'] == 'working' and auth.now() >= original.created_at + timedelta(seconds=working_seconds):
                 turn['status'] = 'unknown'
+            if not turn['tool_trace']:
+                turn.pop('tool_trace')
+            if turn['agent_run_id'] is None:
+                turn.pop('agent_run_id')
         result = {'available': agent is not None, 'turns': turns,
                   'limit_reached': history_limit_reached(chat)}
         if callable(getattr(agent, 'transcribe', None)):
@@ -180,27 +206,54 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                 return _json(view(chat))
             started = monotonic()
             response = None
+            tool_trace, agent_run_id = (), None
             try:
-                async with asyncio.timeout(60):
+                async with asyncio.timeout(135 if owns_sources else 60):
 
-                    sources = {} if projection is None else (await projection.project(
+                    sources = {} if projection is None or owns_sources else (await projection.project(
                         context, run=None, plan=None)).model_dump(mode='json',
                             include={'assignments', 'calendar', 'class_schedule'})
-                    if additional_sources is not None:
+                    if additional_sources is not None and not owns_sources:
                         sources['google_calendar'] = await additional_sources(context)
+                    if not owns_sources:
+                        sources['calendar_write'] = {
+                            'enabled': callable(getattr(request.app.state, 'calendar_plan_proposer', None)),
+                            'now': auth.now().isoformat(), 'timezone': policy.config.student.timezone,
+                            'horizon_hours': 72}
                     await fresh(request, credential)
                     response = await agent.reply(history=chat.turns[:-1], message=value.message,
                         user_id=context.trusted.owner_id, session_id=context.session_id, sources=sources)
+                    runtime_schedule = None
+                    if isinstance(response, ChatReply):
+                        tool_trace, agent_run_id = response.tool_trace, response.agent_run_id
+                        runtime_schedule, response = response.class_schedule, response.response
+                    validated_blocks = []
                     if structured_advice:
-                        schedule = sources.get('class_schedule')
+                        schedule = runtime_schedule or sources.get('class_schedule')
                         if projection is not None and hasattr(projection, 'current_class_schedule'):
                             current = await projection.current_class_schedule(context)
-                            if (schedule and schedule['status'] != 'not_connected' and
+                            previous = (schedule.model_dump(mode='json') if isinstance(schedule, ClassSchedule) else schedule)
+                            if (previous and previous['status'] != 'not_connected' and
                                     (current is None or current.status == 'not_connected')):
                                 current = ClassSchedule(status='unavailable')
                             schedule = current
                         response = render_advice(response, schedule=schedule, now=auth.now(),
-                                                 timezone=policy.config.student.timezone)
+                            timezone=policy.config.student.timezone,
+                            validated_blocks=None if owns_sources else validated_blocks)
+                    proposer = None if owns_sources else getattr(request.app.state, 'calendar_plan_proposer', None)
+                    if validated_blocks and proposer is not None:
+                        try:
+                            await fresh(request, credential)
+                            saved = await proposer(validated_blocks, value.chat_id + ':' + value.request_key,
+                                                   context.session_id)
+                            if saved:
+                                response = response.replace('План остаётся рекомендацией в чате.',
+                                    'План сохранён для вашего подтверждения в разделе «Мой план».')
+                                response += '\n\nОткройте «Мой план»: проверьте события, подтвердите и добавьте их в Google Calendar.'
+                            else:
+                                response += '\n\nЧтобы сохранить события, подключите Google Calendar в разделе «Мой план».'
+                        except BindingConflict:
+                            response = 'Не удалось сохранить этот вариант: время уже занято или календарь изменился. Попросите составить новый план.'
 
                     response = ChatTurn(request_key=value.request_key, message=value.message,
                         status='completed', created_at=auth.now(), response=response).response
@@ -214,7 +267,8 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                 response = None
             await fresh(request, credential)
             chat = await store.finish(context, value.request_key, response=response,
-                                      duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id)
+                duration_ms=round((monotonic() - started) * 1000), chat_id=value.chat_id,
+                tool_trace=tool_trace, agent_run_id=agent_run_id)
             turn = next(t for t in chat.turns if t.request_key == value.request_key)
             title = None
             if await workspace.needs_title(context, value.chat_id) and callable(getattr(agent, 'suggest_title', None)):

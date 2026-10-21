@@ -199,9 +199,9 @@ form.addEventListener('submit',async event=>{
 
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
-                         application=None, documents=None, feed_factory=None,
+                         application=None, documents=None, feed_factory=None, my_du_transport=None,
                          recovery_factory=None, recovery_chat_factory=None, local_google_calendar=None,
-                         cloud_google_calendar=None):
+                         cloud_google_calendar=None, scoped_agent_factory=None):
     environment = 'local' if application is None else 'cloud'
     if local_google_calendar is not None and environment != 'local':
         raise ValueError('local_calendar_requires_local_application')
@@ -269,6 +269,8 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             await feed.restore()
             selected_agent = (recovery_chat_factory if recovery is not None and recovery_chat_factory is not None
                               else agent_factory)
+            chat_agent = (scoped_agent_factory(policy=policy) if scoped_agent_factory is not None and recovery is None
+                          else None if selected_agent is None else selected_agent())
             async def calendar_sources(context):
                 owner = context.trusted.owner_id
                 state = await local_google_calendar.status(owner)
@@ -280,12 +282,11 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                           await LocalCalendarTools(local_google_calendar, owner).read())
                 if 'error' in result:
                     return {'status': 'unavailable'}
-                return {'status': 'available', 'read_at': result['read_at'], 'timezone': result['timezone'],
-                    'horizon': result['horizon'], 'events': [{k: event.get(k) for k in
-                        ('summary', 'start', 'end', 'htmlLink', 'transparency')} for event in result['events']]}
+                from ..integrations.calendar_agenda import agenda_source
+                return agenda_source(result)
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
                 origin=origin, environment=environment, clock=clock, moodle_enabled=True,
-                signin_url='/login', chat_agent=None if selected_agent is None else selected_agent(),
+                signin_url='/login', chat_agent=chat_agent,
                 projection=feed, chat_mode='calendar_advice' if recovery is None else 'recovery',
                 runs_factory=None if recovery is None else recovery.runs,
                 approval_store=None if recovery is None else recovery.approvals,
