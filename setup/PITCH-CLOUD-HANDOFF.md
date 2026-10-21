@@ -1,8 +1,9 @@
 # Read-only study agent rollout — 22 October 2026
 
 This release connects the ordinary website conversation to an existing managed
-Agent Engine. It does not activate recovery or Calendar writes. Cloud acceptance
-is pending until the final verification section records an actual website run.
+Agent Engine. It does not activate recovery or Calendar writes. The main website,
+private MCP and existing Engine are deployed; the signed-in live verification
+below confirms actual tool calls and a plan using the user's Moodle source.
 
 ## Current topology
 
@@ -102,6 +103,49 @@ from GitHub. Their inspected serving versions were restored to keep existing
 features reproducible. The new study path cannot invoke their write tools.
 No frontend assets or view layout changes are part of this integration.
 
-Final source SHA, immutable image, revisions and live verification results will
-be recorded after the real rollout. A failed or unavailable source must remain
-an explicit failure, not an empty successful list or a claimed completed plan.
+A failed or unavailable source must remain an explicit failure, not an empty
+successful list or a claimed completed plan.
+
+## Completed rollout and live acceptance
+
+- Runtime source: `1382f49aaba7c37c6571bbd8355349064e039012`, pushed to `main` and
+  `codex/pitch-agent-cloud`, authored and committed by `bossmerej-ship-it`.
+- Cloud Build: `6cf85845-7ce5-4fb7-9518-47e84adbbcf0`, `SUCCESS`.
+  The full Linux gate passed: 2308 tests, zero failures, errors or skips;
+  dependency check, recovery/voice evaluations, real MCP ASGI composition and
+  package build also passed.
+- Website revision: `campuspulse-study-1382f49`, main traffic 100%.
+- Private MCP revision: `campuspulse-mcp-study-1382f49`, main traffic 100%.
+- Both use the immutable image
+  `us-central1-docker.pkg.dev/project-e25873c6-e889-40bb-86d/campuspulse/study-agent@sha256:2fba38a05045c82073c424eac267808af62684ac97ab96d47c4142b724ce2764`.
+- Settings secret version: `3`. OAuth secret version remains `1`.
+- Engine update completed with operation `async_query`; verified wheel SHA-256:
+  `8c625bea90d8db27f4f7fe4a1a88c483341b6a89c508668640a333ddfe30014e`.
+- Public `/health` reports Firestore, `gemini-3.5-flash-lite`, and
+  `agent_runtime: agent_engine`. Invalid Engine service/invocation input returns
+  the expected rejection without source reads.
+
+On 22 October 2026, a normal Google sign-in on the main website was used for
+two real chat requests. No synthetic user, copied feed URL, mocked tool result
+or direct-Gemini fallback was used for this acceptance:
+
+| Request | Actual persisted tool trace | Website result |
+| --- | --- | --- |
+| Closest uncompleted Moodle deadlines | `read_assignments`: completed, 15 records, 3224 ms | Answer with actual source deadlines; end-to-end 39336 ms, including initial source/worker warm-up |
+| Plan for 22–24 October, 19:00–21:00 Asia/Qyzylorda, 45 minutes per task | `read_assignments`: completed, 15 records, 3687 ms; `read_schedule`: not_connected, 0 classes, 892 ms | Three 45-minute study blocks at 19:00 on the requested dates; end-to-end 7779 ms |
+
+The plan was correctly presented as a **draft**: the user's weekly class schedule
+is not filled in, so conflicts with classes could not be verified. The user's
+explicit availability supplied the study windows. Moodle calendar feeds do not
+establish submission/completion status; local completion flags are filtered and
+the unknown source submission status is retained. The plan is a chat
+recommendation; no Google Calendar event, proposal or write was created.
+
+Both turns have nonempty `agent_run_id` values and actual `tool_trace` entries
+saved in chat history. The browser reported no console errors. Private local
+verification artifacts contain the sanitized trace summary and a screenshot;
+personal conversation/feed contents are not committed to the repository.
+
+The next UI stage can render these saved tool traces. It should preserve the
+distinction between unavailable sources, an empty valid source and missing
+schedule coverage rather than displaying all of them as a successful plan.
