@@ -110,3 +110,70 @@ async def test_child_budget_and_prompt_payload_limits(tmp_path):
         await grants.issue_tool(parent, 'read_assignments')
     with pytest.raises(AccessDenied):
         await grants.issue_tool(parent, 'read_schedule')
+
+
+@run_async
+async def test_progress_is_session_turn_bound_one_use_and_expires_without_running_forever(tmp_path):
+    docs, index, session = await setup(tmp_path)
+    now = NOW
+    grants = StudyGrants(docs, clock=lambda: now)
+    binding = dict(owner=session.binding.owner_id, session=session.binding.session_id,
+                   chat_id='default', request_key='real_turn')
+    progress_id = grants.progress_id(**binding)
+    reference = await invocation(grants, session, progress_id=progress_id)
+    assert (await grants.read_progress(**binding)).phase == 'queued'
+    assert await grants.read_progress(**{**binding, 'request_key': 'other_turn'}) is None
+    with pytest.raises(AccessDenied, match='study_progress_replay'):
+        await invocation(grants, session, progress_id=progress_id)
+    parent = await grants.consume_invocation(reference)
+    await grants.progress(parent, phase='thinking')
+    await grants.issue_tool(parent, 'read_assignments')
+    await grants.progress(parent, call={'call_id': 1, 'tool': 'read_assignments', 'status': 'running'})
+    live = await grants.read_progress(**binding)
+    assert live.phase == 'tools' and live.tool_calls[0].status == 'running'
+    with pytest.raises(AccessDenied):
+        await grants.progress({**parent, 'owner': 'other-owner'}, phase='composing')
+    with pytest.raises(AccessDenied):
+        await grants.progress(parent, call={'call_id': 1, 'tool': 'read_schedule', 'status': 'completed'})
+    with pytest.raises(AccessDenied):
+        await grants.progress(parent, call={'call_id': 2, 'tool': 'read_schedule', 'status': 'running'})
+    now += timedelta(seconds=151)
+    expired = await grants.read_progress(**binding)
+    assert expired.phase == 'failed' and expired.tool_calls[0].status == 'unknown'
+    with pytest.raises(AccessDenied):
+        await grants.progress(parent, phase='composing')
+    now = NOW
+    async def revoke(tx):
+        await tx.get(index['path'])
+        tx.set(index['path'], _encode('web_session', session.model_copy(update={'revoked': True})))
+    await docs.transact(revoke)
+    with pytest.raises(AccessDenied):
+        await grants.read_progress(**binding)
+
+
+@run_async
+async def test_parallel_progress_calls_preserve_all_results_and_terminal_state(tmp_path):
+    docs, _, session = await setup(tmp_path)
+    grants = StudyGrants(docs, clock=lambda: NOW)
+    binding = dict(owner=session.binding.owner_id, session=session.binding.session_id,
+                   chat_id='default', request_key='parallel_turn')
+    parent = await grants.consume_invocation(await invocation(grants, session,
+        progress_id=grants.progress_id(**binding)))
+    for index, tool in enumerate(('read_assignments', 'read_schedule'), 1):
+        reference, reserved = await grants.issue_tool(parent, tool, with_call_id=True)
+        assert isinstance(reference, str) and reserved == index
+    await asyncio.gather(*(grants.progress(parent,
+        call={'call_id': index, 'tool': tool, 'status': 'running'})
+        for index, tool in enumerate(('read_assignments', 'read_schedule'), 1)))
+    await asyncio.gather(*(grants.progress(parent, call={'call_id': index, 'tool': tool,
+        'status': status, 'duration_ms': 42, 'result_count': count})
+        for index, tool, status, count in [(1, 'read_assignments', 'completed', 15),
+                                          (2, 'read_schedule', 'not_connected', 0)]))
+    await grants.progress(parent, phase='composing')
+    live = await grants.read_progress(**binding)
+    assert live.phase == 'composing'
+    assert [(item.call_id, item.status, item.result_count) for item in live.tool_calls] == [
+        (1, 'completed', 15), (2, 'not_connected', 0)]
+    await grants.progress(parent, phase='completed')
+    with pytest.raises(AccessDenied, match='study_progress_settled'):
+        await grants.progress(parent, phase='thinking')

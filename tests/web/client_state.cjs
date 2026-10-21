@@ -13,10 +13,11 @@ function between(start, end) {
   return source.slice(from, to);
 }
 function harness() {
-  const elements = new Map(), data = new Map(), pending = new Map();
+  const elements = new Map(), data = new Map(), pending = new Map(), pollers = [];
   const $ = id => {
     if (!elements.has(id)) elements.set(id, {
       value: '', textContent: '', hidden: false,
+      querySelectorAll() { return []; }, scrollHeight: 500, scrollTop: 0, clientHeight: 200,
       replaceChildren() {}, setAttribute() {}, focus() {}, scrollTo() {}, classList: {remove() {}},
     });
     return elements.get(id);
@@ -31,7 +32,14 @@ function harness() {
   });
   const sandbox = {
     $, sessionStorage, URLSearchParams, AbortSignal, document: {cookie: '', body: {dataset: {signinUrl: '/login'}}},
-    window: {location: {assign(url) { sandbox.destination = url; }}},
+    window: {location: {assign(url) { sandbox.destination = url; }}, CampusPulseStudyTrace: {
+      Poller: class {
+        constructor(options) { this.options = options; this.stopped = false; pollers.push(this); }
+        start(requestKey) { this.requestKey = requestKey; }
+        stop() { this.stopped = true; }
+      },
+      update(node, turn) { sandbox.lastProgress = {node, turn}; },
+    }},
     location: {pathname: '/', search: '', hash: '#workspace'}, history: {replaceState() {}},
     chats: {data: {chat_available: true, speech_available: true}, reset() {}, selection() {}, async load() {}},
     controls() {}, showChat(chat) { sandbox.lastChat = chat; }, updateNavigation() {}, feedback() {}, clearMoodle() {},
@@ -43,19 +51,86 @@ function harness() {
     let scope='session-1', activeChat='default', pendingText=null, generation=0,
       chatGeneration=0, activeRun=null, cursor=0, chatAvailable=true,
       chatWorking=false, chatLimitReached=false, chatBusy=false, busy=false,
-      moodleEnabled=false, moodleRevision=0, moodleBusy=false;
+      moodleEnabled=false, moodleRevision=0, moodleBusy=false, renderedChat=null, chatPoller=null;
     const chatDrafts=new Map();
     ${between('  const draftChat', '  let activeChat')}
     ${between('  const csrf = ', '  async function api(')}
     ${between('  async function api(', '  function clearMoodle(')}
     ${between('  const pendingChatKey', '  function selectChat')}
+    ${between('  function watchChatProgress(', '  async function loadChat()')}
     ${between('  async function loadChat()', '  async function sendMessage')}
     ${between('  async function sendMessage(', '  async function refresh()')}
     ${between('  async function refresh()', '  async function act(')}
     ${between('  async function signOut()', "  $('signout').addEventListener")}
     function snapshot() { return {scope, pendingText, composer: $('recovery-message').value}; }
   `, sandbox);
-  return {sandbox, data, pending, $, run: text => vm.runInContext(text, sandbox)};
+  return {sandbox, data, pending, pollers, $, run: text => vm.runInContext(text, sandbox)};
+}
+
+async function progressReadsNeverPostOrDiscardLastObservationOnFailure() {
+  const h = harness(), requests = [];
+  h.pending.set('pending-chat', 'request-1');
+  h.run("pendingText='Original question'; renderedChat={turns:[{request_key:'request-1',status:'working'}]}");
+  h.sandbox.api = async (...args) => {
+    requests.push(args);
+    return {json: async () => ({turns: [{request_key: 'request-1', status: 'working'}]})};
+  };
+  h.run("watchChatProgress('request-1')");
+  const poller = h.pollers[0], observed = await poller.options.read();
+  assert.equal(observed.turns[0].request_key, 'request-1');
+  assert.deepEqual(requests, [['/api/chat?chat_id=default']], 'Progress uses a GET with no payload or CSRF mutation');
+  const previous = h.run('renderedChat');
+  poller.options.failed(Object.assign(new Error('Temporary failure'), {status: 503}));
+  assert.equal(h.run('renderedChat'), previous, 'Polling errors preserve the last rendered chat');
+  assert.equal(h.run('pendingText'), 'Original question');
+  assert.equal(h.pending.get('pending-chat'), 'request-1', 'A failed progress GET must not clear the original retry key');
+  assert.match(h.$('chat-status').textContent, /Не удалось обновить ход работы/);
+  assert.equal(requests.length, 1, 'A polling error must never replay the message POST');
+}
+
+async function progressUpdatesExistingDisclosureAndPreservesScrollPosition() {
+  const h = harness(), disclosure = {open: false};
+  const reply = {dataset: {requestKey: 'request-1'}, querySelector: () => disclosure};
+  h.$('chat-history').querySelectorAll = () => [reply];
+  h.$('conversation-scroll').scrollTop = 41;
+  h.run("watchChatProgress('request-1')");
+  const chat = {available: true, turns: [{request_key: 'request-1', status: 'working',
+    agent_progress: {phase: 'tools', tool_calls: [{tool: 'read_assignments', status: 'running'}]}}]};
+  h.pollers[0].options.update(chat, chat.turns[0]);
+  assert.equal(h.sandbox.lastProgress.node, disclosure, 'Live observations update the existing disclosure in place');
+  assert.equal(disclosure.open, false, 'A background observation must not reopen details the user collapsed');
+  assert.equal(h.run('renderedChat'), chat);
+  assert.equal(h.run('chatWorking'), true);
+  assert.equal(h.sandbox.lastChat, undefined, 'A progress change must not rebuild conversation history');
+  assert.equal(h.$('conversation-scroll').scrollTop, 41);
+}
+
+async function progressSelectionAndSessionGuardsIgnoreOldChat() {
+  for (const mutation of ["++generation", "scope='new-session'", "activeChat='new-chat'", "++chatGeneration"]) {
+    const h = harness();
+    h.run("watchChatProgress('request-1')");
+    assert.equal(h.pollers[0].options.valid(), true);
+    h.run(mutation);
+    assert.equal(h.pollers[0].options.valid(), false, `Invalidate observation after ${mutation}`);
+  }
+  const h = harness();
+  h.run("watchChatProgress('request-1'); watchChatProgress('request-2')");
+  assert.equal(h.pollers[0].stopped, true, 'Starting another observation stops the previous loop');
+  assert.equal(h.pollers[1].requestKey, 'request-2');
+}
+
+async function terminalProgressReconcilesOriginalDraftAndPreservesEdits() {
+  for (const edited of [false, true]) {
+    const h = harness();
+    h.$('recovery-message').value = edited ? 'New unsent question' : 'Accepted question';
+    h.pending.set('pending-chat', 'request-1');
+    h.run("pendingText='Accepted question'; watchChatProgress('request-1')");
+    const turn = {request_key: 'request-1', status: 'completed', message: 'Accepted question'};
+    h.pollers[0].options.update({turns: [turn]}, turn);
+    assert.equal(h.$('recovery-message').value, edited ? 'New unsent question' : '');
+    assert.equal(h.pending.get('pending-chat'), null);
+    assert.equal(h.run('pendingText'), null);
+  }
 }
 
 async function openingDraftDoesNotReadOrCreateServerChat() {
@@ -461,6 +536,12 @@ async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() 
 
 (async () => {
   let failures = 0;
+  for (const test of [progressReadsNeverPostOrDiscardLastObservationOnFailure,
+    progressUpdatesExistingDisclosureAndPreservesScrollPosition, progressSelectionAndSessionGuardsIgnoreOldChat,
+    terminalProgressReconcilesOriginalDraftAndPreservesEdits]) {
+    try {await test(); console.log('PASS', test.name);}
+    catch (error) {++failures; console.error('FAIL', test.name, error.message);}
+  }
   for (const test of [deletedAmbiguousCreationAllowsExplicitFreshSend, lostCreationResponseKeepsOriginalProjectPayloadAfterProjectDeletion, deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory, deletingSelectedChatClearsItsLocalStateAndOpensDraft, deletingOtherChatPreservesCurrentDraft, deletedProjectDraftSendsIntoGeneralList, transientRefreshRetainsDrafts, completedPendingClearsAcceptedComposer, completedPendingPreservesUserEdits, pendingWorkingThenCompletedReconciles, unknownRequestRetainsIdempotencyKey, refreshDuringSendRetainsIdempotencyKey, expiredSessionDoesNotTrapDraft, failedBootstrapPreservesAmbiguousEarlierSend, staleRefreshDoesNotClearNewRequest, bootstrapRecoversWithoutJavascriptCookie, switchedSessionNeverSendsMutation, refreshedPageDoesNotReportExpiredSession, rejectedMutationIsNeverAutomaticallyReplayed, concurrentRepairRetriesOnlyBootstrap, expiredSignoutReachesLogin, validSignoutRevokesBeforeNavigating, openingDraftDoesNotReadOrCreateServerChat, firstDraftSendCreatesOneChatAndMovesPendingState, failedDraftCreationKeepsTextAndStableRetryKey, repeatedNewChatButtonsNeverWriteCatalog, draftKeysAreIsolatedBetweenTabsAndStableAfterReload]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}

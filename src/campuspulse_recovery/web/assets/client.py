@@ -1,12 +1,14 @@
 """Small browser adapter; GET refreshes never consent or dispatch execution."""
 from .workspace import SCRIPT as WORKSPACE_SCRIPT
 from .answer_reveal import SCRIPT as ANSWER_REVEAL_SCRIPT
+from .study_trace import SCRIPT as STUDY_TRACE_SCRIPT
 SCRIPT = r"""'use strict';
 (() => {
   const $ = id => document.getElementById(id);
   const answerReveal = new window.CampusPulseAnswerReveal();
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
+  let renderedChat = null, chatPoller = null;
   let speechAvailable = false, voiceState = 'idle', voiceSession = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -343,6 +345,7 @@ SCRIPT = r"""'use strict';
   async function api(path, payload) {
     const options = {credentials: 'same-origin', cache: 'no-store', redirect: 'error'};
     if (path.startsWith('/api/moodle')) options.signal = AbortSignal.timeout(110000);
+    if (path.startsWith('/api/chat?')) options.signal = AbortSignal.timeout(15000);
     if (payload !== undefined) Object.assign(options, {method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRF-Token': await csrf()}, body: JSON.stringify(payload)});
     const response = await fetch(path, options);
@@ -612,12 +615,15 @@ SCRIPT = r"""'use strict';
   }
   function showChat(chat, {animateRequestKey = null} = {}) {
     answerReveal.finish();
+    renderedChat = chat;
     let revealAnswer = null;
     chatLimitReached = chat.limit_reached === true;
     speechAvailable = chat.speech_available === true;
     chatAvailable = chat.available;
     chatWorking = chat.turns.some(turn => turn.status === 'working');
     const log = $('chat-history');
+    const expanded = new Map([...log.querySelectorAll('.chat-assistant')].map(node =>
+      [node.dataset.requestKey, node.querySelector('.agent-work details')?.open]));
     log.replaceChildren();
     const index = $('conversation-index');
     index.replaceChildren();
@@ -631,6 +637,7 @@ SCRIPT = r"""'use strict';
       const reply = document.createElement('article'), author = document.createElement('span'), answer = document.createElement('div');
       answer.className = 'chat-answer';
       reply.className = 'chat-message chat-assistant'; author.className = 'chat-author'; author.textContent = 'Google AI';
+      reply.dataset.requestKey = turn.request_key;
       if (turn.status === 'completed') {
         renderChatAnswer(answer, turn.response);
         if (turn.request_key === animateRequestKey) revealAnswer = answer;
@@ -638,11 +645,14 @@ SCRIPT = r"""'use strict';
       else {
         reply.classList.add('chat-system');
         author.textContent = 'Статус запроса';
-        answer.textContent = {working: 'Агент готовит ответ. Обновите состояние, если вкладка была перезагружена.',
+        answer.textContent = {working: '',
           failed: 'Агент не смог ответить. Проверьте подключение и отправьте сообщение снова.',
           unknown: 'Ответ не получен. Этот запрос не будет отправлен автоматически.'}[turn.status];
       }
-      reply.append(author, answer);
+      const work = window.CampusPulseStudyTrace.create(turn);
+      if (expanded.has(turn.request_key) && expanded.get(turn.request_key) !== undefined)
+        work.querySelector('details').open = expanded.get(turn.request_key);
+      reply.append(author, work, answer);
       const details = document.createElement('details'), summary = document.createElement('summary'), meta = document.createElement('p');
       summary.textContent = 'Сведения о запросе';
       meta.textContent = 'ID: ' + turn.request_key + ' · ' + new Date(turn.created_at).toLocaleString('ru-RU') +
@@ -670,6 +680,38 @@ SCRIPT = r"""'use strict';
     if (providerErrors[chat.failure_code]) $('chat-status').textContent = providerErrors[chat.failure_code];
     controls();
     if (revealAnswer) answerReveal.start(revealAnswer, $('conversation-scroll'), log);
+  }
+  function watchChatProgress(requestKey) {
+    chatPoller?.stop();
+    const revision = generation, session = scope, chatId = activeChat, selection = chatGeneration;
+    const valid = () => revision === generation && session === scope && chatId === activeChat && selection === chatGeneration;
+    chatPoller = new window.CampusPulseStudyTrace.Poller({
+      read: async () => (await api('/api/chat?chat_id=' + chatId)).json(), valid,
+      update: (chat, turn) => {
+        const log = $('chat-history'), conversation = $('conversation-scroll');
+        const nearEnd = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 90;
+        const reply = [...log.querySelectorAll('.chat-assistant')].find(node => node.dataset.requestKey === requestKey);
+        if (turn.status === 'working' && reply) {
+          window.CampusPulseStudyTrace.update(reply.querySelector('.agent-work'), turn);
+          renderedChat = chat; chatWorking = true;
+        } else {
+          const top = conversation.scrollTop;
+          showChat(chat, {animateRequestKey: turn.status === 'completed' ? requestKey : null});
+          if (!nearEnd) conversation.scrollTop = top;
+          if (!chatBusy && stored(pendingChatKey()) === requestKey) {
+            if (turn.status === 'completed' && $('recovery-message').value.trim() === turn.message.trim())
+              $('recovery-message').value = '';
+            stored(pendingChatKey(), null); pendingText = null; saveDraft(); controls();
+          }
+        }
+        if (nearEnd) conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
+      },
+      failed: error => {
+        if (error.status !== 403) $('chat-status').textContent =
+          'Не удалось обновить ход работы. Ответ ещё ожидается.';
+      }
+    });
+    chatPoller.start(requestKey);
   }
   async function loadChat() {
     // A bookmarked chat can have been deleted in another tab. Preserve any
@@ -699,6 +741,9 @@ SCRIPT = r"""'use strict';
       const chat = await (await api('/api/chat?chat_id=' + chatId)).json();
       if (revision !== generation || session !== scope || selection !== chatGeneration) return;
       showChat(chat, {animateRequestKey: pending});
+      const working = chat.turns.find(turn => turn.status === 'working');
+      if (working) watchChatProgress(working.request_key);
+      else chatPoller?.stop();
       const accepted = pending && chat.turns.find(turn => turn.request_key === pending);
       if (!chatBusy && pending === stored(pendingChatKey()) && accepted && accepted.status !== 'working') {
         if (accepted.status === 'completed' && $('recovery-message').value.trim() === accepted.message.trim())
@@ -723,6 +768,7 @@ SCRIPT = r"""'use strict';
     }
     const hadPending = !!stored(pendingChatKey());
     chatBusy = true; controls();
+    let submitted = null;
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
       const request_key = keyFor(pendingChatKey()); pendingText = message;
@@ -746,16 +792,28 @@ SCRIPT = r"""'use strict';
         history.replaceState(null, '', location.pathname + location.search + chatHash(chatId));
         chats.selection(); updateNavigation({preserveNavigation: true});
       }
-      const chat = await (await api('/api/chat', {request_key, message, chat_id: activeChat})).json();
+      const turn = {request_key, message, status: 'working', created_at: new Date().toISOString(), response: null, duration_ms: null};
+      submitted = {chatId: activeChat, session: scope, selection: chatGeneration};
+      showChat({...renderedChat, available: true, turns: [...(renderedChat?.turns || []).filter(item => item.request_key !== request_key), turn]});
+      const conversation = $('conversation-scroll');
+      conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
+      const response = api('/api/chat', {request_key, message, chat_id: activeChat});
+      watchChatProgress(request_key);
+      const chat = await (await response).json();
+      if (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration) return;
+      chatPoller?.stop();
       stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
       saveDraft();
-      showChat(chat, {animateRequestKey: request_key});
-      const conversation = $('conversation-scroll');
+      const displayed = renderedChat?.turns?.find(item => item.request_key === request_key);
+      const settled = chat.turns.find(item => item.request_key === request_key);
+      if (displayed?.status !== 'completed' || displayed.response !== settled?.response)
+        showChat(chat, {animateRequestKey: request_key});
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
       await chats.load();
       updateNavigation({preserveNavigation: true});
     } catch (error) {
+      if (submitted && (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration)) return;
       if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
       if (draftChat(activeChat) && error.code === 'workspace_item_deleted') {
         stored(pendingChatKey() + ':creation', null); stored(pendingChatKey(), null);
@@ -1014,6 +1072,6 @@ SCRIPT = r"""'use strict';
   refresh().catch(error => feedback(error.message, true));
 })();
 """
-SCRIPT = WORKSPACE_SCRIPT + ANSWER_REVEAL_SCRIPT + SCRIPT
+SCRIPT = WORKSPACE_SCRIPT + ANSWER_REVEAL_SCRIPT + STUDY_TRACE_SCRIPT + SCRIPT
 from .sidebar import SCRIPT as SIDEBAR_SCRIPT
 SCRIPT = SIDEBAR_SCRIPT + SCRIPT
