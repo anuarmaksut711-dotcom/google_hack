@@ -48,7 +48,7 @@ function harness() {
       vm.runInContext(`renderedChat=renderTarget; chatWorking=renderTarget.turns.some(turn => turn.status==='working');
         chatAvailable=renderTarget.available`, sandbox);
       delete sandbox.renderTarget;
-    }, updateNavigation() {}, feedback() {}, clearMoodle() {},
+    }, updateNavigation() {}, feedback() {}, clearMoodle() {}, loadMoodle() {},
     keyFor(name) { if (!pending.get(name)) pending.set(name, 'stable-first-send'); return pending.get(name); },
     stored(name, value) {if (value !== undefined) pending.set(name, value); return pending.get(name) ?? null;},
   };

@@ -497,19 +497,19 @@ SCRIPT = r"""'use strict';
     }
   }
   async function loadMoodle() {
-    if (!moodleEnabled || moodleBusy) return;
-    const revision = ++moodleRevision;
+    if (!moodleEnabled || !scope || moodleBusy) return;
+    const revision = ++moodleRevision, session = scope;
     moodleBusy = true; $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'true');
     try {
       const saved = await (await api('/api/moodle')).json();
-      if (revision !== moodleRevision) return;
+      if (revision !== moodleRevision || session !== scope) return;
       showMoodle(saved);
       if (saved.connected) {
         const updated = await (await api('/api/moodle/sync', {})).json();
-        if (revision === moodleRevision) showMoodle(updated);
+        if (revision === moodleRevision && session === scope) showMoodle(updated);
       }
     } catch (error) {
-      if (revision !== moodleRevision) return;
+      if (revision !== moodleRevision || session !== scope) return;
       if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания из Moodle.');
       else $('moodle-status').textContent = 'Не удалось обновить задания. Если показаны сохранённые данные, они могли измениться. Повторите обновление.';
     } finally {
@@ -893,8 +893,15 @@ SCRIPT = r"""'use strict';
     $('trace-health').textContent = 'Загрузите журнал выбранного запуска. Обновление не подтверждает результат.';
     try {
       const session = await (await api('/auth/session')).json();
-      if (scope !== session.session_id) { $('panel').replaceChildren(); chats.reset(); clearDrafts(); pendingText = null; }
+      if (revision !== generation) return;
+      if (scope !== session.session_id) {
+        $('panel').replaceChildren(); chats.reset(); clearDrafts(); pendingText = null;
+        ++moodleRevision; moodleBusy = false;
+        clearMoodle('Загружаем задания из Moodle…');
+      }
       scope = session.session_id; sessionChecked = true;
+      // Source sync needs the verified session, but never waits for chat/state rendering.
+      loadMoodle();
       restoreDraft(activeChat);
       const selector = new URLSearchParams(location.search);
       activeRun = selector.get('run_id') || stored('run');
@@ -928,6 +935,10 @@ SCRIPT = r"""'use strict';
         $('panel').replaceChildren();
         if (error.status === 403) clearDrafts(); else chatDrafts.clear();
         scope = null; activeRun = null; chatAvailable = false; chatWorking = false; chatLimitReached = false;
+        ++moodleRevision; moodleBusy = false;
+        clearMoodle(error.status === 403 ? 'Войдите в Google AI, чтобы увидеть свои задания из Moodle.' :
+          'Не удалось проверить вход. Обновите состояние, чтобы загрузить задания.');
+        if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
         chats.reset(); ++chatGeneration;
         $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
         $('workspace').classList.remove('has-chat');
@@ -1104,7 +1115,7 @@ SCRIPT = r"""'use strict';
     requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
   });
   $('reload').addEventListener('click', () => {
-    loadMoodle(); refresh().catch(error => feedback(error.message, true));
+    refresh().catch(error => feedback(error.message, true));
   });
   if (moodleEnabled) {
     $('moodle-refresh').addEventListener('click', loadMoodle);
@@ -1115,14 +1126,17 @@ SCRIPT = r"""'use strict';
     });
     $('moodle-tasks').addEventListener('click', async event => {
       const button = event.target.closest('button[data-task-id]');
-      if (!button || button.disabled) return;
+      if (!scope || !button || button.disabled) return;
+      const session = scope, revision = moodleRevision;
       button.disabled = true;
       try {
         const state = await (await api('/api/moodle/task-status', {
           task_id: button.dataset.taskId, done: button.dataset.done === 'true'
         })).json();
+        if (session !== scope || revision !== moodleRevision) return;
         showMoodle(state);
       } catch {
+        if (session !== scope || revision !== moodleRevision) return;
         button.disabled = false;
         $('moodle-status').textContent = 'Не удалось сохранить вашу отметку. Повторите действие.';
       }
@@ -1167,7 +1181,6 @@ SCRIPT = r"""'use strict';
   }
   $('signout').addEventListener('click', signOut);
 
-  loadMoodle();
   refresh().catch(error => feedback(error.message, true));
 })();
 """
