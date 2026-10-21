@@ -17,6 +17,7 @@ from ...domain.models import Contract, PlanVersion, VerificationResult
 from ...domain.ports import BindingConflict, PortError
 from ...domain.chat_plan import ClassSchedule
 from ...storage.plans import FirestorePlanStore, plan_reference
+from ...storage.snapshots import FirestoreSnapshotStore
 from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
@@ -123,6 +124,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
         plan = approval = current = None
         sources = SafeSources()
         sources_available = True
+        assignment_titles = {}
         with auth.request_scope(credential) as context:
             reference = None if run is None else run.plan
             if "plan_id" in request.query_params or "version" in request.query_params:
@@ -154,6 +156,16 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                 if sources.verification is not None and sources.verification.calendar_source is not None:
                     policy.require_source(context, sources.verification.calendar_source.reference, current_run=False)
 
+            if plan is not None and sources_available:
+                try:
+                    assignments, _ = await FirestoreSnapshotStore(documents, policy).get_for_plan(context, plan_reference(plan))
+                    assignment_titles = {task.assignment_id: task.title for task in assignments.assignments}
+                except BindingConflict:
+                    raise
+                except PortError:
+                    # Names are display metadata from the exact owned snapshot.
+                    # Keep stable IDs as fallback; never infer names from text.
+                    pass
             latest = await auth.load(request)
             if latest.session != credential.session:
                 from ...security.context import AccessDenied
@@ -162,7 +174,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             return render_panel(run=run, plan=plan, approval=approval, current=current,
                 sources=sources, timezone=policy.config.student.timezone,
                 now=clock(), runtime_available=runs is not None,
-                moodle_enabled=moodle_enabled, sources_available=sources_available)
+                moodle_enabled=moodle_enabled, sources_available=sources_available, assignment_titles=assignment_titles)
 
 
 

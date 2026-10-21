@@ -162,7 +162,7 @@ def test_dashboard_is_opt_in_and_planning_does_not_use_old_sheet_data():
             await login(client)
             panel = (await client.get('/ui/state')).text
             assert 'сколько времени нужно на задания' in panel
-            assert 'Запись в Google Calendar в этом режиме недоступна' in panel
+            assert 'Составление расписания и применение в Google Calendar пока недоступны' in panel
             assert 'href="#workspace"' in panel
             assert 'data-runtime="false"' in panel
             assert 'Безопасная сводка источника' not in panel

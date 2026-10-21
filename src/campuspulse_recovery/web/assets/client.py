@@ -261,10 +261,10 @@ SCRIPT = r"""'use strict';
     if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
   }
   const views = {
-    assistant: ['Ассистент', 'Ваши задачи и планы'],
+    assistant: ['Ассистент', 'Ваши задания и расписание'],
     tasks: ['Мои задания', 'Задания и ближайшие сроки'],
     calendar: ['Google Calendar', 'Ваш календарь на ближайшие три дня'],
-    plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
+    plan: ['Предложенное расписание', 'Проверьте время и подтвердите точную версию'],
     journal: ['Журнал', 'Действия агента и результаты запуска']
   };
   function setNavigationOpen(open) {
@@ -507,7 +507,7 @@ SCRIPT = r"""'use strict';
       }
     } catch (error) {
       if (revision !== moodleRevision) return;
-      if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
+      if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания из Moodle.');
       else $('moodle-status').textContent = 'Не удалось обновить задания. Если показаны сохранённые данные, они могли измениться. Повторите обновление.';
     } finally {
       if (revision === moodleRevision) {
@@ -531,7 +531,7 @@ SCRIPT = r"""'use strict';
   }
   function reference() {
     const node = $('plan-reference');
-    if (!node) throw new Error('Сначала загрузите сохранённую версию плана.');
+    if (!node) throw new Error('Сначала загрузите сохранённую версию расписания.');
     return {plan_id: node.dataset.planId, version: Number(node.dataset.version), payload_hash: node.dataset.hash};
   }
   function resizeComposer() {
@@ -548,6 +548,7 @@ SCRIPT = r"""'use strict';
     resizeComposer();
     document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy || $('panel').dataset.stale === 'true'; });
     $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
+    document.querySelectorAll('[data-action="start"]').forEach(button => { button.disabled = $('start').disabled || $('panel').dataset.stale === 'true'; });
     $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
     $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
@@ -611,6 +612,26 @@ SCRIPT = r"""'use strict';
       }
     }
   }
+  function appendChatToolTrace(reply, toolTrace) {
+    const entries = Array.isArray(toolTrace) ? toolTrace.filter(entry => entry &&
+      typeof entry.tool === 'string' && entry.tool && typeof entry.status === 'string' && entry.status) : [];
+    if (!entries.length) return;
+    const tools = new Map([['read_assignments', 'Чтение заданий Moodle'], ['read_schedule', 'Чтение расписания пар']]);
+    const statuses = new Map([['completed', 'Выполнено'], ['failed', 'Ошибка'],
+      ['unavailable', 'Недоступно'], ['not_connected', 'Не подключено']]);
+    const details = document.createElement('details'), summary = document.createElement('summary'), list = document.createElement('ul');
+    summary.textContent = 'Вызовы инструментов';
+    for (const entry of entries) {
+      const row = document.createElement('li');
+      let value = (tools.get(entry.tool) || entry.tool) + ' · ' + (statuses.get(entry.status) || entry.status);
+      if (Number.isInteger(entry.result_count) && entry.result_count >= 0)
+        value += ' · Записей: ' + entry.result_count;
+      if (Number.isInteger(entry.duration_ms) && entry.duration_ms >= 0)
+        value += ' · ' + (entry.duration_ms / 1000).toFixed(1) + ' с';
+      row.textContent = value; list.append(row);
+    }
+    details.append(summary, list); reply.append(details);
+  }
   function showChat(chat, {animateRequestKey = null} = {}) {
     answerReveal.finish();
     let revealAnswer = null;
@@ -644,21 +665,24 @@ SCRIPT = r"""'use strict';
           unknown: 'Ответ не получен. Этот запрос не будет отправлен автоматически.'}[turn.status];
       }
       reply.append(author, answer);
+      appendChatToolTrace(reply, turn.tool_trace);
       const details = document.createElement('details'), summary = document.createElement('summary'), meta = document.createElement('p');
       summary.textContent = 'Сведения о запросе';
       meta.textContent = 'ID: ' + turn.request_key + ' · ' + new Date(turn.created_at).toLocaleString('ru-RU') +
         (turn.duration_ms === null ? '' : ' · ' + (turn.duration_ms / 1000).toFixed(1) + ' с');
-      details.append(summary, meta); reply.append(details); log.append(reply);
+      details.append(summary, meta);
+      if (typeof turn.agent_run_id === 'string' && turn.agent_run_id) {
+        const run = document.createElement('p'); run.textContent = 'Запуск агента: ' + turn.agent_run_id;
+        details.append(run);
+      }
+      reply.append(details); log.append(reply);
     }
     log.hidden = !chat.turns.length;
     $('workspace').classList.toggle('has-chat', chat.turns.length > 0);
     if (chat.turns.length) document.dispatchEvent(new Event('campuspulse:chat-history'));
-    const calendarAdvice = document.body.dataset.chatMode === 'calendar_advice';
-    $('chat-status').textContent = calendarAdvice ? (chatAvailable ?
-      'Составьте план в чате по дедлайнам Moodle. Укажите свободные часы и время на задания.' :
-      'Чат сейчас недоступен. Попробуйте обновить состояние.') : (chatAvailable ?
-      'Чат с агентом · изменения календаря применяются через согласование плана.' :
-      'Чат сейчас недоступен. Если проверка расписания доступна, начните с неё.');
+    $('chat-status').textContent = chatAvailable ?
+      'Уточните задания в чате. Сохраните пары и время для учёбы, затем проверьте предложенное расписание.' :
+      'Чат сейчас недоступен. Попробуйте обновить состояние.';
     const providerErrors = {
       provider_request_rejected: 'Gemini отклонил запрос. Проверьте API-ключ и настройки модели.',
       provider_auth_failed: 'Gemini не принял API-ключ. Проверьте ключ при запуске сервера.',
@@ -880,8 +904,8 @@ SCRIPT = r"""'use strict';
       const purposes = {
         read_assignments: 'Читает задания и сроки из настроенного источника',
         read_calendar: 'Читает занятые интервалы и учебные блоки',
-        solve_repair: 'Рассчитывает предложение плана в пределах 72 часов',
-        apply_plan: 'Применяет только согласованную версию плана',
+        solve_repair: 'Рассчитывает предложенное расписание в пределах 72 часов',
+        apply_plan: 'Применяет только подтверждённую версию расписания',
         verify_plan: 'Повторно читает источники и проверяет записанные изменения'
       };
       const phases = {started: 'Вызов зарегистрирован', result: 'Получен результат',
@@ -921,7 +945,7 @@ SCRIPT = r"""'use strict';
       $('trace-more').hidden = !progressed;
       $('trace-health').textContent = page.records.length ?
         'Показана страница наблюдений. Журнал не заменяет проверку календаря; raw данные источников скрыты.' :
-        (cursor ? 'Все доступные события загружены. Итог записи смотрите в разделе «Мой план».' : 'На этой странице нет записей. Пустой журнал не подтверждает результат.');
+        (cursor ? 'Все доступные события загружены. Итог записи смотрите в разделе «Предложенное расписание».' : 'На этой странице нет записей. Пустой журнал не подтверждает результат.');
     } catch (error) {
       if (revision === generation && run === activeRun)
         $('trace-health').textContent = 'Журнал недоступен или неполон. ' + error.message;
@@ -1026,7 +1050,7 @@ SCRIPT = r"""'use strict';
     try { await api('/auth/signout', {}); ++generation; clearDrafts(); scope = null; activeRun = null;
       chats.reset(); clearDrafts(); activeChat = 'default'; ++chatGeneration;
       ++moodleRevision; moodleBusy = false;
-      clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
+      clearMoodle('Войдите в Google AI, чтобы увидеть свои задания из Moodle.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
       $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
@@ -1035,7 +1059,7 @@ SCRIPT = r"""'use strict';
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
       history.replaceState(null, '', '/'); updateNavigation();
-      feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
+      feedback('Вы вышли. Для просмотра расписания требуется вход.'); controls();
       if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
     } catch (error) {
       if (error.status === 403 && document.body.dataset.signinUrl === '/login') {

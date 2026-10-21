@@ -403,7 +403,7 @@ def test_shell_separates_assistant_tasks_and_explicit_recovery_controls(mode):
                    for parent in markup.by_id("feedback")["parents"])
     assert "Запись до 1 минуты. Аудио отправляется в Gemini для распознавания." not in html
     assert "Запись в Google Calendar в этом режиме недоступна" not in html if mode == "calendar_advice" else (
-        "согласования точной версии плана и отдельного нажатия «Применить»" in html)
+        "подтверждения точной версии расписания и отдельного нажатия «Применить в Google Calendar»" in html)
 
 
 @pytest.mark.parametrize("terminal", ["revoked", "expired", "superseded"])

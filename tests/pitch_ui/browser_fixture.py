@@ -123,6 +123,29 @@ async def fixture_runtime():
             monkeypatch.setattr('vertexai.Client', Client)
             monkeypatch.setattr(engine_transport, 'RefreshingIdTokenHeaders', lambda audience: token)
             async with h.runtime(monkeypatch):
+                # Keep the real bounded extraction adapter; replace only the
+                # external model with a labelled, deterministic file response.
+                from campuspulse_recovery.agent.conversation import AdkConversationAgent
+                from campuspulse_recovery.lms.schedule_import import ScheduleImportDraft
+                from google.adk.models.base_llm import BaseLlm
+                from google.adk.models.llm_response import LlmResponse
+                from google.genai import types
+                scripted = AdkConversationAgent._create_model
+                class FileAwareModel(BaseLlm):
+                    def __init__(self, owner):
+                        super().__init__(model='synthetic-not-Gemini')
+                        self._delegate = scripted(owner)
+                    async def generate_content_async(self, request, stream=False):
+                        if request.config.response_schema is ScheduleImportDraft:
+                            failures['imports'] = failures.get('imports', 0) + 1
+                            draft = {'classes': [{'subject': 'Synthetic university class', 'weekday': 5,
+                                'start': '22:00', 'end': '22:20'}], 'valid_from': None, 'valid_until': None}
+                            yield LlmResponse(content=types.Content(role='model', parts=[
+                                types.Part(text=json.dumps(draft))]), finish_reason=types.FinishReason.STOP)
+                        else:
+                            async for response in self._delegate.generate_content_async(request, stream=stream):
+                                yield response
+                monkeypatch.setattr(AdkConversationAgent, '_create_model', lambda owner: FileAwareModel(owner))
                 yield outer_app(app, h, invocations, failures)
     finally:
         monkeypatch.undo()
@@ -166,7 +189,7 @@ def outer_app(inner, harness, invocations, failures):
     async def receipts():
         return {'synthetic': True, 'clock': NOW.isoformat(), 'engine_invocations': len(invocations),
             'model_responses': len(harness.model_calls), 'tools': list(harness.tool_calls),
-            'calendar_mutations': len(harness.api.mutations), 'calendar_reads': len(harness.calendar_reads)}
+            'schedule_imports': failures.get('imports', 0), 'calendar_mutations': len(harness.api.mutations), 'calendar_reads': len(harness.calendar_reads)}
 
     @outer.get('/fixture/evidence', response_class=HTMLResponse)
     async def evidence_controls():
@@ -229,7 +252,7 @@ def outer_app(inner, harness, invocations, failures):
             stylesheet = '<link rel="stylesheet" href="/fixture/notice.css">'
             notice = '<aside id="fixture-notice">' + NOTICE + '</aside>'
             html = (html.replace('</head>', stylesheet + '</head>') if '</head>' in html
-                    else html.replace('<main>', stylesheet + '<main>', 1))
+                    else html.replace('<main', stylesheet + '<main', 1))
             html = (html.replace('</body>', notice + '</body>') if '</body>' in html
                     else html.replace('</main>', '</main>' + notice, 1))
             content = html.encode('utf-8')
@@ -267,6 +290,14 @@ async def check_running_fixture():
         metadata = await browser.get('/auth/session', headers={'X-CSRF-Bootstrap': '1'})
         assert metadata.status_code == 200, metadata.text
         headers = {'X-CSRF-Token': metadata.json()['csrf_token']}
+        imported = await browser.post('/api/account/classes/import', headers={**headers, 'Content-Type':'application/pdf'},
+            content=Path('presentation/pitch-2026-10-22/samples/synthetic-weekly-classes.pdf').read_bytes())
+        assert imported.status_code == 200, imported.text
+        assert (await browser.get('/api/account/classes')).json()['connected'] is False
+        draft = imported.json()['draft']
+        assert draft['valid_from'] is draft['valid_until'] is None
+        assert (await browser.post('/api/account/classes', headers=headers, json={**draft,
+            'valid_from':'2026-10-17', 'valid_until':'2026-10-24'})).status_code == 200
         saved = await browser.post('/api/moodle/planning', headers=headers, json={'expected_revision': 0,
             'estimates': [{'task_id': 'actual-uid@lms', 'remaining_minutes': 90}],
             'working_windows': [interval(NOW + timedelta(hours=1), hours=4).model_dump(mode='json')]})
@@ -291,7 +322,8 @@ async def check_running_fixture():
         assert any(row['observation']['event'].get('tool') == 'verify_plan' for row in trace.json()['records'])
         panel = await browser.get('/ui/state', params={'run_id': run_id})
         assert 'data-status="verified"' in panel.text, panel.text
-        print(json.dumps({'fixture_check': 'passed', **before}, ensure_ascii=False), flush=True)
+        assert 'Задание: Homework' in panel.text and '22:30' in panel.text
+        print(json.dumps({'fixture_check': 'passed', 'run_id': run_id, **before}, ensure_ascii=False), flush=True)
 
 
 async def main(check=False):

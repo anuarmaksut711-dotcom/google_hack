@@ -10,6 +10,8 @@ def test_four_step_review_includes_independent_verification():
         h = Fixture()
         plan = await h.seed_current()
         html = render('applied_unverified', plan)
+        assert 'Запись пока не подтверждена' in html
+        assert 'Применён, проверка не подтверждена' not in html
         assert 'Независимая проверка' in html
         assert 'aria-current="step"' in html
         assert 'Проверка записи: не подтверждена' in html

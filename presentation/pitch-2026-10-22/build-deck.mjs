@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url';
 
 const DIR = import.meta.dirname;
 const BASE_NAME = process.argv[2] || 'CampusPulse-AI-Pitch-2026-10-22-final';
-const LOCAL_PYTEST_PASSED = 2256;
+const LOCAL_PYTEST_PASSED = Number(process.env.PITCH_PYTEST_PASSED);
+if(!Number.isInteger(LOCAL_PYTEST_PASSED) || LOCAL_PYTEST_PASSED < 1) throw Error('Set PITCH_PYTEST_PASSED from the verified final pytest receipt.');
 const stagingDir = path.join(DIR,'.build',`${BASE_NAME}-${Date.now()}`);
 const finalizedDir = path.join(stagingDir,'finalized');
 const runtime = path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies');
@@ -27,7 +28,7 @@ console.log(`Font selected from installed inventory: ${font}`);
 
 const C = { ink:'#132238', muted:'#586778', paper:'#FAFAF7', blue:'#4056BD', teal:'#087F8C', light:'#EAF1F3', rule:'#CED7DC', amber:'#A66A12', green:'#247455', white:'#FFFFFF' };
 const p = Presentation.create({slideSize:{width:1280,height:720}});
-const source = 'Архитектура и исторический облачный статус: README.md, setup/RECOVERY-WEB-HANDOFF.md, setup/RECOVERY-WEB-VALIDATION.md, setup/RECOVERY-ROLLOUT-2026-10-20.md из main 4a0858a00b3f1c1c2bf382981b0400f212f06fb8. Облачный checkpoint относится к 20.10.2026. Свежие локальные результаты ветки codex/pitch-ui-demo относятся к 21.10.2026 и описаны в LOCAL-VALIDATION.md. setup/PITCH-CLOUD-HANDOFF.md отсутствовал при подготовке. Персональные данные и private resource identifiers исключены.';
+const source = 'Исходники UI: codex/pitch-ui-demo, база acf869b1eff2e50f2669c3f9f824b7b83cfb534d, 22.10.2026. Локальные проверки описаны в SCHEDULE-VALIDATION-2026-10-22.md. Облачный источник: setup/PITCH-CLOUD-HANDOFF.md из origin/codex/pitch-agent-cloud, SHA 1382f49aaba7c37c6571bbd8355349064e039012. Handoff описывает read-only study agent; live website acceptance pending, recovery/Calendar writes не включены. Исторический checkpoint 20.10 не считается новой приёмкой. Личные данные, credentials и resource identifiers исключены.';
 
 function text(s, value, x,y,w,h,size=26,color=C.ink,bold=false,align='left') {
   const a=s.shapes.add({geometry:'textbox',position:{left:x,top:y,width:w,height:h},fill:'none',line:{fill:'none',width:0}});
@@ -61,31 +62,31 @@ function arrow(s,a,b,from='right',to='left',dash=false,color=C.blue) {
  text(s,'Сроки уже есть в Moodle',812,300,400,50,27,C.ink,true);
  text(s,'Для плана ещё нужны\nтрудоёмкость заданий\nи свободные интервалы.',812,370,400,150,28,C.muted);
  text(s,'Задача проекта: помочь собрать выполнимый учебный план.',64,578,1120,54,29,C.ink,true);
- s.speakerNotes.text=`Проблема сформулирована как пользовательский сценарий, без заявления о проведённом исследовании или измеренном эффекте. Moodle iCalendar даёт сроки, но не трудоёмкость. ${source}`;
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 2. Solution, flat typography and clear implementation boundary.
 {
  const s=slide('Что делает CampusPulse AI',2,'Персональные сроки, сохранённое расписание и диалог в одном приложении');
- text(s,'Опубликованное приложение',64,300,530,50,30,C.teal,true);
- text(s,'Google-вход и Moodle iCalendar\nДиалог с Gemini по дедлайнам\nРучное расписание и Firestore',64,371,540,170,28,C.ink);
- text(s,'Recovery-процесс в коде',700,300,516,50,30,C.blue,true);
- text(s,'Предложение на 72 часа\nСогласие на точный план\nПрименение и независимый verify',700,371,516,170,28,C.ink);
- text(s,'По checkpoint 20.10 персональный recovery на сайте выключен.',64,584,1152,52,26,C.amber,true);
- s.speakerNotes.text=`Фактический статус опубликованного приложения взят из README и checkpoint 20.10.2026. Текущий UI в main использует название Google AI, а презентация сохраняет запрошенное название CampusPulse AI. Ответ обычного чата сам по себе не записывает события Calendar. ${source}`;
+ text(s,'Данные студента',64,300,530,50,30,C.teal,true);
+ text(s,'Дедлайны Moodle\nПары из PDF или скриншота\nМинуты на задания и свободные окна',64,371,540,170,28,C.ink);
+ text(s,'Понятный результат',700,300,516,50,30,C.blue,true);
+ text(s,'Предложенное расписание на 72 часа\nПодтверждение точной версии\nCalendar и независимая проверка',700,371,516,170,28,C.ink);
+ text(s,'Новый UI проверен локально. Полный облачный цикл не подтверждён.',64,584,1152,52,26,C.amber,true);
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 3. Editable process diagram.
 {
- const s=slide('Основной сценарий: план на 72 часа',3,'Студент задаёт свободное время и оставшуюся трудоёмкость заданий');
- const labels=['1\nЧтение\nисточников','2\nРасчёт\nпредложения','3\nСогласие\nна план','4\nЗапись\nв Calendar','5\nНезависимый\nverify'];
+ const s=slide('Основной сценарий: план на 72 часа',3,'Сначала студент проверяет распознанные пары, затем сохраняет время для заданий');
+ const labels=['1\nMoodle +\nпары','2\nПредложенное\nрасписание','3\nПодтвердить\nверсию','4\nЗапись\nв Calendar','5\nНезависимая\nпроверка'];
  const ns=labels.map((v,i)=>node(s,v,64+i*236,325,208,155,i===2?C.teal:C.blue,C.white,24));
  for(let i=0;i<4;i++)arrow(s,ns[i],ns[i+1]);
- text(s,'Версия и хеш связывают согласие с конкретным предложением.',64,530,1152,52,28,C.ink,true);
+ text(s,'Учебные блоки не пересекаются с парами. Согласие — на точную версию.',64,530,1152,52,28,C.ink,true);
  text(s,'Полный персональный сценарий в облаке пока не подтверждён.',64,592,1152,42,25,C.amber);
- s.speakerNotes.text=`В implemented recovery чтение источников предшествует solve_repair. apply_plan требует отдельного согласия на сохранённую версию и хеш. verify_plan перечитывает результат. Этот процесс показан как реализованный контракт, а не пройденная персональная облачная приёмка. Источник: README, Recovery website integration handoff. ${source}`;
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 4. Editable architecture. Dashed path denotes inactive recovery composition.
 {
- const s=slide('Архитектура приложения и recovery',4);
+ const s=slide('Архитектура CampusPulse',4);
  const browser=node(s,'Веб-\nинтерфейс',64,242,180,86,C.ink,C.white,23);
  const backend=node(s,'Cloud Run\nFastAPI',330,242,220,86,C.ink,C.white,25);
  const gemini=node(s,'Google ADK\nGemini API',642,242,220,86,C.teal,C.white,24);
@@ -99,18 +100,18 @@ function arrow(s,a,b,from='right',to='left',dash=false,color=C.blue) {
  s.shapes.add({geometry:'line',position:{left:440,top:217,width:648,height:0},line:{fill:C.ink,width:2.3}});
  s.shapes.add({geometry:'connector',kind:'straight',position:{left:1088,top:217,width:0,height:25},line:{fill:C.ink,width:2.3},tail:{type:'triangle',width:'med',length:'med'}});
  arrow(s,moodle,backend,'top','bottom',false,C.ink);
- arrow(s,backend,engine,'bottom','top',true,C.blue); arrow(s,engine,mcp); arrow(s,mcp,calendar);
+ arrow(s,backend,engine,'bottom','top',true,C.blue); arrow(s,engine,mcp); arrow(s,mcp,calendar,'right','left',true,C.blue);
  arrow(s,mcp,store,'top','bottom',false,C.ink);
- text(s,'Обычный чат',64,187,500,35,23,C.teal,true);
- text(s,'Пунктир: персональный cloud recovery не подтверждён',330,579,880,44,23,C.amber);
- s.speakerNotes.text=`Native editable shapes and attached connectors. Схема упрощена: Cloud Run также обращается к Firestore напрямую, MCP читает/пишет состояние в том же Firestore. Gemini API находится в обычном chat path. Recovery runtime использует Gemini через Vertex AI и приватный MCP. Пунктир обозначает отключённую опциональную композицию сайта. README, architecture section, and rollout checkpoint 20.10.2026. ${source}`;
+ text(s,'Чат и распознавание файлов',64,187,500,35,23,C.teal,true);
+ text(s,'Путь через Engine: новый study-agent читает; recovery пишет после согласия',330,579,880,44,23,C.amber);
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 5. Native table of actual tool responsibilities.
 {
  const s=slide('MCP и Function Calling',5,'Модель выбирает инструмент. Сервер проверяет доступ, входные данные и согласие.');
  const values=[
-  ['Механизм и инструмент','Роль в recovery'],
-  ['MCP  read_assignments','Прочитать задания и сохранить снимок'],
+  ['Механизм и инструмент','Роль в сценарии'],
+  ['MCP  read_assignments / read_schedule','Study-agent: задания и пары (только чтение)'],
   ['MCP  read_calendar','Прочитать занятые интервалы'],
   ['Function Calling  solve_repair','Рассчитать предложение плана'],
   ['MCP  apply_plan','Применить согласованную версию'],
@@ -125,31 +126,31 @@ function arrow(s,a,b,from='right',to='left',dash=false,color=C.blue) {
    cell.text.style={typeface:font,fontSize:r===0?24:23,color:r===0?C.white:C.ink,bold:r===0,verticalAlignment:'middle',autoFit:'none',wrap:'none',insets:{top:7,bottom:7,left:13,right:13}};
   }
  }
- text(s,'Изменение источников отменяет старое согласие. Неясный результат записи не вызывает автоматический повтор.',64,595,1152,52,24,C.muted);
- s.speakerNotes.text=`Инструменты и их mapping следуют README: solve_repair предоставляется как Function Calling, остальные перечисленные инструменты через MCP. MCP и Function Calling дополняют друг друга. Без отдельного backend-approved consent вызов apply_plan не разрешён. ${source}`;
+ text(s,'Recovery-инструменты apply/verify отделены от study-agent. Неясный результат записи не считается успехом.',64,595,1152,52,24,C.muted);
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 6. Historical cloud receipts and explicit remaining gates.
 {
- const s=slide('Agent Engine и облачный статус',6,'Облачный статус по checkpoint от 20 октября 2026');
- text(s,'Зафиксировано в отчёте',64,302,550,45,30,C.teal,true);
- text(s,'Cloud Run, Agent Engine и MCP\nПриватная операция async_query\nПроверки инфраструктуры и авторизации',64,366,560,170,26,C.ink);
- text(s,'До персонального recovery',700,302,516,45,30,C.blue,true);
- text(s,'Общие версии кода и настроек\nРеальные привязки двух пользователей\nОтдельные разрешённые Calendars\nПолный live-цикл apply и verify',700,366,516,195,26,C.ink);
- text(s,'Доступность ресурсов и пользовательский сценарий проверяются отдельно.',64,594,1152,44,25,C.amber,true);
- s.speakerNotes.text=`Cloud receipts исторические, 20.10.2026. В тот checkpoint реальный Engine async_query достиг service identity rejection boundary при синтетическом/неразрешённом вводе. Это подтверждает инфраструктурный путь и границы доступа, но не персональную successful tool execution. Per-user code ещё требовал обновления Engine/MCP, website recovery отключён. Credentials, account IDs, resource IDs and URLs исключены. ${source}`;
+ const s=slide('Agent Engine и облачный статус',6,'Handoff Мерея от 22 октября: ветка codex/pitch-agent-cloud');
+ text(s,'Реализовано в новой ветке',64,302,550,45,30,C.teal,true);
+ text(s,'Чат → Agent Engine → приватный MCP\nread_assignments и read_schedule\nФактический trace инструментов',64,366,560,170,26,C.ink);
+ text(s,'Что ещё не подтверждено',700,302,516,45,30,C.blue,true);
+ text(s,'Приёмка опубликованного сайта\nРаспознавание реальных PDF / фото\nИнтеграция нашей UI-ветки\nЗапись Calendar и live verify',700,366,516,195,26,C.ink);
+ text(s,'Этот read-only релиз не включает recovery и запись в Calendar.',64,594,1152,44,25,C.amber,true);
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 // 7. Results and scope, no implied accuracy metric.
 {
- const s=slide('Локальные результаты и границы',7,'Свежий локальный прогон 21 октября 2026, изолированное окружение');
+ const s=slide('Локальные результаты и границы',7,'22 октября 2026: тестовые внешние сервисы, Firestore Emulator');
  text(s,String(LOCAL_PYTEST_PASSED),64,302,350,85,64,C.blue,true);
  text(s,'pytest-тестов прошли',64,395,350,44,25,C.ink);
  text(s,'347',462,302,350,85,64,C.blue,true);
  text(s,'offline recovery-проверок',462,395,350,44,25,C.ink);
  text(s,'53',860,302,350,85,64,C.blue,true);
  text(s,'voice loopback-проверки',860,395,350,44,25,C.ink);
- text(s,'26 пропусков: 12 Firestore Emulator, 14 PowerShell. Внешние сервисы синтетические.\nВ браузере пройден локальный цикл до verify и повторной загрузки.\nКачество Gemini и персональный cloud apply/verify эти проверки не подтверждают.',64,470,1152,94,24,C.muted);
+ text(s,'Без пропусков. В браузере: PDF → проверенные пары → расписание → verify.\nПара 22:00–22:20 исключена: учебный блок начинается в 22:30.\nКачество Gemini OCR и запись в реальный Calendar ещё не подтверждены.',64,470,1152,94,24,C.muted);
  text(s,'Следующий критерий: два реальных пользователя проходят весь облачный цикл с согласованием, записью и независимой проверкой.',64,583,1152,64,27,C.ink,true);
- s.speakerNotes.text=`Source: LOCAL-VALIDATION.md, fresh local verification 21.10.2026 in .venv-pitch. Full pytest: ${LOCAL_PYTEST_PASSED} passed, 26 skipped, 35 warnings, 248.26 seconds. Missing environments: 12 Firestore Emulator tests and 14 PowerShell tests skipped. Separate recovery offline evaluation: 347 passed, 95 warnings. Voice literal-loopback: 53 passed. Wheel/sdist, pip check and MCP composition passed. Full local browser chain: effort90 and working window save/reload, proposal, exact consent, separate apply, verified, reload. Synthetic counters: 2 Calendar writes, apply_plan1, verify_plan1, 8 Calendar reads. Desktop/narrow layouts and console checked. Do not merge these counts or use them as a model quality measure. User acceptance with two real users and personal cloud test Calendars is still pending. ${source}`;
+ s.speakerNotes.text=`Слайд отражает локальный реализованный сценарий и ограничения облачной приёмки. PDF/PNG/JPEG отправляются модели только по кнопке, распознанные пары требуют проверки и сохранения. Пары не экспортируются автоматически в Calendar. Recovery использует отдельное подтверждение версии и независимый verify. Новый read-only cloud study-agent не имеет инструментов записи. Локальные внешние сервисы синтетические, реальная модель OCR не тестировалась. ${source}`;
 }
 
 await fs.mkdir(path.join(DIR,'previews'),{recursive:true});

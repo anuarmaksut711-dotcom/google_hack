@@ -1,3 +1,148 @@
+# Актуальное дополнение: единый сценарий и импорт пар, 22.10.2026
+
+Предыдущие разделы ниже сохранены как история. Это дополнение и
+`presentation/pitch-2026-10-22/SCHEDULE-RECEIPT-2026-10-22.json` имеют приоритет
+для последней ревизии файлов и презентации.
+
+## Git и границы последней доработки
+
+- Ветка: `codex/pitch-ui-demo`, отдельный clone `google_hack_pitch_ui`.
+- Исходный commit этой доработки: `acf869b1eff2e50f2669c3f9f824b7b83cfb534d`.
+  Исходная база всей задачи: `4a0858a00b3f1c1c2bf382981b0400f212f06fb8`.
+- Во время работы main обновился с `624624be3681fdb5f818e1568dd17c09e1f19f26`
+  на `1382f49aaba7c37c6571bbd8355349064e039012` (релиз Мерея).
+  Наши последние проверки относятся к UI-ветке на базе acf869b; новый backend
+  main целиком не объединялся. Ни main, ни основная папка `google_hack` не менялись.
+- Пользователь явно разрешил расширить зону на серверное распознавание и учёт пар.
+  Deploy, IAM, секреты, ресурсы GCP, зависимости не менялись.
+- Итоговый commit реализации указан в разделе передачи ниже; финальный HEAD
+  документации сообщается пользователю и проверяется `git rev-parse origin/codex/pitch-ui-demo`.
+
+## Пользовательский результат
+
+Moodle → «Пары и время для учёбы» → «Предложенное расписание» → подтверждение
+точной версии → отдельное «Применить в Google Calendar» → независимый verify.
+Нет пользовательского переключателя режимов. Runtime-capability checks сохраняются:
+без исполнителя расчёт/запись недоступны, а редактор пар доступен.
+
+PDF/PNG/JPEG → bounded модель → editable draft → обязательная сверка человеком →
+сохранение существующим API. Даты не выдумываются; исходный файл не хранится.
+Пары исключаются из времени для заданий, сами пары автоматически в Calendar не записываются.
+Изменение пар инвалидирует старое согласие вплоть до последнего транзакционного guard.
+`applied_unverified` теперь «Запись пока не подтверждена», без утверждения факта записи.
+Названия заданий показаны из точного сохранённого owner-bound снимка, ID остаются в details.
+
+## Изменённые файлы и API
+
+- `agent/conversation.py`: bounded `extract_classes` без истории/инструментов.
+- `cloud/backend.py`, `cloud/calendar_app.py`: делегация распознавания в существующих обёртках.
+- `lms/schedule_import.py`: validated draft, типы, размер, nullable dates.
+- `lms/manual_schedule.py`: опциональный transaction reader для owner-bound read.
+- `lms/planning.py`: private class basis, вычитание занятости, версионирование данных.
+- `lms/multiuser.py`: один экземпляр chat/import agent; всегда доступная подготовка.
+- `web/manual_schedule.py`: additive import route и доработка существующего редактора.
+- `web/recovery_planning.py`, `web/assets/planning_styles.py`: единая подготовка и responsive styles.
+- `web/views/render.py`, `web/views/app.py`, `web/assets/client.py`, `sidebar.py`, `styles.py`:
+  подписи/навигация/прямой расчёт, optional сохранённый study tool_trace/run ID, переносы и точные названия заданий.
+- `tests/pitch_ui/test_classes_constraints*.py`, `test_schedule_import*`,
+  `test_schedule_preparation.py`, `test_unified_schedule_ui.*`, `test_study_trace_ui.*`, existing pitch states/fixture.
+- В `tests/web/test_ui_states.py` и `tests/lms/test_web.py` обновлены только две UI-строки
+  из-за переименования. Backend-проверки, доступ и ожидания операций не ослаблялись.
+- `README.md`, материалы `presentation/pitch-2026-10-22/`, этот handoff.
+  Пути исходников выше — внутри `src/campuspulse_recovery/`.
+
+Существующие контракты сохранены:
+
+- GET/POST `/api/account/classes`: сохранённый недельный шаблон.
+- GET/POST `/api/moodle/planning`: estimates, raw working_windows, revision.
+- POST `/api/runs`, GET `/api/runs/{run_id}`, GET `/api/runs/{run_id}/trace`.
+- POST `/api/approval`, `/api/runs/continue`: отдельное подтверждение точного plan reference.
+- `/auth/session`: CSRF bootstrap, привязка к живой сессии до/после async операций.
+
+Новый endpoint: POST `/api/account/classes/import`, raw body с точным Content-Type
+`application/pdf`, `image/png` или `image/jpeg`; CSRF и owner/session обязательны.
+Лимиты 8 МиБ, 45 секунд, 30 пар, 4096 output tokens / 24000 chars; MIME+magic bytes.
+Ответ `{draft:{classes,valid_from,valid_until},warning}` не сохраняет расписание.
+Ошибки безопасные: 400/413/415/422/429/503, без raw model/SDK text.
+
+## Проверки и материалы
+
+Полный pytest: **2369 passed, 0 skipped**, Firestore Emulator + offline PowerShell.
+Recovery offline: **347 passed**; voice loopback: **53 passed**.
+Сборка wheel/sdist, pip check и MCP composition пройдены.
+Независимый read-only review — без actionable findings.
+Полный журнал и границы: `presentation/pitch-2026-10-22/SCHEDULE-VALIDATION-2026-10-22.md`.
+Свежий receipt: `SCHEDULE-RECEIPT-2026-10-22.json` в той же папке.
+
+Браузер компьютера: PDF/draft/review/save, reload, минуты/окна, proposal с исключением
+пары, exact approval, separate apply, verified, reload, actual trace. Desktop iframe1280:
+client=scroll=1260; narrow iframe390: client=scroll=370 (scrollbars20). Переполнения
+документа нет, таблица прокручивается отдельно. Новый узкий tab: console warning/error0.
+HTTP replay не создал дублей: 2 fake Calendar mutations, apply_plan1, verify_plan1.
+Это локальные тестовые сервисы, а не реальные Gemini/Moodle/Calendar/GCP.
+
+- PPTX: `presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx`.
+- PDF: тот же путь с `.pdf`; 7 страниц, все просмотрены, package/layout/import0 findings.
+- Сценарий: `DEMO-SCRIPT-RU.md`, речь: `SPEECH-RU.md`, вопросы: `JURY-QA-RU.md` в папке защиты.
+- Тестовый PDF: `samples/synthetic-weekly-classes.pdf`; скриншоты: `evidence/schedule/`.
+- Видео реального облачного пути отсутствует: read-only релиз Мерея не включает
+  запись/recovery и оставляет live acceptance pending. Причина и запись после
+  разблокировки: `VIDEO-STATUS.md`. Dummy video или fake success не добавлялись.
+
+## Обязательные запросы Мерею при объединении с main1382f49
+
+Свежий `setup/PITCH-CLOUD-HANDOFF.md` прочитан из его ветки/актуального main, но здесь
+не создавался и не редактировался. Его факты: read-only study-agent, live acceptance pending.
+Точные риски объединения, найденные review:
+
+1. В `lms/multiuser.py` сохранить `scoped_agent_factory`/`my_du_transport` из main.
+   Вычислить ОДИН выбранный агент: scoped factory для study без recovery, иначе
+   существующая factory. Передать тот же объект в `create_ui_app` и
+   `inner.state.class_schedule_importer`. Сохранить нашу установку `/planning` для
+   всех аккаунтов и старую сигнатуру вызова `install_class_routes(auth,account)`.
+   Сохранить main `agenda_source` для Calendar projection.
+2. В `cloud/calendar_app.py` объединить main study settings/factory/health с нашей
+   делегацией `CalendarConversation.extract_classes`. В `StudyConversation` добавить
+   `extract_classes` → `self.delegate.extract_classes`. Файлы не передавать как
+   обычный prompt в study MCP; его read-only grant contracts сохраняются.
+3. В `AdkConversationAgent` сохранить наш extraction method и CTA «Составить расписание»;
+   новые инструкции main со словами «Мой план» согласовать с новым названием UI.
+4. В main `web/google_calendar.py` правила
+   `body[data-chat-mode=calendar_advice][data-view=plan]:has(#google-calendar) #panel`
+   и `#feedback` скрывают наш честный status panel, показывая альтернативные «Планы из чата».
+   При `StudyConversation.owns_sources=True` backend намеренно не создаёт эти карточки.
+   Нужно убрать эту подмену: раздел «Предложенное расписание» должен показывать наш
+   panel/недоступность recovery, а Google Calendar — отдельную agenda/connection страницу.
+   Не превращать пустой список study-чата в успешный Calendar proposal.
+5. В main `integrations/connected_plans.py` отдельный writer проверяет Calendar
+   snapshot/binding, но не сохраняет и не перечитывает `cp_class_schedules`.
+   Наш `MoodleApprovalStore` его не защищает. До показа этого writer как единого
+   расписания с учётом пар нужно связать class basis с proposal и проверять его
+   на approve/dispatch/final Calendar I/O. После изменения пар старый draft не
+   должен записываться. Study path сам по себе не пишет.
+6. В managed study runtime не обещать подтверждение «Мой план»: backend с
+   `owns_sources=True` намеренно не создаёт Calendar draft. Оставить достоверный
+   статус и новое название. В UI уже добавлено отображение optional сохранённых
+   `tool_trace`/`agent_run_id`; без этих полей вызовы не выдумываются.
+7. Согласовать итоговую серверную возможность записи. Read-only study-agent не может
+   выполнить обещание Calendar; включать реальный recovery только штатными настройками
+   после независимой live приёмки. До этого UI не показывает успех и не обходит auth.
+
+8. Дополнить `requirements/test.lock` тремя уже объявленными OAuth-зависимостями:
+   google-auth-oauthlib1.5.0, requests-oauthlib2.0.0, oauthlib3.3.1. В этой зоне
+   зависимости не менялись. Локальная venv содержала эти три пакета вручную ещё
+   после предыдущего аудита. Готовый проверенный кандидат —
+   `presentation/pitch-2026-10-22/backend-candidates/0001-include-declared-oauth-test-dependencies.patch`.
+   Это не доказательство чистой установки из неизменённого test.lock.
+
+После объединения повторить весь release gate на ИНТЕГРИРОВАННОМ SHA, реальный OCR
+PDF+скриншот настроенной моделью, два владельца/изоляцию, пары/даты/пересечения,
+изменение исходных данных после согласия, реальные разрешённые тестовые Calendars,
+повтор без дублей, fresh verify, reload и резервное видео. Push этой UI-ветки не является
+публикацией или приёмкой приложения. Локальные 2369 не относятся к ещё не объединённому backend1382f49.
+
+---
+
 # CampusPulse AI — UI и защита 22 октября 2026
 
 Дата подготовки: 21 октября 2026, Asia/Almaty. Исполнитель этой ветки не выполнял

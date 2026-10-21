@@ -2,13 +2,20 @@
 from fastapi import Request
 from fastapi.responses import HTMLResponse, Response
 
+from .manual_schedule import ACCOUNT_CLASSES, CLASSES_SCRIPT
+from .assets.planning_styles import CSS
+
 PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Время для учебного плана · Google AI</title><link rel="stylesheet" href="/assets/login.css">
-<main><a href="/">К заданиям и плану</a><h1>Время для учебного плана</h1>
+<title>Пары и время для учёбы · CampusPulse AI</title><link rel="stylesheet" href="/assets/planning.css">
+<main class="planning-page"><a href="/#moodle">Задания Moodle</a><h1>Пары и время для учёбы</h1>
+<p>Moodle → пары и свободное время → <a href="/#review-heading">Предложенное расписание</a> → подтверждение → Google Calendar.</p>
+<!-- CLASSES -->
+<!-- PLANNING_START -->
+<section id="planning-inputs" aria-label="Время для заданий">
 <p>Укажите оставшееся время на задания и часы, когда вы можете учиться.
-Эти данные используются при создании предложения. Запись в Google Calendar потребует отдельного согласования плана.</p>
-<p>Указывайте свободные часы с учётом пар и других обязательств. Календарная ссылка Moodle сообщает сроки, но не объём работы и не факт сдачи.</p>
+Эти данные используются при создании предложения. Запись в Google Calendar потребует отдельного подтверждения расписания.</p>
+<p>Сохранённые пары автоматически исключаются из времени для заданий. Другие обязательства учтите при выборе свободных часов. Календарная ссылка Moodle сообщает сроки, но не объём работы и не факт сдачи.</p>
 <p>Для расчёта используйте экспорт Moodle «Все события» и «Недавние и следующие 60 дней».</p>
 <p id="planning-status" role="status" aria-live="polite">Загружаем настройки…</p>
 <button id="planning-reload" type="button">Перечитать настройки</button>
@@ -29,7 +36,9 @@ PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <p>Добавляйте конкретные интервалы с шагом 15 минут. Новый расчёт использует ближайшие 72 часа.
 Пустой список после сохранения означает, что свободных часов нет.</p>
 <button type="submit" disabled>Сохранить свободные часы</button></form>
-<p><a href="/">Вернуться и создать предложение плана</a></p>
+</section>
+<!-- PLANNING_END -->
+<p><a href="/#review-heading">К предложенному расписанию</a></p>
 </main><script src="/assets/recovery-planning.js" defer></script></html>'''
 
 SCRIPT = r'''(() => {
@@ -39,7 +48,7 @@ let state=null, windows=[], busy=false, sessionId=null, needsReload=true;
 const format=new Intl.DateTimeFormat('ru-RU',{dateStyle:'short',timeStyle:'short'});
 $('planning-zone').textContent='Время устройства: '+Intl.DateTimeFormat().resolvedOptions().timeZone+'.';
 function controls(){
-  document.querySelectorAll('button,input,select').forEach(el=>el.disabled=busy||!state||needsReload);
+  document.querySelectorAll('#planning-inputs button,#planning-inputs input,#planning-inputs select').forEach(el=>el.disabled=busy||!state||needsReload);
   $('planning-reload').disabled=busy;
   const noTask=!$('planning-task').value;
   $('planning-task').disabled=busy||!state||needsReload||noTask;
@@ -142,7 +151,7 @@ $('effort-form').addEventListener('submit',event=>{event.preventDefault();action
     throw Error('Укажите целое число минут от 0 до 100000 или оставьте поле пустым.');
   state=await api('/api/moodle/planning',{expected_revision:state.revision,
     estimates:[{task_id:$('planning-task').value,remaining_minutes:raw===''?null:Number(raw)}]});
-  status.textContent='Время задания сохранено. Создайте новое предложение плана.';
+  status.textContent='Время задания сохранено. Вернитесь к предложенному расписанию и нажмите «Составить расписание».';
 },true);});
 $('planning-add').addEventListener('click',()=>{
   if(busy||!state||needsReload)return;
@@ -158,7 +167,7 @@ $('planning-add').addEventListener('click',()=>{
 });
 $('windows-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
   state=await api('/api/moodle/planning',{expected_revision:state.revision,working_windows:windows});
-  windows=state.working_windows||[];draw();status.textContent='Свободные часы сохранены. Создайте новое предложение плана.';
+  windows=state.working_windows||[];draw();status.textContent='Свободные часы сохранены. Вернитесь к предложенному расписанию и нажмите «Составить расписание».';
 },true);});
 controls();action(load);
 })();'''
@@ -170,10 +179,29 @@ def install_recovery_planning_page(app, *, auth, inputs):
         await auth.load(request)
         if request.query_params:
             raise ValueError('planning_selectors_forbidden')
-        return HTMLResponse(PAGE, headers={'Content-Security-Policy':
+        page = PAGE.replace('<!-- CLASSES -->', ACCOUNT_CLASSES)
+        if inputs is None:
+            start = page.index('<!-- PLANNING_START -->')
+            end = page.index('<!-- PLANNING_END -->') + len('<!-- PLANNING_END -->')
+            page = (page[:start] + '<p role="status">Автоматический расчёт и применение в Google Calendar '
+                    'сейчас недоступны для этого аккаунта. Сохраните пары; они доступны ассистенту. '
+                    'Предложение в чате само по себе не записывает события.</p>' + page[end:])
+            page = page.replace('<script src="/assets/recovery-planning.js" defer></script>', '')
+        page = page.replace('</html>', '<script src="/assets/planning-classes.js" defer></script></html>')
+        return HTMLResponse(page, headers={'Content-Security-Policy':
             "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"})
 
     @app.get('/assets/recovery-planning.js')
     async def script(request: Request):
         await auth.load(request)
         return Response(SCRIPT, media_type='text/javascript')
+
+    @app.get('/assets/planning-classes.js')
+    async def classes_script(request: Request):
+        await auth.load(request)
+        return Response(CLASSES_SCRIPT, media_type='text/javascript')
+
+    @app.get('/assets/planning.css')
+    async def style(request: Request):
+        await auth.load(request)
+        return Response(CSS, media_type='text/css')

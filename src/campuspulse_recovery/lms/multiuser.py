@@ -269,6 +269,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             await feed.restore()
             selected_agent = (recovery_chat_factory if recovery is not None and recovery_chat_factory is not None
                               else agent_factory)
+            selected_chat_agent = None if selected_agent is None else selected_agent()
             async def calendar_sources(context):
                 owner = context.trusted.owner_id
                 state = await local_google_calendar.status(owner)
@@ -285,22 +286,23 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                         ('summary', 'start', 'end', 'htmlLink', 'transparency')} for event in result['events']]}
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
                 origin=origin, environment=environment, clock=clock, moodle_enabled=True,
-                signin_url='/login', chat_agent=None if selected_agent is None else selected_agent(),
+                signin_url='/login', chat_agent=selected_chat_agent,
                 projection=feed, chat_mode='calendar_advice' if recovery is None else 'recovery',
                 runs_factory=None if recovery is None else recovery.runs,
                 approval_store=None if recovery is None else recovery.approvals,
-                planning_url=None if recovery is None else '/planning',
+                planning_url='/planning',
                 owner_chat_history=True, account_url='/settings', email_credentials=email_credentials,
                 google_calendar_enabled=local_google_calendar is not None,
                 chat_sources=calendar_sources if local_google_calendar is not None else None)
             auth = inner.state.web_auth
             if recovery is not None:
                 from ..web.moodle_planning import install_planning_routes
-                from ..web.recovery_planning import install_recovery_planning_page
                 install_planning_routes(inner, auth=auth, inputs=recovery.planning)
-                install_recovery_planning_page(inner, auth=auth, inputs=recovery.planning)
+            from ..web.recovery_planning import install_recovery_planning_page
+            install_recovery_planning_page(inner, auth=auth, inputs=None if recovery is None else recovery.planning)
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
+            inner.state.class_schedule_importer = selected_chat_agent
             install_class_routes(inner, auth=auth, account=classes)
             if local_google_calendar is not None:
                 from ..web.google_calendar import install_calendar_routes
@@ -315,7 +317,10 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 if (await auth.load(request)).session != credential.session:
                     raise AccessDenied('account_session_changed')
                 from ..web.google_calendar import ACCOUNT_GOOGLE_CALENDAR
-                return render_moodle_settings(connected=connected, classes_html='',
+                return render_moodle_settings(connected=connected, classes_html=
+                    '<section class="settings-card"><h2>Пары и время для учёбы</h2>'
+                    '<p>Загрузите PDF или скриншот расписания и проверьте пары перед сохранением.</p>'
+                    '<a href="/planning">Подготовить расписание</a></section>',
                     google_calendar_html=ACCOUNT_GOOGLE_CALENDAR if local_google_calendar is not None else '')
 
             @inner.get('/assets/account.js')
