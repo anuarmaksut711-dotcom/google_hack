@@ -25,6 +25,9 @@ def main():
         results.append({'check':name,'exit_code':result.returncode})
         print(json.dumps(results[-1]), flush=True)
         if result.returncode:
+            # Docker discards a failed build layer. Keep the bounded failure
+            # evidence visible even when /out artifacts cannot be exported.
+            print((a.output / (name + '.log')).read_text(errors='replace')[-16000:], flush=True)
             raise RuntimeError('release_check_failed:' + name)
 
     py = sys.executable
