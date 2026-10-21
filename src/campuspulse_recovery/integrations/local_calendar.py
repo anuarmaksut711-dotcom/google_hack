@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from ..config import CLOUD_MARKERS
+from ..domain.time_rules import instant
 from ..web.auth import digest
 
 CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
@@ -19,6 +20,17 @@ CALLBACK = '/auth/google-calendar/callback'
 
 class CalendarConnectionError(RuntimeError):
     """Only an allowlisted code crosses the Google boundary."""
+
+
+def calendar_horizon(value):
+    """A server-derived, bounded read window; never a public Calendar selector."""
+    if not isinstance(value, dict) or set(value) != {'start', 'end'}:
+        raise ValueError('calendar_horizon_invalid')
+    start, end = (instant(value[key]) for key in ('start', 'end'))
+    # A 91-local-day timetable can cross a daylight-saving transition.
+    if not timedelta(0) < end - start <= timedelta(days=92):
+        raise ValueError('calendar_horizon_invalid')
+    return {'start': start.isoformat(), 'end': end.isoformat()}
 
 
 def fetch_google_token(flow, *, code, scopes):
@@ -178,12 +190,16 @@ class ConnectedCalendar:
                 'generation': (saved or {}).get('generation', 0) + 1})
         await self.documents.transact(remove)
 
-    async def read(self, owner):
+    async def read(self, owner, *, horizon=None):
         path = 'cp_local_google_calendars/' + owner
         saved = await self.documents.get(path)
         if not saved or not saved.get('connected') or saved['owner'] != owner:
             raise CalendarConnectionError('calendar_not_connected')
-        start, end = self.window(self.clock(), saved['timezone'])
+        if horizon is None:
+            start, end = self.window(self.clock(), saved['timezone'])
+        else:
+            bounded = calendar_horizon(horizon)
+            start, end = (datetime.fromisoformat(bounded[key]) for key in ('start', 'end'))
         def fetch():
             from .calendar_read import normalize_event
             events, seen, event_ids = [], set(), set()

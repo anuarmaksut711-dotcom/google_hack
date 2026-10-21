@@ -8,6 +8,7 @@ import re
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'deploy' / 'deploy-moodle.ps1'
+CALENDAR_SCRIPT = SCRIPT.with_name('deploy-calendar.ps1')
 
 
 def _flag(name):
@@ -38,3 +39,17 @@ def test_worker_file_settings_point_to_the_declared_secret_mounts():
     assert file_paths == set(mounts), 'Worker must read exactly the mounted secret files'
     assert 'settingsName' in mounts[environment['CAMPUSPULSE_CLOUD_SETTINGS']]
     assert 'tokenName' in mounts[environment['CAMPUSPULSE_MOODLE_TOKEN_FILE']]
+
+
+def test_calendar_rollout_preserves_existing_oauth_environment_and_secret_mounts():
+    """Cloud Run's update flags retain OAuth configured after initial deployment."""
+    source = CALENDAR_SCRIPT.read_text(encoding='utf-8')
+    deployments = [call for call in re.findall(r'\$null = Gcp @\((.*?)\)\n', source, re.S)
+                   if call.startswith("'run','deploy'") or call.startswith("'run','jobs','deploy'")]
+    assert len(deployments) == 2, 'Check the website and scheduled worker deployments'
+    for call in deployments:
+        assert '--set-env-vars' not in call and '--set-secrets' not in call, (
+            'Replacing all configuration removes CAMPUSPULSE_CALENDAR_OAUTH and its mounted secret'
+        )
+        assert '"--update-env-vars=$environment"' in call
+        assert '"--update-secrets=$secrets"' in call

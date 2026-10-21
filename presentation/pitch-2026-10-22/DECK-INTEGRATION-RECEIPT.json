@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-22",
+  "role": "deck materials integration, local validation only",
+  "slides": 7,
+  "pdf_pages": 7,
+  "editable_shapes_by_slide": [
+    10,
+    11,
+    13,
+    17,
+    7,
+    11,
+    14
+  ],
+  "native_connectors_by_slide": [
+    0,
+    0,
+    4,
+    6,
+    0,
+    0,
+    0
+  ],
+  "native_tables_by_slide": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0
+  ],
+  "notes": 7,
+  "pdf_text_on_all_pages": true,
+  "pptx_integrity_findings": 0,
+  "pptx_layout_findings": 0,
+  "font_policy_passed": true,
+  "artifact_tool_reimport_passed": true,
+  "render_review": {
+    "final_pdf_pages_individually_inspected": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "native_powerpoint_inspected": false,
+    "pdf_renderer": "bundled LibreOffice then Poppler pdftoppm at 100 dpi",
+    "corrected": "ConnectedPlans label wrap"
+  },
+  "connected_fixture_check": {
+    "command": "PYTHONPATH=src:. .venv-pitch/bin/python tests/pitch_ui/connected_browser_fixture.py --check",
+    "exit_code": 0,
+    "synthetic": true,
+    "engine_invocations": 1,
+    "schedule_imports": 1,
+    "calendar_mutations": 1,
+    "calendar_reads": 7,
+    "tools": [
+      "read_calendar",
+      "read_calendar",
+      "apply_plan",
+      "verify_plan",
+      "apply_plan"
+    ],
+    "replay_calendar_mutations": 1
+  },
+  "root_reported_verification": {
+    "full_local_pytest": {
+      "passed": 2472,
+      "skipped": 0,
+      "seconds": 171.44,
+      "afterward_copy_changes_targeted_passed": 27
+    },
+    "offline_recovery_passed": 347,
+    "voice_loopback_passed": 53,
+    "browser": "two synthetic PDFs append Monday/Tuesday, dates preserved, both confirmation gates, save/reload, chat draft, exact approval, apply verified, reload; width 390 has no overflow; no console errors/warnings",
+    "real_vertex_ocr": {
+      "source": "one private user screenshot",
+      "adapter": "extract_classes configured Vertex model using user gcloud credentials",
+      "monday_intervals": [
+        "16:00–16:50",
+        "17:00–17:50",
+        "18:00–18:50",
+        "19:00–19:50"
+      ],
+      "dates": null,
+      "fabricated_other_days": false,
+      "website_http_acceptance": false
+    }
+  },
+  "cloud_boundary": {
+    "verified_read_only_source": "1382f49aaba7c37c6571bbd8355349064e039012",
+    "moodle_records": 15,
+    "new_calendar_write_ocr_website_acceptance": "pending, see root INTEGRATION-RECEIPT.json and final rollout receipt",
+    "new_exact_cloudbuild_gate": "pending at deck build time"
+  },
+  "speech_words_including_heading": 381,
+  "sha256": {
+    "CampusPulse-AI-Pitch-2026-10-22-final.pptx": "b7830286b13af65221c517547964f34d198205a0d713bfa5910681f129241af2",
+    "CampusPulse-AI-Pitch-2026-10-22-final.pdf": "4e9e4df2c865869f11890d24c8a1011f40db1a5890a9e10fb98db12b7c33cda2"
+  },
+  "source_files": [
+    "build-deck.mjs",
+    "SPEECH-RU.md",
+    "DEMO-SCRIPT-RU.md",
+    "JURY-QA-RU.md",
+    "CLOUD-FACTS-2026-10-22.md"
+  ],
+  "private_data_committed": false
+}

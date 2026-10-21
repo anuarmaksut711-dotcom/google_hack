@@ -160,6 +160,31 @@ def _environment(metadata):
 
 
 @contextmanager
+def _existing_staging_access(sdk, credentials, *, project, location, staging_bucket):
+    """Pinned SDK's Storage staging ignores vertexai.init(credentials=...).
+
+    Bind that one SDK lookup to the selected gcloud login in memory. Unlike
+    the SDK default, this path cannot create a bucket or fall back to ADC.
+    """
+    from google.cloud import storage
+    original = sdk._get_gcs_bucket
+    def existing_bucket(*, project: str, location: str, staging_bucket: str, **kwargs):
+        if (project, location, staging_bucket) != expected:
+            raise DeploymentError('staging_target_mismatch')
+        try:
+            return storage.Client(project=project, credentials=credentials).get_bucket(
+                staging_bucket.removeprefix('gs://'))
+        except Exception:
+            raise DeploymentError('existing_staging_bucket_unavailable') from None
+    expected = (project, location, staging_bucket)
+    sdk._get_gcs_bucket = existing_bucket
+    try:
+        yield
+    finally:
+        sdk._get_gcs_bucket = original
+
+
+@contextmanager
 def _stage(artifacts):
     previous = Path.cwd()
     with tempfile.TemporaryDirectory(prefix='campuspulse-study-agent-') as temporary:
@@ -213,15 +238,18 @@ def main(argv=None):
         from google.oauth2.credentials import Credentials
         import vertexai
         from vertexai import agent_engines
+        credentials = Credentials(token)
         vertexai.init(project=PROJECT, location=LOCATION,
-                      staging_bucket=options.staging_bucket, credentials=Credentials(token))
+                      staging_bucket=options.staging_bucket, credentials=credentials)
         engine = agent_engines.get(RESOURCE)
         if engine.resource_name != RESOURCE:
             raise DeploymentError('sdk_engine_resource_mismatch')
         emit(status='verified_update_starting', resource_name=RESOURCE,
              wheel_sha256=digest, sdk_version='1.165.1', calendar_writes=False)
         phase = 'engine_update'
-        with _stage(artifacts):
+        from vertexai.agent_engines import _agent_engines as sdk
+        with _stage(artifacts), _existing_staging_access(sdk, credentials,
+                project=engine.project, location=LOCATION, staging_bucket=options.staging_bucket):
             remote = engine.update(agent_engine=runtime,
                 requirements='deployment-requirements.txt',
                 extra_packages=[artifacts.wheel_name],

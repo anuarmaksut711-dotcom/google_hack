@@ -95,11 +95,11 @@ def render(status, plan=None, **changes):
 
 @pytest.mark.parametrize("status,text", [
     ("proposed", "Предложен план"), ("waiting_approval", "Ожидает согласования"),
-    ("applying", "Применяется"), ("partial", "Применён частично"),
-    ("unknown", "Результат неизвестен"), ("applied_unverified", "проверка не подтверждена"),
+    ("applying", "Применяется"), ("partial", "Расписание добавлено частично"),
+    ("unknown", "Результат неизвестен"), ("applied_unverified", "Запись пока не подтверждена"),
     ("verification_failed", "Проверка выявила расхождения"), ("needs_input", "Нужны данные"),
-    ("infeasible", "Недостаточно времени в горизонте поиска"),
-    ("insufficient_capacity", "Недостаточно времени в горизонте поиска"),
+    ("infeasible", "Не хватает свободного времени"),
+    ("insufficient_capacity", "Не хватает свободного времени"),
     ("no_change", "Изменения не предложены"), ("stale", "План устарел"),
 ])
 def test_distinct_observable_states(status, text):
@@ -129,11 +129,11 @@ def test_exact_stored_diff_escaping_and_approval_render():
             "data-hash": plan.payload_hash,
         }
         assert any(parent["tag"] == "details" for parent in reference["parents"])
-        assert "Точные сохранённые операции" in html and "Нет блока" in html
+        assert "Что изменится в Google Calendar" in html and "Нет блока" in html
         assert all(op.operation_id in html and op.event_id in html for op in plan.payload.operations)
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html and "<script>" not in html
         assert 'data-action="approve"' in html and 'data-action="apply"' not in html
-        assert "Само согласование не меняет календарь" in html
+        assert "Вы подтверждаете только показанное расписание" in html
         assert "В полученной сводке нет записей" in html
         stale = render("proposed", plan, current=None)
         assert "больше не текущая" in stale and 'data-action="approve"' not in stale
@@ -237,7 +237,7 @@ def test_view_exact_approval_then_separate_apply_no_get_side_effects():
             assert len(h.invocations) == 1
             rid = results[0].json()["run_id"]
             latest = await c.get("/ui/state", params={"run_id":rid})
-            assert "Применён частично" in latest.text and 'data-action="apply"' not in latest.text
+            assert "Расписание добавлено частично" in latest.text and 'data-action="apply"' not in latest.text
             assert "Расписание проверено" not in latest.text
             assert (await c.post("/api/runs/continue",headers=headers,json=payload)).json()["run_id"] == rid
             assert len(h.invocations) == 1
@@ -357,7 +357,7 @@ def test_resources_csp_and_missing_runtime_fail_closed():
             assert (await c.get('/assets/logo/%2e%2e/%2e%2e/%2e%2e/config.example.json')).status_code == 404
             await login(c)
             page = await c.get("/ui/state")
-            assert 'data-runtime="false"' in page.text and 'Облачный исполнитель не настроен' in page.text
+            assert 'data-runtime="false"' in page.text and 'Составление расписания и применение в Google Calendar пока недоступны' in page.text
             assert 'data-action="approve"' not in page.text
             assert (await c.post("/api/runs",json={})).status_code == 404
     run(scenario())
@@ -403,7 +403,7 @@ def test_shell_separates_assistant_tasks_and_explicit_recovery_controls(mode):
                    for parent in markup.by_id("feedback")["parents"])
     assert "Запись до 1 минуты. Аудио отправляется в Gemini для распознавания." not in html
     assert "Запись в Google Calendar в этом режиме недоступна" not in html if mode == "calendar_advice" else (
-        "согласования точной версии плана и отдельного нажатия «Применить»" in html)
+        "подтверждения точной версии расписания и отдельного нажатия «Применить в Google Calendar»" in html)
 
 
 @pytest.mark.parametrize("terminal", ["revoked", "expired", "superseded"])

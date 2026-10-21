@@ -385,16 +385,21 @@ def test_cloud_settings_pin_managed_target_identity_and_separate_services():
             CalendarSettings(**{**values, 'study_agent': changed})
 
 
-def test_managed_plan_never_calls_existing_calendar_proposer():
+def test_managed_validated_plan_uses_web_proposer_without_giving_engine_write_tools():
     async def scenario():
         h = Setup()
-        app, _, engine, _ = composition(h)
+        app, _, engine, projection = composition(h)
+        projection.current = ClassSchedule(status='ready', coverage={
+            'start': h.clock(), 'end': h.clock() + timedelta(days=7)}, fetched_at=h.clock())
         engine.reply = {'kind': 'plan', 'message': '', 'blocks': [{'title': 'Учёба',
             'start': (h.clock() + timedelta(hours=1)).isoformat(),
             'end': (h.clock() + timedelta(hours=2)).isoformat()}]}
 
-        async def proposer(*args):
-            pytest.fail('Read-only managed planning must not save or apply Calendar plans')
+        saved = []
+        async def proposer(blocks, request_key, session):
+            saved.extend(blocks)
+            assert request_key == 'default:read_only_plan'
+            return True
         app.state.calendar_plan_proposer = proposer
         async with h.client(app) as client:
             headers = await login(client)
@@ -403,8 +408,10 @@ def test_managed_plan_never_calls_existing_calendar_proposer():
             turn, = response.json()['turns']
             assert turn['status'] == 'completed'
             assert 'Учёба' in turn['response']
-            assert 'План остаётся рекомендацией в чате.' in turn['response']
-            assert 'Мой план' not in turn['response']
+            assert 'Откройте «Предложенное расписание»' in turn['response']
+            assert 'проверьте события, подтвердите и добавьте их в Google Calendar' in turn['response']
+            assert saved == engine.reply['blocks']
+            assert [trace['tool'] for trace in turn['tool_trace']] == ['read_assignments']
     run(scenario())
 
 
@@ -441,7 +448,8 @@ def test_legacy_plan_keeps_existing_confirmation_proposer():
                 json={'request_key': 'legacy_plan', 'message': 'План'})
             turn, = response.json()['turns']
             assert turn['status'] == 'completed', response.text
-            assert 'План сохранён для вашего подтверждения' in turn['response']
+            assert 'Откройте «Предложенное расписание»' in turn['response']
+            assert 'проверьте события, подтвердите и добавьте их в Google Calendar' in turn['response']
             assert sources[0]['calendar_write']['enabled'] is True
             assert calls[0][0][0]['title'] == 'Учёба'
             assert calls[0][1] == 'default:legacy_plan'

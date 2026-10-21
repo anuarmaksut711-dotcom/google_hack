@@ -1,0 +1,7 @@
+# Chat timetable and Google Calendar
+
+The student can describe weekly classes in Russian in the chat. Gemini returns a typed draft containing only explicitly supplied subjects, weekdays, times and dates. The server validates it and links to the existing weekly editor. Missing dates stay empty. The student reviews the full week and dates before saving. A draft alone never changes the saved week or Google Calendar.
+
+The saved weekly schedule remains the owner-bound source for subsequent `read_schedule` MCP calls. The user chose **classes and study blocks, after preview and confirmation**. An explicit Calendar proposal action derives weekly events from the saved schedule. Existing exact-payload approval and apply/verify steps create Google events. Study proposals retain their 72-hour limit and conflict checks. Class proposals cover the explicitly saved period of at most 91 days and show recurrence and end date before approval.
+
+Authenticated Calendar operations bootstrap CSRF through `/auth/session` and remain session-bound. Login challenges remain separate. Never retry a mutation automatically after an uncertain response. Preserve existing cloud identities, IAM, secrets and OAuth mounts. Deploy only a passing immutable build to the existing MCP service, Agent Engine and website. Verify the actual website, real Moodle calls and Calendar result before marking release evidence as verified.

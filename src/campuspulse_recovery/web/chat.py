@@ -281,7 +281,7 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                     if isinstance(response, ChatReply):
                         tool_trace, agent_run_id = response.tool_trace, response.agent_run_id
                         runtime_schedule, response = response.class_schedule, response.response
-                    validated_blocks = []
+                    validated_blocks, validated_timetables = [], []
                     if structured_advice:
                         schedule = runtime_schedule or sources.get('class_schedule')
                         if projection is not None and hasattr(projection, 'current_class_schedule'):
@@ -293,8 +293,18 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                             schedule = current
                         response = render_advice(response, schedule=schedule, now=auth.now(),
                             timezone=policy.config.student.timezone,
-                            validated_blocks=None if owns_sources else validated_blocks)
-                    proposer = None if owns_sources else getattr(request.app.state, 'calendar_plan_proposer', None)
+                            validated_blocks=validated_blocks, validated_timetables=validated_timetables)
+                    drafter = getattr(request.app.state, 'class_schedule_drafter', None)
+                    if validated_timetables:
+                        await fresh(request, credential)
+                        if drafter is not None:
+                            draft_id = await drafter(context, value.chat_id + ':' + value.request_key,
+                                                     validated_timetables[0])
+                            await fresh(request, credential)
+                            response += '\n\n/planning#draft=' + draft_id
+                        else:
+                            response += '\n\nОткройте «Пары и время для учёбы», чтобы ввести и сохранить расписание.'
+                    proposer = getattr(request.app.state, 'calendar_plan_proposer', None)
                     if validated_blocks and proposer is not None:
                         try:
                             await fresh(request, credential)
@@ -302,12 +312,13 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                                                    context.session_id)
                             if saved:
                                 response = response.replace('План остаётся рекомендацией в чате.',
-                                    'План сохранён для вашего подтверждения в разделе «Мой план».')
-                                response += '\n\nОткройте «Мой план»: проверьте события, подтвердите и добавьте их в Google Calendar.'
+                                    'Откройте «Предложенное расписание»: проверьте события, подтвердите и добавьте их в Google Calendar.')
                             else:
-                                response += '\n\nЧтобы сохранить события, подключите Google Calendar в разделе «Мой план».'
-                        except BindingConflict:
-                            response = 'Не удалось сохранить этот вариант: время уже занято или календарь изменился. Попросите составить новый план.'
+                                response += '\n\nЧтобы сохранить события, подключите Google Calendar.'
+                        except BindingConflict as error:
+                            response = ('Чтобы проверить и сохранить план, заполните пары и проверьте даты на странице «Пары и время для учёбы». Если пар нет, явно сохраните пустое расписание на нужный период. Затем запросите новый план.'
+                                if str(error).startswith('calendar_class_schedule') else
+                                'Не удалось сохранить этот вариант: время уже занято или календарь изменился. Попросите составить новый план.')
 
                     response = ChatTurn(request_key=value.request_key, message=value.message,
                         status='completed', created_at=auth.now(), response=response).response

@@ -1,11 +1,14 @@
 """Owner-bound weekly classes, persisted with the application's document store."""
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
+import re
 
 from pydantic import Field, field_validator, model_validator
 
 from ..domain.chat_plan import ClassSchedule
-from ..domain.models import Contract, Interval
+from ..domain.models import Contract, Interval, canonical_hash
+from ..domain.chat_schedule import ChatTimetable
+from ..domain.ports import BindingConflict
 from ..security.context import AccessDenied
 
 
@@ -55,9 +58,9 @@ class ManualSchedule:
         self.policy.require_context(context)
         self.policy.require_owner(context, self.owner)
 
-    async def read(self, context):
+    async def read(self, context, *, reader=None):
         self.authorize(context)
-        saved = await self.documents.get(self.record)
+        saved = await (reader or self.documents).get(self.record)
         if saved is None:
             return {'connected': False, 'schedule': None}
         if saved['owner_id'] != self.owner:
@@ -71,6 +74,31 @@ class ManualSchedule:
             tx.set(self.record, {'owner_id': self.owner, 'schedule': schedule.model_dump(mode='json')})
         await self.documents.transact(write)
         return await self.read(context)
+
+    async def save_draft(self, context, request_key, draft):
+        """Idempotent chat extraction, separate from the authoritative week."""
+        self.authorize(context)
+        value = ChatTimetable.model_validate(draft).model_dump(mode='json')
+        draft_id = canonical_hash({'owner': self.owner, 'request_key': request_key})
+        record = {'owner_id': self.owner, 'draft': value}
+        async def write(tx):
+            previous = await tx.get('cp_class_schedule_drafts/' + draft_id)
+            if previous is not None:
+                if previous != record:
+                    raise BindingConflict('class_draft_changed')
+                return
+            tx.create('cp_class_schedule_drafts/' + draft_id, record)
+        await self.documents.transact(write)
+        return draft_id
+
+    async def read_draft(self, context, draft_id):
+        self.authorize(context)
+        if re.fullmatch(r'[0-9a-f]{64}', draft_id) is None:
+            raise ValueError('invalid_class_draft')
+        record = await self.documents.get('cp_class_schedule_drafts/' + draft_id)
+        if record is None or record.get('owner_id') != self.owner:
+            raise AccessDenied('class_draft_unavailable')
+        return ChatTimetable.model_validate(record['draft']).model_dump(mode='json')
 
     def planning_schedule(self, state):
         if not state['connected']:

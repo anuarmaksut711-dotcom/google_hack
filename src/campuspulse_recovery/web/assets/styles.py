@@ -48,7 +48,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-vis
 .app-content { position: relative; margin: 0 5px 0 400px; min-height: 100svh; background: #101010; border-radius: 0 20px 0 0; }
 .topbar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; padding: 16px 28px; background: #101010; }
 .view-heading { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
-#view-title { font-size: 14px; font-weight: 600; }
+#view-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; line-height: 1.4; }
 #view-subtitle { color: var(--muted); font-size: 12px; }
 #reload { background: transparent; color: var(--muted); min-height: 36px; padding: 8px 10px; font-size: 12px; }
 #reload:hover { color: var(--ink); background: var(--subtle); }
@@ -105,6 +105,12 @@ summary:hover { color: var(--accent); }
 .recovery-controls { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; max-width: 720px; padding: 20px 0; border-top: 1px solid var(--line); }
 .recovery-controls h2 { font-size: 15px; letter-spacing: -.01em; margin: 0 0 4px; }
 .recovery-controls p { margin: 0; max-width: 38ch; font-size: 12px; color: var(--muted); }
+.schedule-flow { width: 100%; max-width: 800px; margin: 4px 0 18px; }
+.schedule-flow ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
+.schedule-flow a { display: flex; align-items: center; gap: 8px; min-height: 48px; height: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); text-decoration: none; font-size: 12px; line-height: 1.35; }
+.schedule-flow a:hover { color: var(--ink); background: var(--selected); }
+.schedule-flow b { display: grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--subtle); color: var(--ink); font-weight: 500; }
+.schedule-flow span { min-width: 0; overflow-wrap: anywhere; }
 #start { flex-shrink: 0; }
 .consent-note { display: flex; justify-content: center; gap: 7px; width: 100%; max-width: 680px; color: var(--muted); font-size: 12px; text-align: center; margin: 12px 0 0; }
 .consent-note svg { width: 15px; height: 15px; margin-top: 3px; }
@@ -159,6 +165,7 @@ html[data-theme=dark] #voice-cancel:hover, html[data-theme=dark] #voice-stop:hov
 @keyframes chat-part-appear { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .chat-reveal-part { animation: none; } }
 .chat-system > .chat-answer { color: #e7cb90; }
+#panel { min-width: 0; overflow-wrap: anywhere; }
 #panel:focus { outline: none; }
 #panel section { margin-bottom: 28px; }
 .outcome { padding: 22px 24px; border-radius: var(--radius); background: #1c2028; }
@@ -223,6 +230,11 @@ tbody tr:last-child > * { border: 0; }
 .moodle-tasks > details { margin-top: 16px; }
 .journal > p { color: var(--muted); font-size: 13px; max-width: 75ch; }
 #trace-records { list-style: none; padding: 0; margin: 24px 0; }
+#panel[data-stale=true]::before { content: "Показана сохранённая версия. Перечитайте состояние перед следующим действием."; display: block; padding: 16px; margin-bottom: 16px; border: 1px solid #a17a37; border-radius: 10px; color: var(--ink); background: var(--subtle); }
+#panel[data-stale=true] .outcome { background: var(--subtle); }
+#panel[data-stale=true] .outcome h2 { color: var(--ink); }
+#trace-records h3 { margin: 18px 4px 8px; font-size: 15px; overflow-wrap: anywhere; }
+#trace-records p { margin: 8px 4px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 #trace-records li { border-top: 1px solid var(--line); }
 #trace-records summary { padding: 16px 4px; font-size: 13px; overflow-wrap: anywhere; }
 #trace-records pre { padding: 18px; margin: 0 0 16px; background: var(--subtle); border-radius: 8px; color: #b7c0d8; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -350,6 +362,7 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
   .app-content { margin-left: 0; margin-right: 0; }
   .composer-context { gap: 14px; padding-inline: 16px; }
   .composer-context a { font-size: 11px; }
+  .schedule-flow ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-bar { border-radius: 22px; }
   .command-body { padding: 16px 16px 12px; }
   .intro > p { max-width: 34ch; }

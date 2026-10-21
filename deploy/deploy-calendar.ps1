@@ -19,11 +19,11 @@ $null = Gcp @('run','deploy','campuspulse',"--region=$($cfg.region)","--image=$i
     "--service-account=$($cfg.runtime)",'--execution-environment=gen2','--port=8080',
     '--cpu=1','--memory=1Gi','--concurrency=8','--min-instances=0','--max-instances=2',
     '--timeout=300','--ingress=all','--allow-unauthenticated','--invoker-iam-check',
-    "--add-custom-audiences=$($cfg.origin)","--set-secrets=$secrets","--set-env-vars=$environment")
+    "--add-custom-audiences=$($cfg.origin)","--update-secrets=$secrets","--update-env-vars=$environment")
 $null = Gcp @('run','jobs','deploy','campuspulse-check',"--region=$($cfg.region)","--image=$image",
     "--service-account=$($cfg.runtime)",'--cpu=1','--memory=1Gi','--tasks=1','--max-retries=0',
     '--task-timeout=300','--command=python','--args=-m,campuspulse_recovery.cloud.calendar_check',
-    "--set-secrets=$secrets","--set-env-vars=$environment")
+    "--update-secrets=$secrets","--update-env-vars=$environment")
 $scheduler = "campuspulse-scheduler@$($cfg.project).iam.gserviceaccount.com"
 $null = Gcp @('run','services','add-iam-policy-binding','campuspulse',"--region=$($cfg.region)",
     "--member=serviceAccount:$scheduler",'--role=roles/run.invoker')

@@ -1,0 +1,50 @@
+{
+  "captured_at": "2026-10-21T20:32:57.313651+00:00",
+  "branch": "codex/site-integration-2026-10-22",
+  "base_main": "d8c6054d1ebacbda2cc79e397a30e6443e8a9dfe",
+  "ui_branch_sha": "15bb5fd494164c55e09ef40e9a5bbbd4809cfa86",
+  "calendar_branch_sha": "c19aee8eba587e499f48de295e7700136023a595",
+  "local_checks": {
+    "pytest_passed": 2472,
+    "pytest_skipped": 0,
+    "recovery_offline": 347,
+    "voice_loopback": 53,
+    "external_services": "synthetic_or_emulator",
+    "build": "passed",
+    "pip_check": "passed",
+    "mcp_composition": "passed"
+  },
+  "actual_vertex_ocr": {
+    "passed": true,
+    "boundary": "adapter_with_existing_gcloud_identity_not_published_http",
+    "visible_monday_classes": 4,
+    "other_days_inferred": false,
+    "dates_inferred": false,
+    "personal_original_committed": false
+  },
+  "cloud_rollout": {
+    "status": "pending",
+    "live_calendar_event_created": false
+  },
+  "browser": {
+    "fixture": "tests/pitch_ui/connected_browser_fixture.py",
+    "port": 8964,
+    "local_only": true,
+    "desktop": "passed",
+    "narrow_css_viewport": 390,
+    "narrow_client_width": 370,
+    "narrow_scroll_width": 370,
+    "console_errors": 0,
+    "console_warnings": 0,
+    "mutations": 1,
+    "desktop_css_viewport": 1280,
+    "desktop_client_width": 1260,
+    "desktop_scroll_width": 1260,
+    "observed_tools": [
+      "read_calendar",
+      "read_calendar",
+      "apply_plan",
+      "verify_plan"
+    ]
+  }
+}

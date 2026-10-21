@@ -81,3 +81,6 @@ class StudyConversation:
 
     async def transcribe(self, **kwargs):
         return await self.delegate.transcribe(**kwargs)
+
+    async def extract_classes(self, **kwargs):
+        return await self.delegate.extract_classes(**kwargs)

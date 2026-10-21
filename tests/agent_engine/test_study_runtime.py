@@ -167,6 +167,17 @@ def test_model_selects_real_tools_then_returns_plan_with_separate_source_and_tra
     assert 'private reasoning' not in result['reply']
 
 
+def test_user_timetable_is_returned_as_review_draft_without_write_tools(monkeypatch):
+    from tests.domain.test_chat_schedule import DRAFT
+    draft_reply = {'kind': 'classes', 'message': '', 'blocks': [], 'timetable': DRAFT}
+    result, calls, model = run_model(monkeypatch, [draft_reply])
+    assert json.loads(result['reply']) == draft_reply
+    assert calls == [] and result['trace'] == [] and result['class_schedule'] is None
+    assert 'kind="classes"' in model._requests[0].config.system_instruction
+    assert {'read_assignments', 'read_schedule'} <= model._requests[0].tools_dict.keys()
+    assert not {'save_classes', 'apply_plan', 'verify_plan'} & model._requests[0].tools_dict.keys()
+
+
 def test_live_progress_follows_actual_adk_model_and_tool_dispatch_without_reasoning_text(monkeypatch):
     events = []
     result, calls, _ = run_model(monkeypatch, ['read_assignments', 'read_schedule', reply(plan=True)],

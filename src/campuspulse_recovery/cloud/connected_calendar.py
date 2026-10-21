@@ -1,4 +1,4 @@
-"""User-consented read-only Calendar. Encrypted Firestore state; private MCP reads."""
+"""User-consented Calendar. Encrypted state and private, grant-bound MCP actions."""
 import asyncio
 import json
 import re
@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet
 
-from ..integrations.local_calendar import ConnectedCalendar, CalendarConnectionError
+from ..integrations.local_calendar import ConnectedCalendar, CalendarConnectionError, calendar_horizon
 from ..storage.plans import _decode
 from ..web.auth import WebSession, digest
 from ..security.context import AccessDenied
@@ -45,12 +45,21 @@ class EncryptedCalendarDocuments:
     async def get(self, path):
         return self.decode(self.path(path), await self.documents.get(path))
 
+    async def get_class_schedule(self, owner):
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', owner):
+            raise AccessDenied('class_schedule_owner_required')
+        return await self.documents.get('cp_class_schedules/' + owner)
+
     async def transact(self, callback):
         store = self
         async def transaction(tx):
             class Transaction:
                 async def get(self, path):
                     return store.decode(store.path(path), await tx.get(path))
+                async def get_class_schedule(self, owner):
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', owner):
+                        raise AccessDenied('class_schedule_owner_required')
+                    return await tx.get('cp_class_schedules/' + owner)
                 def set(self, path, value):
                     tx.set(store.path(path), store.encode(path, value))
                 def create(self, path, value):
@@ -74,16 +83,19 @@ class CalendarReadGrants:
             raise AccessDenied('calendar_session_rejected')
         return value
 
-    async def issue(self, owner, session_id, *, action='read_calendar', plan_id=None):
+    async def issue(self, owner, session_id, *, action='read_calendar', plan_id=None, horizon=None):
         if action not in ('read_calendar', 'apply_plan', 'verify_plan') or (action != 'read_calendar' and not plan_id):
             raise AccessDenied('calendar_grant_action')
+        if horizon is not None and action != 'read_calendar':
+            raise AccessDenied('calendar_grant_action')
+        horizon = calendar_horizon(horizon) if horizon is not None else None
         reference = secrets.token_urlsafe(32)
         async def save(tx):
             session = await self.session(tx, owner, session_id)
             path = 'cp_calendar_read_grants/' + digest(reference)
             await tx.get(path)
             tx.create(path, {'owner': owner, 'session': session_id, 'consumed': False,
-                'action': action, 'plan_id': plan_id,
+                'action': action, 'plan_id': plan_id, 'horizon': horizon,
                 'expires': min(session.expires_at, self.clock() + timedelta(seconds=60)).isoformat()})
         await self.documents.transact(save)
         return reference
@@ -135,10 +147,10 @@ class RemoteCalendarTools:
     def __init__(self, calendar, owner):
         self.calendar, self.owner = calendar, owner
 
-    async def read(self, *, session):
-        return await self.call('read_calendar', session=session)
+    async def read(self, *, session, horizon=None):
+        return await self.call('read_calendar', session=session, horizon=horizon)
 
-    async def call(self, action, *, session, plan_id=None):
+    async def call(self, action, *, session, plan_id=None, horizon=None):
         import httpx
         from mcp import ClientSession
         from mcp.client.streamable_http import streamable_http_client
@@ -146,7 +158,8 @@ class RemoteCalendarTools:
         trace = {'tool': action, 'run_id': 'run_' + uuid4().hex, 'call_id': 'call_' + uuid4().hex}
         try:
             async with asyncio.timeout(45):
-                reference = await self.calendar.grants.issue(self.owner, session, action=action, plan_id=plan_id)
+                reference = await self.calendar.grants.issue(self.owner, session, action=action, plan_id=plan_id,
+                    **({'horizon': horizon} if horizon is not None else {}))
                 issued = await PlatformIdTokenIssuer()(self.calendar.mcp_origin, 5)
                 headers = {'Authorization': 'Bearer ' + issued.value}
                 async with httpx.AsyncClient(headers=headers, trust_env=False, timeout=40,

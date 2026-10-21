@@ -14,8 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import Field, StringConstraints
 
 from ...domain.models import Contract, PlanVersion, VerificationResult
+from ...domain.ports import BindingConflict, PortError
 from ...domain.chat_plan import ClassSchedule
 from ...storage.plans import FirestorePlanStore, plan_reference
+from ...storage.snapshots import FirestoreSnapshotStore
 from ..app import create_app as create_identity_app
 from ..approval import FirestoreApprovalStore
 from ..auth import WebAuth
@@ -55,7 +57,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                   chat_agent=None, signin_url=None, moodle_enabled: bool = False,
                   chat_mode: str = 'recovery', owner_chat_history: bool = False,
                   account_url: str | None = None, planning_url: str | None = None, approval_store=None, email_credentials=None,
-                  google_calendar_enabled: bool = False, chat_sources=None):
+                  google_calendar_enabled: bool = False, chat_sources=None,
+                  calendar_plan_available: bool = False):
     """Trusted startup only. Missing runtime renders needs-input, never fake IO.
 
     runs_factory(auth) must return T24 RecoveryRuns using exactly this auth.
@@ -97,7 +100,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
         return render_shell(policy.config.student.timezone, demo_mode=demo_mode,
                             live_chat=chat_agent is not None, signin_url=signin_url,
                             moodle_enabled=moodle_enabled, chat_mode=chat_mode, account_url=account_url,
-                            planning_url=planning_url, google_calendar_enabled=google_calendar_enabled)
+                            planning_url=planning_url, google_calendar_enabled=google_calendar_enabled,
+                            calendar_plan_available=calendar_plan_available)
 
     @app.get("/assets/campuspulse.css")
     async def css():
@@ -121,6 +125,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             run = await runs.read(request, run_id)
         plan = approval = current = None
         sources = SafeSources()
+        sources_available = True
+        assignment_titles = {}
         with auth.request_scope(credential) as context:
             reference = None if run is None else run.plan
             if "plan_id" in request.query_params or "version" in request.query_params:
@@ -140,13 +146,28 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                 approval = await approvals.get(context, plan_reference(plan))
                 current = await plans.get_current(context)
             if projection is not None:
-                sources = SafeSources.model_validate(await projection.project(context, run=run, plan=plan))
+                try:
+                    sources = SafeSources.model_validate(await projection.project(context, run=run, plan=plan))
+                except BindingConflict:
+                    raise
+                except PortError:
+                    # Only optional display/evidence IO may degrade. The plan,
+                    # approval and current-version reads above must succeed.
+                    # Never reuse old evidence or expose a partial projection.
+                    sources_available = False
                 if sources.verification is not None and sources.verification.calendar_source is not None:
-
-
-
                     policy.require_source(context, sources.verification.calendar_source.reference, current_run=False)
 
+            if plan is not None and sources_available:
+                try:
+                    assignments, _ = await FirestoreSnapshotStore(documents, policy).get_for_plan(context, plan_reference(plan))
+                    assignment_titles = {task.assignment_id: task.title for task in assignments.assignments}
+                except BindingConflict:
+                    raise
+                except PortError:
+                    # Names are display metadata from the exact owned snapshot.
+                    # Keep stable IDs as fallback; never infer names from text.
+                    pass
             latest = await auth.load(request)
             if latest.session != credential.session:
                 from ...security.context import AccessDenied
@@ -155,7 +176,8 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             return render_panel(run=run, plan=plan, approval=approval, current=current,
                 sources=sources, timezone=policy.config.student.timezone,
                 now=clock(), runtime_available=runs is not None,
-                moodle_enabled=moodle_enabled)
+                moodle_enabled=moodle_enabled, sources_available=sources_available,
+                assignment_titles=assignment_titles, calendar_plan_available=calendar_plan_available)
 
 
 

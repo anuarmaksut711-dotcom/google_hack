@@ -1,0 +1,1 @@
+{"synthetic":true,"clock":"2026-10-17T16:00:00+00:00","engine_invocations":7,"model_responses":7,"tools":["read_assignments","read_calendar","read_assignments","read_calendar","read_assignments","read_calendar","apply_plan","verify_plan"],"calendar_mutations":2,"calendar_reads":8}

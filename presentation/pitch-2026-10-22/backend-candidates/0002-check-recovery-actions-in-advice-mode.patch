@@ -1,0 +1,12 @@
+--- a/tests/lms/test_web.py
++++ b/tests/lms/test_web.py
+@@ -162,7 +162,8 @@
+             await login(client)
+             panel = (await client.get('/ui/state')).text
+             assert 'сколько времени нужно на задания' in panel
+-            assert 'Запись в Google Calendar в этом режиме недоступна' in panel
++            assert 'data-action="approve"' not in panel
++            assert 'data-action="apply"' not in panel
+             assert 'href="#workspace"' in panel
+             assert 'data-runtime="false"' in panel
+             assert 'Безопасная сводка источника' not in panel

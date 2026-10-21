@@ -1,0 +1,158 @@
+{
+  "date": "2026-10-22",
+  "base_commit": "acf869b1eff2e50f2669c3f9f824b7b83cfb534d",
+  "branch": "codex/pitch-ui-demo",
+  "pytest": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "2369",
+    "time": "149.492",
+    "timestamp": "2026-10-22T01:09:57.925849+05:00"
+  },
+  "recovery_offline_passed": 347,
+  "voice_loopback_passed": 53,
+  "http_acceptance": {
+    "fixture_check": "passed",
+    "run_id": "run_a471dfa45a01489c804fcb7c179138cd",
+    "synthetic": true,
+    "clock": "2026-10-17T16:00:00+00:00",
+    "engine_invocations": 5,
+    "model_responses": 7,
+    "tools": [
+      "read_assignments",
+      "read_calendar",
+      "read_assignments",
+      "read_calendar",
+      "read_assignments",
+      "read_calendar",
+      "apply_plan",
+      "verify_plan"
+    ],
+    "schedule_imports": 1,
+    "calendar_mutations": 2,
+    "calendar_reads": 8
+  },
+  "browser": {
+    "synthetic": true,
+    "desktop_iframe_width": 1280,
+    "desktop_document_client_scroll": [
+      1260,
+      1260
+    ],
+    "narrow_iframe_width": 390,
+    "narrow_document_client_scroll": [
+      370,
+      370
+    ],
+    "checks": [
+      "PDF chosen without sending; click extraction; nullable dates; mandatory review; save",
+      "effort90/window save and reload",
+      "proposal excludes class22:00-22:20; first block22:30",
+      "exact approval; separate apply; independent verify; reload",
+      "actual apply_plan and verify_plan trace",
+      "final new iframe console: zero warnings/errors"
+    ]
+  },
+  "cloud_handoff": {
+    "branch": "codex/pitch-agent-cloud",
+    "sha": "1382f49aaba7c37c6571bbd8355349064e039012",
+    "live_acceptance": "pending per Merey handoff; no deploy by UI agent"
+  },
+  "real_gemini_ocr": "not tested",
+  "real_calendar_write": "not tested",
+  "presentation": {
+    "slides": 7,
+    "pdf_pages": 7,
+    "package_layout_import": "passed; zero findings",
+    "visual_review": "all7 PDF pages; slide3 line break repaired and rerendered"
+  },
+  "artifacts": {
+    "presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx": {
+      "bytes": 53296,
+      "sha256": "6c3adadc8dccdc9c14389d6275543e1f56d60e0aff0f755cd8cde86e00637403"
+    },
+    "presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf": {
+      "bytes": 179906,
+      "sha256": "55b8916179560b242bdffd03686ac53014608f704311a349000b83956b2ab9b1"
+    }
+  },
+  "managed_trace_ui": {
+    "tests": 6,
+    "scope": "controlled saved turns only; no invented calls; not live Agent Engine evidence"
+  },
+  "incoming_main": {
+    "sha": "1382f49aaba7c37c6571bbd8355349064e039012",
+    "merged": false,
+    "review": "P1 panel visibility; import delegation; class freshness in separate writer; details in UI handoff"
+  },
+  "environment": "isolated .venv-pitch with declared OAuth1.5.0/2.0.0/3.3.1 supplemented during earlier audit; requirements/test.lock unchanged",
+  "ui_focused_passed": 380,
+  "changed_files": [
+    "README.md",
+    "presentation/pitch-2026-10-22/CLOUD-FACTS-2026-10-22.md",
+    "presentation/pitch-2026-10-22/DEMO-SCRIPT-RU.md",
+    "presentation/pitch-2026-10-22/JURY-QA-RU.md",
+    "presentation/pitch-2026-10-22/README.md",
+    "presentation/pitch-2026-10-22/SCHEDULE-RECEIPT-2026-10-22.json",
+    "presentation/pitch-2026-10-22/SCHEDULE-VALIDATION-2026-10-22.md",
+    "presentation/pitch-2026-10-22/SPEECH-RU.md",
+    "presentation/pitch-2026-10-22/VIDEO-STATUS.md",
+    "presentation/pitch-2026-10-22/build-deck.mjs",
+    "presentation/pitch-2026-10-22/evidence/schedule/preparation-desktop.jpg",
+    "presentation/pitch-2026-10-22/evidence/schedule/preparation-mobile.png",
+    "presentation/pitch-2026-10-22/evidence/schedule/verified-390.jpg",
+    "presentation/pitch-2026-10-22/evidence/schedule/verified-desktop.png",
+    "presentation/pitch-2026-10-22/evidence/schedule/verified-mobile.png",
+    "presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf",
+    "presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx",
+    "presentation/pitch-2026-10-22/previews/overview.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-1.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-2.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-3.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-4.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-5.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-6.png",
+    "presentation/pitch-2026-10-22/previews/pdf-updated-7.png",
+    "presentation/pitch-2026-10-22/previews/slide-02.png",
+    "presentation/pitch-2026-10-22/previews/slide-03.png",
+    "presentation/pitch-2026-10-22/previews/slide-04.png",
+    "presentation/pitch-2026-10-22/previews/slide-05.png",
+    "presentation/pitch-2026-10-22/previews/slide-06.png",
+    "presentation/pitch-2026-10-22/previews/slide-07.png",
+    "presentation/pitch-2026-10-22/samples/synthetic-weekly-classes.pdf",
+    "setup/PITCH-UI-HANDOFF.md",
+    "src/campuspulse_recovery/agent/conversation.py",
+    "src/campuspulse_recovery/cloud/backend.py",
+    "src/campuspulse_recovery/cloud/calendar_app.py",
+    "src/campuspulse_recovery/lms/manual_schedule.py",
+    "src/campuspulse_recovery/lms/multiuser.py",
+    "src/campuspulse_recovery/lms/planning.py",
+    "src/campuspulse_recovery/lms/schedule_import.py",
+    "src/campuspulse_recovery/web/assets/client.py",
+    "src/campuspulse_recovery/web/assets/planning_styles.py",
+    "src/campuspulse_recovery/web/assets/sidebar.py",
+    "src/campuspulse_recovery/web/assets/styles.py",
+    "src/campuspulse_recovery/web/manual_schedule.py",
+    "src/campuspulse_recovery/web/recovery_planning.py",
+    "src/campuspulse_recovery/web/views/app.py",
+    "src/campuspulse_recovery/web/views/render.py",
+    "tests/lms/test_web.py",
+    "tests/pitch_ui/browser_fixture.py",
+    "tests/pitch_ui/test_classes_constraints.py",
+    "tests/pitch_ui/test_classes_constraints_backend.py",
+    "tests/pitch_ui/test_pitch_states.py",
+    "tests/pitch_ui/test_schedule_import.py",
+    "tests/pitch_ui/test_schedule_import_client.cjs",
+    "tests/pitch_ui/test_schedule_import_client.py",
+    "tests/pitch_ui/test_schedule_preparation.py",
+    "tests/pitch_ui/test_study_trace_ui.cjs",
+    "tests/pitch_ui/test_study_trace_ui.py",
+    "tests/pitch_ui/test_unified_schedule_ui.cjs",
+    "tests/pitch_ui/test_unified_schedule_ui.py",
+    "tests/web/test_ui_states.py"
+  ],
+  "implementation_commit": "342305472300db9b713fdab8febe9a6354cd367b",
+  "delivery_head_ref": "origin/codex/pitch-ui-demo; final documentation SHA is reported to user after remote verification"
+}

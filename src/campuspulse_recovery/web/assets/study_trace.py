@@ -12,7 +12,7 @@ SCRIPT = r"""
     const source = turn.status === 'completed' && Array.isArray(turn.tool_trace) && turn.tool_trace.length ? turn.tool_trace :
       Array.isArray(turn.agent_progress?.tool_calls) ? turn.agent_progress.tool_calls :
       Array.isArray(turn.tool_trace) ? turn.tool_trace : [];
-    return source.filter(call => Object.hasOwn(tools, call.tool)).slice(0, 12);
+    return source.filter(call => call && Object.hasOwn(tools, call.tool)).slice(0, 12);
   }
   function result(call, working) {
     if (call.status === 'unknown') return 'Результат не получен';
@@ -21,7 +21,7 @@ SCRIPT = r"""
       'Расписание пар не заполнено' : 'Moodle не подключён';
     if (call.status === 'unavailable') return 'Данные сейчас недоступны';
     if (call.status !== 'completed') return 'Не удалось получить данные';
-    const count = Number.isInteger(call.result_count) ? call.result_count : null;
+    const count = Number.isInteger(call.result_count) && call.result_count >= 0 ? call.result_count : null;
     if (count === null) return 'Данные получены';
     return (call.tool === 'read_assignments' ? 'Получено записей: ' : 'Получено занятий: ') + count;
   }

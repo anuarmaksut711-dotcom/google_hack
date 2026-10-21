@@ -8,7 +8,7 @@ SCRIPT = r"""'use strict';
   const answerReveal = new window.CampusPulseAnswerReveal();
   let scope = null, activeRun = null, busy = false, cursor = 0, traceBusy = false, generation = 0;
   let chatBusy = false, chatAvailable = false, chatWorking = false, chatLimitReached = false, pendingText = null;
-  let renderedChat = null, chatPoller = null;
+  let renderedChat = null, chatPoller = null, activeChatSend = null;
   let speechAvailable = false, voiceState = 'idle', voiceSession = null;
   const voiceSupported = !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   const voiceMime = voiceSupported ? ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -263,10 +263,10 @@ SCRIPT = r"""'use strict';
     if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
   }
   const views = {
-    assistant: ['Ассистент', 'Ваши задачи и планы'],
+    assistant: ['Ассистент', 'Ваши задания и расписание'],
     tasks: ['Мои задания', 'Задания и ближайшие сроки'],
     calendar: ['Google Calendar', 'Ваш календарь на ближайшие три дня'],
-    plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
+    plan: ['Предложенное расписание', 'Проверьте время и подтвердите точную версию'],
     journal: ['Журнал', 'Действия агента и результаты запуска']
   };
   function setNavigationOpen(open) {
@@ -355,7 +355,7 @@ SCRIPT = r"""'use strict';
         503: 'Результат запроса не подтверждён. Обновите сохранённое состояние.'};
       if (path.startsWith('/api/chat')) {
         messages[409] = 'Запрос чата уже выполняется, был изменён или достигнут лимит диалога. Обновите историю.';
-        messages[503] = 'Агент недоступен. Проверьте настройку Vertex AI на сервере.';
+        messages[503] = 'Ассистент сейчас недоступен. Попробуйте отправить сообщение позже.';
       }
       const error = new Error(messages[response.status] || 'Не удалось получить результат. Обновите состояние.');
       error.status = response.status;
@@ -510,7 +510,7 @@ SCRIPT = r"""'use strict';
       }
     } catch (error) {
       if (revision !== moodleRevision) return;
-      if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
+      if (error.status === 403) clearMoodle('Войдите в Google AI, чтобы увидеть свои задания из Moodle.');
       else $('moodle-status').textContent = 'Не удалось обновить задания. Если показаны сохранённые данные, они могли измениться. Повторите обновление.';
     } finally {
       if (revision === moodleRevision) {
@@ -534,7 +534,7 @@ SCRIPT = r"""'use strict';
   }
   function reference() {
     const node = $('plan-reference');
-    if (!node) throw new Error('Сначала загрузите сохранённую версию плана.');
+    if (!node) throw new Error('Сначала загрузите сохранённую версию расписания.');
     return {plan_id: node.dataset.planId, version: Number(node.dataset.version), payload_hash: node.dataset.hash};
   }
   function resizeComposer() {
@@ -549,11 +549,15 @@ SCRIPT = r"""'use strict';
   function controls() {
     voiceControls();
     resizeComposer();
-    document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy; });
-    $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || $('panel').querySelector('[data-runtime="true"]') === null;
+    document.querySelectorAll('[data-action]').forEach(button => { button.disabled = busy || chatBusy || $('panel').dataset.stale === 'true'; });
+    const chatSchedule = document.body.dataset.calendarPlanAvailable === 'true';
+    $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || (chatSchedule ? !chatAvailable : $('panel').querySelector('[data-runtime="true"]') === null);
+    document.querySelectorAll('[data-action="compose-schedule"]').forEach(button => { button.disabled = voiceState !== 'idle' || busy || chatBusy || !scope || !chatAvailable; });
+    document.querySelectorAll('[data-action="start"]').forEach(button => { button.disabled = $('start').disabled || $('panel').dataset.stale === 'true'; });
     $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
     $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
+    if ($('clear-run')) $('clear-run').disabled = !activeRun || busy || traceBusy;
     $('chat-send').disabled = voiceState !== 'idle' || busy || chatBusy || chatWorking || chatLimitReached || !scope || !chatAvailable || !$('recovery-message').value.trim();
     $('recovery-message').readOnly = chatBusy;
     $('chat-form').setAttribute('aria-busy', String(chatBusy));
@@ -590,6 +594,11 @@ SCRIPT = r"""'use strict';
       }
       if (code) { code.append(document.createTextNode(raw + '\n')); continue; }
       if (!line) { paragraph = list = null; continue; }
+      if (/^\/planning#draft=[0-9a-f]{64}$/.test(line)) {
+        paragraph = list = null;
+        const link = document.createElement('a'); link.href = line;
+        link.textContent = 'Просмотреть и сохранить пары'; node.append(link); continue;
+      }
       const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?$/);
       const item = line.match(/^(?:[-*+]|\d+[.)])\s+(.+)$/);
       if (heading) {
@@ -657,25 +666,27 @@ SCRIPT = r"""'use strict';
       summary.textContent = 'Сведения о запросе';
       meta.textContent = 'ID: ' + turn.request_key + ' · ' + new Date(turn.created_at).toLocaleString('ru-RU') +
         (turn.duration_ms === null ? '' : ' · ' + (turn.duration_ms / 1000).toFixed(1) + ' с');
-      details.append(summary, meta); reply.append(details); log.append(reply);
+      details.append(summary, meta);
+      if (typeof turn.agent_run_id === 'string' && turn.agent_run_id) {
+        const run = document.createElement('p'); run.textContent = 'Запуск агента: ' + turn.agent_run_id;
+        details.append(run);
+      }
+      reply.append(details); log.append(reply);
     }
     log.hidden = !chat.turns.length;
     $('workspace').classList.toggle('has-chat', chat.turns.length > 0);
     if (chat.turns.length) document.dispatchEvent(new Event('campuspulse:chat-history'));
-    const calendarAdvice = document.body.dataset.chatMode === 'calendar_advice';
-    $('chat-status').textContent = calendarAdvice ? (chatAvailable ?
-      'Составьте план в чате по дедлайнам Moodle. Укажите свободные часы и время на задания.' :
-      'Чат сейчас недоступен. Попробуйте обновить состояние.') : (chatAvailable ?
-      'Чат с агентом · изменения календаря применяются через согласование плана.' :
-      'Чат сейчас недоступен. Если проверка расписания доступна, начните с неё.');
+    $('chat-status').textContent = chatAvailable ?
+      'Уточните задания в чате. Сохраните пары и время для учёбы, затем проверьте предложенное расписание.' :
+      'Чат сейчас недоступен. Попробуйте обновить состояние.';
     const providerErrors = {
-      provider_request_rejected: 'Gemini отклонил запрос. Проверьте API-ключ и настройки модели.',
-      provider_auth_failed: 'Gemini не принял API-ключ. Проверьте ключ при запуске сервера.',
-      provider_access_denied: 'У ключа нет доступа к Gemini. Проверьте проект и ограничения ключа в AI Studio.',
-      provider_model_unavailable: 'Выбранная модель Gemini недоступна. Проверьте модель в настройках сервера.',
-      provider_quota: 'Gemini сообщил об ограничении квоты. Проверьте бесплатные лимиты проекта в AI Studio.',
-      provider_unavailable: 'Gemini временно недоступен. Попробуйте отправить сообщение позже.',
-      chat_runtime_failed: 'Ошибка подключения чата. Проверьте состояние локального сервера.'
+      provider_request_rejected: 'Ассистент не смог обработать запрос. Измените сообщение и попробуйте снова.',
+      provider_auth_failed: 'Ассистент сейчас недоступен. Попробуйте позже.',
+      provider_access_denied: 'Ассистент сейчас недоступен. Попробуйте позже.',
+      provider_model_unavailable: 'Ассистент сейчас недоступен. Попробуйте позже.',
+      provider_quota: 'Достигнут лимит запросов к ассистенту. Попробуйте позже.',
+      provider_unavailable: 'Ассистент временно недоступен. Попробуйте отправить сообщение позже.',
+      chat_runtime_failed: 'Не удалось подключиться к ассистенту. Попробуйте позже.'
     };
     if (providerErrors[chat.failure_code]) $('chat-status').textContent = providerErrors[chat.failure_code];
     controls();
@@ -698,11 +709,18 @@ SCRIPT = r"""'use strict';
           const top = conversation.scrollTop;
           showChat(chat, {animateRequestKey: turn.status === 'completed' ? requestKey : null});
           if (!nearEnd) conversation.scrollTop = top;
-          if (!chatBusy && stored(pendingChatKey()) === requestKey) {
+          if (turn.status !== 'working' && activeChatSend?.requestKey === requestKey && activeChatSend.chatId === chatId &&
+              activeChatSend.session === session && activeChatSend.selection === selection) {
+            // The authenticated history already settled this turn. Its POST
+            // may still be hung; retire it before allowing another send.
+            activeChatSend = null; chatBusy = false;
+          }
+          if (turn.status !== 'working' && !chatBusy && stored(pendingChatKey()) === requestKey) {
             if (turn.status === 'completed' && $('recovery-message').value.trim() === turn.message.trim())
               $('recovery-message').value = '';
-            stored(pendingChatKey(), null); pendingText = null; saveDraft(); controls();
+            stored(pendingChatKey(), null); pendingText = null; saveDraft();
           }
+          controls();
         }
         if (nearEnd) conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
       },
@@ -767,8 +785,11 @@ SCRIPT = r"""'use strict';
       return;
     }
     const hadPending = !!stored(pendingChatKey());
+    const sending = {}; activeChatSend = sending;
     chatBusy = true; controls();
     let submitted = null;
+    const selected = () => !submitted || (submitted.chatId === activeChat &&
+      submitted.session === scope && submitted.selection === chatGeneration);
     $('chat-status').textContent = 'Агент готовит ответ…';
     try {
       const request_key = keyFor(pendingChatKey()); pendingText = message;
@@ -793,15 +814,25 @@ SCRIPT = r"""'use strict';
         chats.selection(); updateNavigation({preserveNavigation: true});
       }
       const turn = {request_key, message, status: 'working', created_at: new Date().toISOString(), response: null, duration_ms: null};
-      submitted = {chatId: activeChat, session: scope, selection: chatGeneration, requestKey: request_key,
-        previous: renderedChat};
+      submitted = Object.assign(sending, {chatId: activeChat, session: scope, selection: chatGeneration,
+        requestKey: request_key, previous: renderedChat});
       showChat({...renderedChat, available: true, turns: [...(renderedChat?.turns || []).filter(item => item.request_key !== request_key), turn]});
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
       const response = api('/api/chat', {request_key, message, chat_id: activeChat});
       watchChatProgress(request_key);
       const chat = await (await response).json();
-      if (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration) return;
+      if (activeChatSend !== sending || !selected()) {
+        // History may finish before the POST's title/activity updates. Refresh
+        // their metadata without touching a newer draft, send or selection.
+        if (activeChatSend === null && selected()) {
+          const revision = generation, session = scope;
+          await chats.load();
+          if (revision === generation && session === scope && activeChatSend === null && selected())
+            updateNavigation({preserveNavigation: true});
+        }
+        return;
+      }
       const settled = chat.turns.find(item => item.request_key === request_key);
       if (settled?.status === 'working') {
         showChat(chat); watchChatProgress(request_key); return;
@@ -817,7 +848,7 @@ SCRIPT = r"""'use strict';
       await chats.load();
       updateNavigation({preserveNavigation: true});
     } catch (error) {
-      if (submitted && (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration)) return;
+      if (activeChatSend !== sending || !selected()) return;
       if (draftChat(activeChat)) { pendingText = null; saveDraft(); }
       if (draftChat(activeChat) && error.code === 'workspace_item_deleted') {
         stored(pendingChatKey() + ':creation', null); stored(pendingChatKey(), null);
@@ -845,19 +876,25 @@ SCRIPT = r"""'use strict';
         return;
       }
       $('chat-status').textContent = 'Не удалось получить ответ. Текст сохранён в поле. ' + error.message + ' Нажмите «Обновить состояние», чтобы проверить историю.';
-    } finally { chatBusy = false; controls(); $('recovery-message').focus({preventScroll: true}); }
+    } finally {
+      if (activeChatSend === sending) {
+        activeChatSend = null; chatBusy = false; controls();
+        if (selected()) $('recovery-message').focus({preventScroll: true});
+      }
+    }
   }
   async function refresh() {
     const revision = ++generation;
+    let sessionChecked = false;
     $('panel').setAttribute('aria-busy', 'true');
 
-    $('panel').replaceChildren();
+    $('panel').setAttribute('data-stale', 'true'); controls();
     $('trace-records').replaceChildren(); cursor = 0; $('trace-more').hidden = true;
     $('trace-health').textContent = 'Загрузите журнал выбранного запуска. Обновление не подтверждает результат.';
     try {
       const session = await (await api('/auth/session')).json();
-      if (scope !== session.session_id) { chats.reset(); clearDrafts(); pendingText = null; }
-      scope = session.session_id;
+      if (scope !== session.session_id) { $('panel').replaceChildren(); chats.reset(); clearDrafts(); pendingText = null; }
+      scope = session.session_id; sessionChecked = true;
       restoreDraft(activeChat);
       const selector = new URLSearchParams(location.search);
       activeRun = selector.get('run_id') || stored('run');
@@ -871,6 +908,8 @@ SCRIPT = r"""'use strict';
 
       const parsed = new DOMParser().parseFromString(text, 'text/html');
       $('panel').replaceChildren(...parsed.body.childNodes);
+      $('panel').setAttribute('data-stale', 'false');
+      window.dispatchEvent(new Event('campuspulse:panel-ready'));
       $('signout').hidden = false;
       await chats.load();
       if (revision !== generation) return;
@@ -882,9 +921,11 @@ SCRIPT = r"""'use strict';
         stored('run', activeRun);
         const locationQuery = new URLSearchParams({run_id: activeRun});
         history.replaceState(null, '', '/?' + locationQuery + location.hash);
+        await trace(true);
       }
     } catch (error) {
-      if (revision === generation) {
+      if (revision === generation && !sessionChecked) {
+        $('panel').replaceChildren();
         if (error.status === 403) clearDrafts(); else chatDrafts.clear();
         scope = null; activeRun = null; chatAvailable = false; chatWorking = false; chatLimitReached = false;
         chats.reset(); ++chatGeneration;
@@ -892,6 +933,8 @@ SCRIPT = r"""'use strict';
         $('workspace').classList.remove('has-chat');
         $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       }
+      if (revision === generation && sessionChecked)
+        $('chat-status').textContent = 'Вход подтверждён. Не удалось перечитать сохранённое состояние; повторите обновление.';
       throw error;
     } finally { $('panel').setAttribute('aria-busy', 'false'); controls(); }
   }
@@ -926,9 +969,9 @@ SCRIPT = r"""'use strict';
       focusPanel();
     } catch (error) {
 
-      $('panel').replaceChildren();
+      $('panel').setAttribute('data-stale', 'true');
       feedback(error.message === 'session' ? 'Войдите через настроенный вход.' :
-        error.message + ' Если ответ потерян, результат остаётся неизвестным. Повтор того же действия использует сохранённый ключ.', true);
+        error.message + ' Результат действия не подтверждён. Нажмите «Обновить состояние» перед повтором.', true);
     } finally { busy = false; controls(); }
   }
   async function trace(reset = false) {
@@ -939,32 +982,61 @@ SCRIPT = r"""'use strict';
       if (reset) { cursor = 0; $('trace-records').replaceChildren(); }
       const page = await (await api('/api/runs/' + encodeURIComponent(activeRun) + '/trace?after=' + cursor)).json();
       if (revision !== generation || run !== activeRun) return;
+      const purposes = {
+        read_assignments: 'Читает задания и сроки из настроенного источника',
+        read_calendar: 'Читает занятые интервалы и учебные блоки',
+        solve_repair: 'Рассчитывает предложенное расписание в пределах 72 часов',
+        apply_plan: 'Применяет только подтверждённую версию расписания',
+        verify_plan: 'Повторно читает источники и проверяет записанные изменения'
+      };
+      const toolNames = {read_assignments: 'Задания Moodle', read_calendar: 'Google Calendar',
+        solve_repair: 'Составление расписания', apply_plan: 'Добавление в Google Calendar', verify_plan: 'Проверка Google Calendar'};
+      const phases = {started: 'Вызов зарегистрирован', result: 'Получен результат',
+        completed: 'Наблюдение завершено', failed: 'Наблюдение с ошибкой'};
+      const statuses = {started: 'ожидается результат', complete: 'чтение завершено',
+        completed: 'завершено', proposed: 'получено предложение',
+        candidate: 'получен кандидат плана', feasible: 'план допустим', optimal: 'найден оптимальный план',
+        unknown: 'результат неизвестен', partial: 'выполнена часть операций',
+        applied_unverified: 'запись не подтверждена проверкой', verified: 'инструмент сообщил о проверке',
+        verification_failed: 'проверка выявила расхождения', denied: 'вызов отклонён',
+        error: 'ошибка', failed: 'ошибка', needs_input: 'нужны данные', stale: 'данные устарели',
+        no_change: 'изменения не требуются', unavailable: 'недоступно'};
       for (const record of page.records) {
-        const o = record.observation, event = o.event;
+        const o = record.observation, event = o.event, result = o.summary;
         const li = document.createElement('li'), details = document.createElement('details'),
-          title = document.createElement('summary'), pre = document.createElement('pre');
-        title.textContent = (event.tool || 'Запуск') + ' · ' + event.phase + ' · ' + event.status;
-
+          title = document.createElement('summary'), pre = document.createElement('pre'),
+          heading = document.createElement('h3'), purpose = document.createElement('p'), returned = document.createElement('p');
+        heading.textContent = (toolNames[event.tool] || 'Действие ассистента') + ' · ' + (phases[event.phase] || 'Обновление');
+        purpose.textContent = purposes[event.tool] || 'Событие запуска, зарегистрированное сервером';
+        const facts = [statuses[event.status] || 'Результат уточняется'];
+        if (event.phase === 'started') facts.push('результат этого вызова ещё не получен');
+        if (result.item_count !== null && result.item_count !== undefined) facts.push('Записей: ' + result.item_count);
+        if (result.operation_count !== null && result.operation_count !== undefined) facts.push('Операций: ' + result.operation_count);
+        if (result.completed_count !== null && result.completed_count !== undefined) facts.push('Завершено операций: ' + result.completed_count);
+        if (result.complete === false) facts.push('источник неполный');
+        if (result.verification_status) facts.push('Проверка: ' + (statuses[result.verification_status] || result.verification_status));
+        if (result.historical_verification) facts.push('историческая проверка; свежий результат не подтверждён');
+        returned.textContent = facts.join(' · ');
+        title.textContent = 'Подробности действия';
         pre.textContent = JSON.stringify({run_id: event.run_id, layer: o.layer, call_id: event.call_id,
           operation_id: event.operation_id, attempt_id: o.attempt_id, sequence: event.sequence,
-          occurred_at: event.occurred_at, duration_ms: event.duration_ms,
-          result: {item_count: o.summary.item_count, operation_count: o.summary.operation_count,
-            completed_count: o.summary.completed_count, complete: o.summary.complete,
-            verification_status: o.summary.verification_status}}, null, 2);
-        details.append(title, pre); li.append(details); $('trace-records').append(li);
+          occurred_at: event.occurred_at, duration_ms: event.duration_ms, result}, null, 2);
+        details.append(title, pre); li.append(heading, purpose, returned, details); $('trace-records').append(li);
       }
       const progressed = page.next > cursor;
       cursor = page.next;
       $('trace-more').hidden = !progressed;
       $('trace-health').textContent = page.records.length ?
-        'Показана страница наблюдений. Журнал не заменяет проверку календаря; raw данные источников скрыты.' :
-        'На этой странице нет записей. Пустой журнал не подтверждает результат.';
+        'Показаны сохранённые действия ассистента. Результат записи смотрите в предложенном расписании.' :
+        (cursor ? 'Все доступные события загружены. Итог записи смотрите в разделе «Предложенное расписание».' : 'На этой странице нет записей. Пустой журнал не подтверждает результат.');
     } catch (error) {
       if (revision === generation && run === activeRun)
         $('trace-health').textContent = 'Журнал недоступен или неполон. ' + error.message;
     } finally { traceBusy = false; controls(); $('trace-more').disabled = false; }
   }
-  $('start').addEventListener('click', () => act('start'));
+  $('start').addEventListener('click', () => {
+    if (document.body.dataset.calendarPlanAvailable !== 'true') act('start');
+  });
   $('chat-form').addEventListener('submit', sendMessage);
   $('recovery-message').addEventListener('input', () => { saveDraft(); controls(); });
   window.addEventListener('resize', resizeComposer);
@@ -991,6 +1063,15 @@ SCRIPT = r"""'use strict';
     }
   });
   document.addEventListener('click', event => {
+    const schedule = event.target.closest('[data-action="compose-schedule"]');
+    if (schedule && !schedule.disabled && !busy && !chatBusy && voiceState === 'idle') {
+      setNavigationOpen(false);
+      location.hash = chatHash(activeChat); updateNavigation();
+      if (!$('recovery-message').value.trim())
+        $('recovery-message').value = 'Помоги составить расписание по моим заданиям Moodle с учётом пар и Google Calendar. Я могу учиться ';
+      $('recovery-message').dispatchEvent(new Event('input', {bubbles: true}));
+      requestAnimationFrame(() => { $('recovery-message').focus({preventScroll: true}); $('recovery-message').setSelectionRange($('recovery-message').value.length, $('recovery-message').value.length); });
+    }
     const prompt = event.target.closest('[data-prompt]');
     if (prompt && !$('recovery-message').readOnly) {
       setNavigationOpen(false);
@@ -1048,7 +1129,13 @@ SCRIPT = r"""'use strict';
   }
   $('panel').addEventListener('click', event => {
     const button = event.target.closest('button[data-action]');
-    if (button && !button.disabled) act(button.dataset.action);
+    if (button && !button.disabled && ['start', 'approve', 'apply', 'revoke'].includes(button.dataset.action)) act(button.dataset.action);
+  });
+  $('clear-run')?.addEventListener('click', () => {
+    if (busy || traceBusy) return;
+    stored('run', null); activeRun = null;
+    history.replaceState(null, '', '/' + location.hash);
+    refresh().catch(error => feedback(error.message, true));
   });
   $('trace').addEventListener('click', () => trace(true));
   $('trace-more').addEventListener('click', () => trace(false));
@@ -1057,7 +1144,7 @@ SCRIPT = r"""'use strict';
     try { await api('/auth/signout', {}); ++generation; clearDrafts(); scope = null; activeRun = null;
       chats.reset(); clearDrafts(); activeChat = 'default'; ++chatGeneration;
       ++moodleRevision; moodleBusy = false;
-      clearMoodle('Войдите в Google AI, чтобы увидеть свои задания и баллы.');
+      clearMoodle('Войдите в Google AI, чтобы увидеть свои задания из Moodle.');
       if (moodleEnabled) { $('moodle-refresh').disabled = true; $('moodle').setAttribute('aria-busy', 'false'); }
       $('panel').replaceChildren(); $('trace-records').replaceChildren(); $('signout').hidden = true;
       $('chat-history').replaceChildren(); $('chat-history').hidden = true; $('conversation-index').replaceChildren();
@@ -1066,7 +1153,7 @@ SCRIPT = r"""'use strict';
       $('chat-status').textContent = 'Войдите, чтобы открыть чат.';
       $('trace-health').textContent = 'Войдите, чтобы загрузить журнал.';
       history.replaceState(null, '', '/'); updateNavigation();
-      feedback('Вы вышли. Для просмотра плана требуется вход.'); controls();
+      feedback('Вы вышли. Для просмотра расписания требуется вход.'); controls();
       if (document.body.dataset.signinUrl === '/login') window.location.assign('/login');
     } catch (error) {
       if (error.status === 403 && document.body.dataset.signinUrl === '/login') {
