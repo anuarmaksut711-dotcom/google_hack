@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import Field, StringConstraints
 
 from ...domain.models import Contract, PlanVersion, VerificationResult
+from ...domain.ports import BindingConflict, PortError
 from ...domain.chat_plan import ClassSchedule
 from ...storage.plans import FirestorePlanStore, plan_reference
 from ..app import create_app as create_identity_app
@@ -121,6 +122,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             run = await runs.read(request, run_id)
         plan = approval = current = None
         sources = SafeSources()
+        sources_available = True
         with auth.request_scope(credential) as context:
             reference = None if run is None else run.plan
             if "plan_id" in request.query_params or "version" in request.query_params:
@@ -140,11 +142,16 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
                 approval = await approvals.get(context, plan_reference(plan))
                 current = await plans.get_current(context)
             if projection is not None:
-                sources = SafeSources.model_validate(await projection.project(context, run=run, plan=plan))
+                try:
+                    sources = SafeSources.model_validate(await projection.project(context, run=run, plan=plan))
+                except BindingConflict:
+                    raise
+                except PortError:
+                    # Only optional display/evidence IO may degrade. The plan,
+                    # approval and current-version reads above must succeed.
+                    # Never reuse old evidence or expose a partial projection.
+                    sources_available = False
                 if sources.verification is not None and sources.verification.calendar_source is not None:
-
-
-
                     policy.require_source(context, sources.verification.calendar_source.reference, current_run=False)
 
             latest = await auth.load(request)
@@ -155,7 +162,7 @@ def create_ui_app(*, policy, documents, verifier, origin: str, environment: str,
             return render_panel(run=run, plan=plan, approval=approval, current=current,
                 sources=sources, timezone=policy.config.student.timezone,
                 now=clock(), runtime_available=runs is not None,
-                moodle_enabled=moodle_enabled)
+                moodle_enabled=moodle_enabled, sources_available=sources_available)
 
 
 

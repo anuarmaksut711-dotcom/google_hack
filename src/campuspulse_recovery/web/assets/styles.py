@@ -154,8 +154,8 @@ html[data-theme=dark] #voice-cancel:hover, html[data-theme=dark] #voice-stop:hov
 .chat-answer code { font-size: .9em; }
 .chat-answer > :first-child { margin-top: 0; }
 .chat-answer p { font-size: inherit; line-height: inherit; }
-.chat-reveal-part { animation: chat-part-appear 160ms ease-out; }
-@keyframes chat-part-appear { from { opacity: .35; } to { opacity: 1; } }
+.chat-reveal-part { animation: chat-part-appear 420ms cubic-bezier(.22, 1, .36, 1); }
+@keyframes chat-part-appear { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .chat-reveal-part { animation: none; } }
 .chat-system > .chat-answer { color: #e7cb90; }
 #panel:focus { outline: none; }
@@ -367,7 +367,7 @@ body[data-view=assistant] footer { min-height: 30px; padding-block: 3px 10px; fo
 #chat-limit p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
 @media (max-width: 760px) and (max-height: 640px) { .welcome-logo { width: 160px; margin-bottom: 1px; } }
 
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } .command-bar, #voice-toggle { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } .command-bar, #voice-toggle { animation: none !important; } }
 """
 STYLES += WORKSPACE_STYLES + ACCOUNT_STYLES
 from .sidebar import STYLES as SIDEBAR_STYLES

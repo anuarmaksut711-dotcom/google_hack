@@ -176,7 +176,8 @@ def verified_evidence(run, plan, sources, now):
         and evidence.checked_operations == tuple(op.operation_id for op in plan.payload.operations))
 
 
-def render_panel(*, run, plan, approval, current, sources, timezone, now, runtime_available, moodle_enabled=False):
+def render_panel(*, run, plan, approval, current, sources, timezone, now, runtime_available, moodle_enabled=False,
+                 sources_available=True):
     if moodle_enabled and not runtime_available:
         return ('<section class="outcome" data-status="needs_input" data-runtime="false">'
             '<h2>Составьте план с ассистентом</h2><p>Дедлайны находятся в разделе «Мои задания». '
@@ -186,7 +187,7 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
     status = "needs_input" if not runtime_available else "ready"
     if run is not None:
         status = "insufficient_capacity" if run.status == "infeasible" else run.status
-    proven = verified_evidence(run, plan, sources, now)
+    proven = sources_available and verified_evidence(run, plan, sources, now)
     if status == "verified" and not proven:
         status = "applied_unverified"
     ref = None if plan is None else plan_reference(plan)
@@ -195,9 +196,9 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
     terminal_consent = None if approval is None or active else (
         approval.status if approval.status != "active" else "expired")
     needs_new_version = plan is not None and (not is_current or terminal_consent is not None)
-    can_approve = (runtime_available and is_current and not active and approval is None
+    can_approve = (runtime_available and sources_available and is_current and not active and approval is None
                    and (run is None or run.status in {"proposed", "ready"}))
-    can_apply = (runtime_available and is_current and active and
+    can_apply = (runtime_available and sources_available and is_current and active and
                  (run is None or run.status in {"proposed", "ready"}))
     if plan is not None and (run is None or run.status in {"proposed", "ready"}):
         if not is_current:
@@ -212,6 +213,11 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         description = 'Начните с «Проверить расписание» на вкладке «Ассистент». Агент прочитает задания и календарь и предложит изменения.'
     html = [f'<section class="outcome" data-status="{e(status)}" data-runtime="{str(runtime_available).lower()}">',
         f'<h2>{title}</h2><p>{description}</p>']
+    if not sources_available:
+        saved_notice = 'Показана сохранённая версия плана. ' if plan is not None else ''
+        html.append('<p role="alert">Не удалось загрузить сводку источников и подтверждение проверки. '
+            + saved_notice + 'Действия с планом временно недоступны. '
+            'Нажмите «Обновить состояние», чтобы перечитать результат.</p>')
     if not runtime_available:
         html.append('<p>Облачный исполнитель не настроен. Запуск восстановления недоступен.</p>')
     if needs_new_version:
@@ -224,7 +230,8 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
     if run is not None:
         html.append('<p><a href="#journal-heading">Инструменты и результаты этого запуска</a></p>')
     if plan is not None:
-        consent = 'требуется для этой версии' if can_approve else 'эта версия согласована' if active else 'недоступно для этой версии'
+        consent = ('эта версия согласована' if active else 'требуется для этой версии'
+            if is_current and approval is None else 'недоступно для этой версии')
         html.append(f'<p>Подтверждение: {consent}.</p>')
     html.append('<p>Проверка записи: ' + ('подтверждена независимым чтением.' if proven else 'не подтверждена.') + '</p>')
     if proven:
@@ -237,7 +244,9 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
     html.append('</section><div class="sources" id="sources">')
     for heading, items in (("Задания", sources.assignments), ("Календарь", sources.calendar)):
         html.append(f'<section><h2>{heading}</h2>')
-        if heading == 'Календарь' and moodle_enabled:
+        if not sources_available:
+            html.append('<p>Сводку не удалось загрузить. Перечитайте состояние.</p>')
+        elif heading == 'Календарь' and moodle_enabled:
             html.append('<p>Для расчёта занятые интервалы читает <code>read_calendar</code>. '
                 'Фактические события инструмента доступны в журнале запуска.</p>'
                 '<p><a href="/planning">Проверить оставшееся время и сохранённые свободные часы</a></p>')
@@ -292,7 +301,7 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         html.append('<button type="button" data-action="approve">Согласовать эту версию</button>')
     if can_apply and payload.operations:
         html.append('<button type="button" data-action="apply">Применить согласованную версию</button>')
-    if active:
+    if active and sources_available:
         html.append('<button type="button" data-action="revoke">Отозвать согласование</button>')
     html.append('</div></section>')
     return ''.join(html)

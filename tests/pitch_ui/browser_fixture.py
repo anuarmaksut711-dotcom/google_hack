@@ -49,6 +49,8 @@ async def fixture_runtime():
     from campuspulse_recovery.cloud import agent, engine_transport, mcp
     from campuspulse_recovery.cloud.accounts import account_settings, account_policy, create_account_service
     from campuspulse_recovery.cloud.planning import planning_inputs
+    from campuspulse_recovery.cloud.backend import CloudBackend
+    from campuspulse_recovery.domain.ports import PortError
 
     monkeypatch = pytest.MonkeyPatch()
     connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
@@ -71,6 +73,15 @@ async def fixture_runtime():
     monkeypatch.setattr('google.auth.default', credentials)
     monkeypatch.delenv('GEMINI_API_KEY', raising=False)
     monkeypatch.delenv('GOOGLE_APPLICATION_CREDENTIALS', raising=False)
+    failures = {'evidence': False}
+    original_evidence = CloudBackend.stored_evidence
+
+    async def stored_evidence(backend, *args, **kwargs):
+        if failures['evidence']:
+            raise PortError('synthetic_evidence_read_unavailable')
+        return await original_evidence(backend, *args, **kwargs)
+
+    monkeypatch.setattr(CloudBackend, 'stored_evidence', stored_evidence)
     try:
         with tempfile.TemporaryDirectory(prefix='campuspulse-browser-fixture-') as directory:
             h = Backend(monkeypatch)
@@ -112,12 +123,12 @@ async def fixture_runtime():
             monkeypatch.setattr('vertexai.Client', Client)
             monkeypatch.setattr(engine_transport, 'RefreshingIdTokenHeaders', lambda audience: token)
             async with h.runtime(monkeypatch):
-                yield outer_app(app, h, invocations)
+                yield outer_app(app, h, invocations, failures)
     finally:
         monkeypatch.undo()
 
 
-def outer_app(inner, harness, invocations):
+def outer_app(inner, harness, invocations, failures):
     outer = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @outer.middleware('http')
@@ -156,6 +167,23 @@ def outer_app(inner, harness, invocations):
         return {'synthetic': True, 'clock': NOW.isoformat(), 'engine_invocations': len(invocations),
             'model_responses': len(harness.model_calls), 'tools': list(harness.tool_calls),
             'calendar_mutations': len(harness.api.mutations), 'calendar_reads': len(harness.calendar_reads)}
+
+    @outer.get('/fixture/evidence', response_class=HTMLResponse)
+    async def evidence_controls():
+        return HTMLResponse('<!doctype html><html lang="ru"><meta charset="utf-8">'
+            '<title>Синтетическая проверка отказа</title><h1>Только локальный тестовый стенд</h1>'
+            '<p>Чтение evidence: ' + ('ошибка' if failures['evidence'] else 'доступно') + '</p>'
+            '<form method="post"><button name="available" value="0">Отключить тестовое чтение evidence</button> '
+            '<button name="available" value="1">Восстановить тестовое чтение evidence</button></form>'
+            '<p><a href="/#panel">Вернуться к сохранённому плану</a></p></html>')
+
+    @outer.post('/fixture/evidence')
+    async def evidence_failure(request: Request):
+        value = await request.body()
+        if value not in (b'available=0', b'available=1'):
+            return Response('Invalid synthetic control.', status_code=400)
+        failures['evidence'] = value == b'available=0'
+        return RedirectResponse('/#panel', status_code=303)
 
     @outer.get('/fixture/viewport', response_class=HTMLResponse)
     async def viewport(request: Request):
