@@ -21,7 +21,6 @@ from pathlib import Path
 import re
 import socket
 import tempfile
-from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import httpx
@@ -46,7 +45,7 @@ NOTICE = ('ЛОКАЛЬНАЯ СИНТЕТИЧЕСКАЯ ПРОВЕРКА · Goo
 async def fixture_runtime():
     """Use exactly the existing website integration test composition."""
     from campuspulse_recovery.agent_engine import runtime
-    from campuspulse_recovery.cloud import agent, engine_transport, mcp
+    from campuspulse_recovery.cloud import agent, engine_transport, mcp, recovery
     from campuspulse_recovery.cloud.accounts import account_settings, account_policy, create_account_service
     from campuspulse_recovery.cloud.planning import planning_inputs
     from campuspulse_recovery.cloud.backend import CloudBackend
@@ -104,23 +103,26 @@ async def fixture_runtime():
             monkeypatch.setattr(runtime, '_worker_app', worker)
             invocations = []
 
-            class Client:
-                def __init__(self, **kwargs):
-                    self.agent_engines = SimpleNamespace(get=lambda **kw: SimpleNamespace(async_query=self.query))
-                    self.aio = SimpleNamespace(aclose=self.close)
-                    self._api_client = SimpleNamespace(close=lambda: None)
+            async def query(request):
+                payload = json.loads(request.content)
+                assert payload['class_method'] == 'async_query'
+                assert request.headers['authorization'] == 'Bearer synthetic-access'
+                invocations.append(payload['input']['invocation'])
+                return httpx.Response(200, json={'output': await engine.async_query(**payload['input'])})
 
-                async def query(self, **kwargs):
-                    invocations.append(kwargs['invocation'])
-                    return await engine.async_query(**kwargs)
+            async def access_token(seconds):
+                return 'synthetic-access'
 
-                async def close(self):
-                    pass
+            def http_client_factory(**options):
+                return httpx.AsyncClient(transport=httpx.MockTransport(query), **options)
 
             async def token(_):
                 return {'Authorization': 'Bearer synthetic-service'}
 
-            monkeypatch.setattr('vertexai.Client', Client)
+            original_transport = engine_transport.AgentEngineTransport
+            monkeypatch.setattr(recovery, 'AgentEngineTransport', lambda target, **options:
+                original_transport(target, access_token_factory=access_token,
+                    http_client_factory=http_client_factory, **options))
             monkeypatch.setattr(engine_transport, 'RefreshingIdTokenHeaders', lambda audience: token)
             async with h.runtime(monkeypatch):
                 # Keep the real bounded extraction adapter; replace only the

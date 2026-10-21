@@ -817,7 +817,17 @@ SCRIPT = r"""'use strict';
       const response = api('/api/chat', {request_key, message, chat_id: activeChat});
       watchChatProgress(request_key);
       const chat = await (await response).json();
-      if (activeChatSend !== sending || !selected()) return;
+      if (activeChatSend !== sending || !selected()) {
+        // History may finish before the POST's title/activity updates. Refresh
+        // their metadata without touching a newer draft, send or selection.
+        if (activeChatSend === null && selected()) {
+          const revision = generation, session = scope;
+          await chats.load();
+          if (revision === generation && session === scope && activeChatSend === null && selected())
+            updateNavigation({preserveNavigation: true});
+        }
+        return;
+      }
       const settled = chat.turns.find(item => item.request_key === request_key);
       if (settled?.status === 'working') {
         showChat(chat); watchChatProgress(request_key); return;

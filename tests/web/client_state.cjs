@@ -141,7 +141,9 @@ async function terminalProgressReconcilesOriginalDraftAndPreservesEdits() {
 
 async function terminalProgressReleasesSendBeforePostSettles() {
   const h = harness();
-  let resolvePost;
+  let resolvePost, workspaceLoads = 0, navigationUpdates = 0;
+  h.sandbox.chats.load = async () => { ++workspaceLoads; };
+  h.sandbox.updateNavigation = () => { ++navigationUpdates; };
   h.sandbox.showChat({available: true, turns: []});
   h.$('recovery-message').value = 'Accepted question';
   h.sandbox.api = () => new Promise(resolve => { resolvePost = resolve; });
@@ -159,6 +161,8 @@ async function terminalProgressReleasesSendBeforePostSettles() {
   resolvePost({json: async () => ({available: true, turns: [turn]})});
   await sending;
   assert.equal(h.$('recovery-message').value, 'My next unsent question', 'The late POST must not clear a newer unsent draft');
+  assert.equal(workspaceLoads, 1, 'The successful POST must refresh the final title and workspace revision after polling settles the answer');
+  assert.equal(navigationUpdates, 1, 'The refreshed chat title must reach navigation without rebuilding the answer');
 }
 
 async function workingProgressWithoutRenderedReplyKeepsTheSendPending() {
