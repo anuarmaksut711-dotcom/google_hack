@@ -11,11 +11,16 @@ function element(tag = 'div') {
  get textContent(){return text + this.children.map(child=>typeof child==='string'?child:child.textContent).join('');},
  set textContent(value){text=String(value);this.children=[];}};
 }
-const client = fs.readFileSync(path.join(process.argv[2], 'src/campuspulse_recovery/web/assets/client.py'), 'utf8');
+const client = fs.readFileSync(path.join(process.argv[2], 'src/campuspulse_recovery/web/assets/client.py'), 'utf8').replace(/\r\n/g, '\n');
+function clientBetween(start, end) {
+ const from=client.indexOf(start),to=client.indexOf(end,from);
+ assert(from>=0&&to>from,`Missing shipped client boundary: ${start}`);
+ return client.slice(from,to);
+}
 const panel = element(), recoveryActions = [];
 const panelContext = {$:()=>panel, act:action=>recoveryActions.push(action)};
 vm.createContext(panelContext);
-vm.runInContext(client.slice(client.indexOf("  $('panel').addEventListener('click'"), client.indexOf("  $('clear-run')?")), panelContext);
+vm.runInContext(clientBetween("  $('panel').addEventListener('click'", "  $('clear-run')?"), panelContext);
 panel.listeners.click({target:{closest:()=>({disabled:false,dataset:{action:'compose-schedule'}})}});
 assert.deepEqual(recoveryActions,[],'Compose CTA must not dispatch a recovery write action');
 const composer = {value:'',dispatchEvent(){},focus(){},setSelectionRange(){}}, clickHandlers = [];
@@ -26,8 +31,8 @@ const composerContext = {$:()=>composer, Event, requestAnimationFrame:callback=>
  sendMessage(){throw Error('Preparing a draft must not send a message');},
  api(){throw Error('Preparing a draft must not perform a request');}};
 vm.createContext(composerContext);
-vm.runInContext(client.slice(client.indexOf("  document.addEventListener('click', event => {"),client.indexOf("  updateNavigation();\n  $('focus-composer')")),composerContext);
-const scheduleEvent={target:{closest:selector=>selector==='[data-action="compose-schedule"]'?{disabled:false}:null}};
+vm.runInContext(clientBetween("  document.addEventListener('click', event => {", "\n  updateNavigation();"),composerContext);
+const scheduleEvent={target:{closest:selector=>selector==='[data-action="compose-schedule"]'?{disabled:false,closest:()=>null}:null}};
 clickHandlers[0](scheduleEvent);
 assert.equal(composerContext.location.hash,'#workspace');assert.match(composer.value,/Я могу учиться/);
 composer.value='Мой собственный запрос';clickHandlers[0](scheduleEvent);

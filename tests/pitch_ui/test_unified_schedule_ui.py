@@ -20,26 +20,46 @@ def test_proposed_schedule_is_a_direct_navigation_destination_in_each_chat_confi
     markup = Markup(html)
     links = [node for node in markup.nodes if node["tag"] == "a"
              and node["attrs"].get("data-view") == "plan"]
-    assert links
+    assert len(links) == 1
+    assert links[0]["attrs"]["href"] == "#panel"
     assert all(not any(parent["tag"] == "details" for parent in link["parents"]) for link in links)
     assert any(link["attrs"].get("aria-label") == "Предложенное расписание" for link in links)
     assert all("hidden" not in parent["attrs"] for link in links for parent in link["parents"])
-    assert "Мой план" not in html and "План изменений" not in html
+    assert any(node["tag"] == "span" and node["attrs"].get("class") == "nav-label"
+               and links[0] in node["parents"] for node in markup.nodes)
+    assert '<span class="nav-label">Мой план</span>' in html
+    assert "План изменений" not in html
     assert "Мои задания и баллы" not in html
 
 
 @pytest.mark.parametrize("mode", ["recovery", "calendar_advice"])
-def test_guided_flow_connects_moodle_preparation_review_and_calendar(mode):
+def test_shared_navigation_connects_moodle_preparation_review_and_calendar(mode):
     html = render_shell("Asia/Almaty", moodle_enabled=True, chat_mode=mode,
-                        planning_url="/planning", google_calendar_enabled=True)
+                        planning_url="/planning", google_calendar_enabled=True,
+                        calendar_plan_available=True)
     markup = Markup(html)
-    steps = [node for node in markup.nodes if node["tag"] == "a"
-             and any(parent["attrs"].get("id") == "schedule-steps" for parent in node["parents"])]
+    links = {node["attrs"].get("data-view"): node for node in markup.nodes
+             if node["tag"] == "a" and any(parent["attrs"].get("id") == "sidebar"
+                                           for parent in node["parents"])}
+    steps = [links[view] for view in ("tasks", "planning", "plan", "calendar")]
     assert [step["attrs"]["href"] for step in steps] == ["#moodle", "/planning", "#panel", "#calendar"]
     assert all(not any(parent["tag"] == "details" or "hidden" in parent["attrs"]
                        for parent in step["parents"]) for step in steps)
     assert "Пары и время для учёбы" in html
     assert "Составить расписание" in html
+    start = markup.by_id("start")
+    assert start["attrs"]["type"] == "button"
+    assert start["attrs"]["data-action"] == "compose-schedule"
+    assert "hidden" not in start["attrs"]
+    assert any(parent["tag"] == "details" and parent["attrs"].get("class") == "composer-options"
+               for parent in start["parents"])
+    assert any(parent["attrs"].get("id") == "chat-form" for parent in start["parents"])
+    # The accepted home keeps actions in the sidebar/composer, with no duplicate
+    # stepper or deadline/three-day shortcuts below the welcome heading.
+    assert not any(node["attrs"].get("id") == "schedule-steps" for node in markup.nodes)
+    assert not any(node["tag"] in {"a", "button"} and
+                   any("intro" in parent["attrs"].get("class", "").split() for parent in node["parents"])
+                   for node in markup.nodes)
 
 
 def test_missing_executor_offers_preparation_without_a_chat_only_mode_or_write_controls():

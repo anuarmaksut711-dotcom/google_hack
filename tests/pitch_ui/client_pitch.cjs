@@ -43,7 +43,7 @@ function harness() {
   const h=harness();
   Object.assign(h.sandbox, {
     chats:{reset(){},load:async()=>{}}, clearDrafts(){}, restoreDraft(){},
-    chatDrafts:new Map(), loadChat:async()=>{}, updateNavigation(){},
+    chatDrafts:new Map(), loadChat:async()=>{}, loadMoodle(){}, updateNavigation(){},
     api:async p=>{
       if(p==='/auth/session')return {json:async()=>({session_id:'session-one'})};
       throw Error('state unavailable');
