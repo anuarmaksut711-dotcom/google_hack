@@ -187,3 +187,95 @@ first, Engine second, and activate the website last. Older invocations omit the
 field and remain supported. Existing settings version 3, service identities,
 private MCP access and Calendar write restrictions are unchanged. Live rollout
 results for this follow-up are recorded after verification below.
+
+When later integrating `codex/pitch-ui-demo` (inspected at `15bb5fd`), keep a
+single chat activity renderer. That branch already has a saved-only
+`appendChatToolTrace` helper; this release's `CampusPulseStudyTrace` handles both
+saved observations and the live lifecycle. Rendering both would duplicate the
+same calls. The current release intentionally integrates only chat activity,
+without merging unrelated planning, Calendar or presentation changes from that
+branch. The user's explicit request authorizes this scoped chat UI update.
+
+The website calls the same Engine `async_query` operation through the fixed
+regional authenticated REST endpoint. Platform ADC access tokens authorize the
+outer API call; the existing service ID token remains inside the private
+operation input. No service-account key, discovery request, redirect or retry is
+introduced. ADC discovery/refresh runs off the web event loop, and both time and
+streamed response size are bounded. This avoids the synchronous package scan
+observed in the Vertex SDK's lazy Agent Engines client on a cold web instance.
+
+Pre-progress `chat-v1` records retain their exact canonical serialization and
+digest: absent progress remains absent. The brief first trace rollout's explicit
+null shape has a separate exact decoder; original bytes and hashes are checked
+before conversion. Non-null progress remains durable for reload. Consequently,
+the older `1382f49` application can read ordinary new turns but cannot read turns
+with non-null progress; use a progress-compatible image when rolling back after
+this feature is accepted. Existing records must never be deleted or rehashed to
+work around a decoding failure.
+
+Managed chat titles use the first seven words of the same user's message,
+bounded to 60 characters and validated by the existing workspace rules. Naming
+does not start a second local model after the Engine finishes. Manual names
+remain protected, and ordinary non-managed chat and speech behavior are
+unchanged. This website-only adjustment does not change the MCP or Engine
+operation contract.
+
+## Verified trace release artifacts
+
+| Component | Runtime source | Verification / deployment |
+| --- | --- | --- |
+| Private MCP and existing Engine | `e0e866ec7aaa70ac0de22e0854d7ef7ffe8fdb3b` | Cloud Build `fcc15acc-ef60-4e99-a7bd-335da81ecc16`, 2354 tests, no failures/errors/skips; dependency, evaluation, package and MCP composition gates passed |
+| Website, including the title latency fix | `4ffacf70192d35657cba2d8f041214570219adec` | Cloud Build `7f5c7321-b432-483e-99c6-f9076c169311`, 2360 tests, no failures/errors/skips; all release gates passed; GitHub CI `39680021992` passed |
+
+The MCP revision is `campuspulse-mcp-trace-e0e866e`. Its image is
+`us-central1-docker.pkg.dev/project-e25873c6-e889-40bb-86d/campuspulse/study-agent@sha256:87290ceba6df2a518d4e2082f1f1ada4e43d1af4ec40e3fc7f3bca47e16422ca`.
+The same verified package updated the existing Engine, with wheel SHA-256
+`3d883f13e5e9044c4b2c4054d98327273f9778acd8c3664eb748e84dfcd9a6e4`.
+The completed Engine update timestamp is `2026-10-21T21:28:45.405569Z`.
+
+The website revision is `campuspulse-trace-4ffacf7`, with image
+`us-central1-docker.pkg.dev/project-e25873c6-e889-40bb-86d/campuspulse/study-agent@sha256:eb4a47ce6c99e1abf94be017a9540289036fc0ab14bd01a55c3c9560b56989c7`.
+Its package SHA-256 is
+`6fee53da7169e81a1d27f75da016dcb57db490ae158fe7cd0da70f8b40c3458b`;
+the website-only title adjustment did not redeploy the compatible MCP/Engine.
+Both Cloud Run services use settings secret 3, OAuth secret 1 and the existing
+service accounts. The Engine still exposes only `async_query`.
+
+The application changes are authored and committed by `bossmerej-ship-it` and
+pushed to both `main` and `codex/pitch-agent-cloud` in
+`anuarmaksut711-dotcom/google_hack`. No history rewrite is used for this release.
+For a website-only rollback after trace adoption, use
+`campuspulse-trace-e0e866e`, which can read the new saved progress records.
+
+## Signed-in browser acceptance of the trace release
+
+The normal Google session on the main website exercised the real managed agent
+and private MCP. A running `read_assignments` call was visible before completion,
+then the actual source outcomes appeared while the model prepared its answer.
+Collapsing the native disclosure with the keyboard survived live updates;
+reopening it and reloading the page retained the saved observations without
+another Engine invocation. The existing smooth answer reveal remains in place.
+The component was inspected in light and dark themes; the desktop browser had
+one activity card and no horizontal overflow or console errors.
+
+The final website revision was tested with its first new conversation after the
+Engine had idled. It returned 15 actual Moodle records and the explicit
+`read_schedule: not_connected` outcome. The answer contained three 45-minute
+study blocks for 22–24 October, starting at 19:00 Asia/Qyzylorda. It was correctly
+labelled a draft because the weekly class schedule is not filled in. No Calendar
+event, saved Calendar proposal or write was created.
+
+This cold request took 65.758 seconds in the managed path and 66.063 seconds for
+the full POST. All 45 observed progress GETs returned 200: median 0.168 seconds,
+maximum 0.483 seconds. Thus cloud startup/source latency remains visible, while
+the website stays responsive and does not add the previous local title-model
+pause after the reply is saved. The short title was generated automatically
+without another model, and the same completed run and trace survived reload.
+An earlier warmed-Engine request completed its managed path in 13.056 seconds;
+these timings describe different startup conditions, not a performance promise.
+
+Sanitized local evidence and browser screenshots are kept in ignored validation
+folders. User messages, source URLs, tokens and personal source contents are not
+published as repository artifacts. The full tests use synthetic external edges
+or the Firestore emulator; the signed-in checks above establish live connectivity
+only for the tested account and requests.
