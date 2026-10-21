@@ -25,6 +25,9 @@ def main():
         results.append({'check':name,'exit_code':result.returncode})
         print(json.dumps(results[-1]), flush=True)
         if result.returncode:
+            # Failed Docker layers cannot export /out as release artifacts.
+            # Surface bounded test diagnostics in Cloud Build's existing log.
+            print((a.output / (name + '.log')).read_text(errors='replace')[-24000:], flush=True)
             raise RuntimeError('release_check_failed:' + name)
 
     py = sys.executable
