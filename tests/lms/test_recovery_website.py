@@ -1,5 +1,6 @@
 """Published-app composition with real auth/session/storage boundaries."""
 import asyncio
+import json
 import logging
 from copy import deepcopy
 from pathlib import Path
@@ -110,9 +111,8 @@ def test_unconfigured_user_keeps_calendar_chat_and_cannot_run_recovery(tmp_path,
 @pytest.mark.parametrize('change', [None, 'effort', 'completion', 'feed'])
 def test_website_custom_engine_mcp_approval_verify_and_replay(tmp_path, monkeypatch, change):
     from contextlib import asynccontextmanager
-    from types import SimpleNamespace
     from campuspulse_recovery.agent_engine import runtime
-    from campuspulse_recovery.cloud import agent, engine_transport, mcp
+    from campuspulse_recovery.cloud import agent, engine_transport, mcp, recovery
     from campuspulse_recovery.cloud.accounts import account_settings, account_policy, create_account_service
     from campuspulse_recovery.cloud.planning import planning_inputs
     from tests.lms.test_planning_backend import Backend
@@ -138,17 +138,19 @@ def test_website_custom_engine_mcp_approval_verify_and_replay(tmp_path, monkeypa
             yield create_account_service(parsed, docs, boundary='agent', factory=agent.create_agent, close=lambda: None)
         monkeypatch.setattr(runtime, '_worker_app', worker)
         calls = []
-        class Client:
-            def __init__(self, **kwargs):
-                self.agent_engines = SimpleNamespace(get=lambda **kw: SimpleNamespace(async_query=self.query))
-                self.aio = SimpleNamespace(aclose=self.close)
-                self._api_client = SimpleNamespace(close=lambda: None)
-            async def query(self, **kwargs):
-                calls.append(kwargs['invocation'])
-                return await engine.async_query(**kwargs)
-            async def close(self): pass
+        async def query(request):
+            payload = json.loads(request.content)
+            assert payload['class_method'] == 'async_query'
+            assert request.headers['authorization'] == 'Bearer synthetic-access'
+            calls.append(payload['input']['invocation'])
+            return httpx.Response(200, json={'output': await engine.async_query(**payload['input'])})
+        def http(**options):
+            return httpx.AsyncClient(transport=httpx.MockTransport(query), **options)
+        async def access(seconds): return 'synthetic-access'
         async def token(_): return {'Authorization': 'Bearer synthetic-service'}
-        monkeypatch.setattr('vertexai.Client', Client)
+        original_transport = engine_transport.AgentEngineTransport
+        monkeypatch.setattr(recovery, 'AgentEngineTransport', lambda target, **options:
+            original_transport(target, access_token_factory=access, http_client_factory=http, **options))
         monkeypatch.setattr(engine_transport, 'RefreshingIdTokenHeaders', lambda audience: token)
         async with h.runtime(monkeypatch), client(app) as alice, client(app) as bob:
             await login(alice, 'alice'); await login(bob, 'bob')

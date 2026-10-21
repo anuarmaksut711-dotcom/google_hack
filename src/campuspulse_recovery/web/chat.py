@@ -56,11 +56,34 @@ class ChatTurn(Contract):
     duration_ms: int | None = None
     tool_trace: Annotated[tuple[ChatToolTrace, ...], Field(max_length=12)] = ()
     agent_run_id: TechnicalId | None = None
-    agent_progress: StudyProgress | None = None
+    # Preserve the exact chat-v1 bytes of pre-progress turns. In particular,
+    # adding a default None must not invalidate an existing canonical digest.
+    agent_progress: StudyProgress | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Conversation(Contract):
     turns: Annotated[tuple[ChatTurn, ...], Field(max_length=40)] = ()
+
+
+class _NullableProgressTurn(ChatTurn):
+    """Exact shape emitted by the first progress rollout, including null."""
+    agent_progress: StudyProgress | None = None
+
+
+class _NullableProgressConversation(Contract):
+    turns: Annotated[tuple[_NullableProgressTurn, ...], Field(max_length=40)] = ()
+
+
+def _conversation(document):
+    if document is None:
+        return Conversation()
+    try:
+        return _decode(document, 'chat-v1', Conversation)
+    except BindingConflict:
+        # Verify the original bytes and digest against that exact historical
+        # model before converting; never strip fields or repair stored hashes.
+        previous = _decode(document, 'chat-v1', _NullableProgressConversation)
+        return Conversation.model_validate(previous.model_dump(mode='json'))
 
 
 def history_limit_reached(chat):
@@ -86,7 +109,7 @@ class ChatStore(_Repository):
         async def transact(tx):
             await self.workspace.require_chat(context, chat_id, reader=tx)
             saved = await tx.get(self.path(context, chat_id))
-            return Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
+            return _conversation(saved)
         return await self.documents.transact(transact)
 
     async def claim(self, context, value, now):
@@ -94,7 +117,7 @@ class ChatStore(_Repository):
         async def transact(tx):
             await self.workspace.require_chat(context, value.chat_id, reader=tx)
             saved = await tx.get(path)
-            chat = Conversation() if saved is None else _decode(saved, 'chat-v1', Conversation)
+            chat = _conversation(saved)
             previous = next((t for t in chat.turns if t.request_key == value.request_key), None)
             if previous:
                 if previous.message != value.message:
@@ -121,7 +144,7 @@ class ChatStore(_Repository):
         path = self.path(context, chat_id)
         async def transact(tx):
             await self.workspace.require_chat(context, chat_id, reader=tx)
-            chat = _decode(await tx.get(path), 'chat-v1', Conversation)
+            chat = _conversation(await tx.get(path))
             turns = list(chat.turns)
             for index, turn in enumerate(turns):
                 if turn.request_key == key:
@@ -183,7 +206,7 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
                     live = live.settled(success=turn['status'] == 'completed')
                 turn['agent_progress'] = live.model_dump(mode='json', exclude_none=True)
             else:
-                turn.pop('agent_progress')
+                turn.pop('agent_progress', None)
         result = {'available': agent is not None, 'turns': turns,
                   'limit_reached': history_limit_reached(chat)}
         if callable(getattr(agent, 'transcribe', None)):
