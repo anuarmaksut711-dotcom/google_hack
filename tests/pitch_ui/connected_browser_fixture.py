@@ -161,18 +161,19 @@ async def fixture_runtime():
             class CalendarTools:
                 def __init__(self, calendar, owner):
                     self.calendar, self.owner = calendar, owner
-                async def read(self, *, session):
-                    return await self.call('read_calendar', session=session)
-                async def call(self, action, *, session, plan_id=None):
+                async def read(self, *, session, horizon=None):
+                    return await self.call('read_calendar', session=session, horizon=horizon)
+                async def call(self, action, *, session, plan_id=None, horizon=None):
                     calendar = self.calendar
-                    reference = await calendar.grants.issue(self.owner, session, action=action, plan_id=plan_id)
+                    reference = await calendar.grants.issue(self.owner, session, action=action, plan_id=plan_id,
+                        **({'horizon': horizon} if horizon is not None else {}))
                     await calendar.grants.consume(reference, action=action)
                     tools.append(action)
                     async def live():
                         await calendar.grants.session(documents, self.owner, session)
                     await live()
                     if action == 'read_calendar':
-                        result = await calendar.read(self.owner)
+                        result = await calendar.read(self.owner, **({'horizon': horizon} if horizon is not None else {}))
                     else:
                         method = calendar.plans.apply if action == 'apply_plan' else calendar.plans.verify
                         result = await method(self.owner, plan_id, session_check=live)

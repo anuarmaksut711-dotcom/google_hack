@@ -34,7 +34,8 @@ async function fixture(options={}) {
      if(options.holdDraft)await new Promise(resolve=>holdImport=resolve);
      return response(200,{draft,warning:'Review required'});
    }
-   if(url==='/api/google-calendar/plans/classes')return response(200,{status:'draft'});
+   if(url==='/api/account/google-calendar')return response(200,{connected:true,can_write:true});
+   if(url==='/api/google-calendar/plans/classes')return response(options.calendarFailure?503:200,{status:'draft'});
    if(url==='/api/account/classes') {
      if(init.method==='POST') {
        if(options.holdSave)await new Promise(resolve=>holdSave=resolve);
@@ -68,7 +69,7 @@ async function fixture(options={}) {
    h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
    h.fire('class-schedule','submit');await settle();assert.equal(posts(h).length,1,'unreviewed extraction cannot save');
    h.$('classes-reviewed').checked=true;h.$('classes-week-complete').checked=true;h.fire('class-schedule','submit');await settle();
-   assert.equal(posts(h).length,2);assert.equal(posts(h)[1].url,'/api/account/classes');
+   assert.equal(posts(h).length,3);assert.equal(posts(h)[1].url,'/api/account/classes');
    assert.deepEqual(JSON.parse(posts(h)[1].body),{valid_from:'2026-10-19',valid_until:'2026-11-01',classes:[{subject:'<img onerror=secret>',weekday:1,start:'12:00',end:'14:00'}]});
  } else if(selected==='chat_draft') {
    const h=await fixture({chatDraft:true});
@@ -86,15 +87,24 @@ async function fixture(options={}) {
    h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
    h.$('classes-reviewed').checked=true;h.$('classes-week-complete').checked=true;
    h.fire('class-schedule','submit');await settle();
-   assert.equal(h.$('classes-calendar').disabled,false);assert.equal(posts(h).length,1,'saving does not publish');
-   h.fire('classes-calendar','click');await settle();
-   assert.equal(posts(h).length,2);assert.equal(posts(h)[1].url,'/api/google-calendar/plans/classes');
+   assert.equal(h.$('classes-calendar').disabled,false);
+   assert.equal(posts(h).length,2,'saving prepares review without publishing');
+   assert.equal(posts(h)[1].url,'/api/google-calendar/plans/classes');
    assert.deepEqual(JSON.parse(posts(h)[1].body),{});
    assert.equal(h.$('classes-calendar-review').hidden,false);
  } else if(selected==='manual') {
    const h=await fixture();h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
    const controls=h.$('classes-rows').children[0].querySelectorAll('[data-field]');controls.find(e=>e.dataset.field==='subject').value='Manual class';
-   h.fire('class-schedule','submit');await settle();assert.equal(posts(h).length,1);assert.equal(imports(h).length,0);
+   h.fire('class-schedule','submit');await settle();assert.equal(posts(h).length,2);assert.equal(imports(h).length,0);
+ } else if(selected==='calendar_failure_keeps_saved_week') {
+   const h=await fixture({calendarFailure:true});h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
+   h.$('classes-rows').children[0].querySelectorAll('[data-field]').find(e=>e.dataset.field==='subject').value='Manual class';
+   h.fire('class-schedule','submit');await settle();
+   assert.equal(posts(h).length,2);assert.equal(h.$('classes-calendar').disabled,false);
+   assert.match(h.$('classes-status').textContent,/сохранено на сайте/);
+   assert.equal(h.$('classes-calendar-review').hidden,false);
+   h.fire('classes-calendar','click');await settle();
+   assert.equal(posts(h).length,3,'retry only prepares Calendar, it never saves the week again');
  } else if(selected==='failure') {
    const h=await fixture({failure:true}),first=h.$('classes-rows').children[0];h.file();h.fire('classes-import','click');await settle();
    assert.equal(h.$('classes-rows').children[0],first,'failed extraction preserves editable manual rows');assert.equal(h.$('classes-fields').disabled,false);

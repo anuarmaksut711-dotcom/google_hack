@@ -23,6 +23,12 @@ PAGE = '''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <button id="calendar-disconnect" type="button" hidden>Отключить календарь</button>
 <p id="calendar-status" role="status" aria-live="polite"></p>
 <p id="calendar-range"></p><ul id="calendar-events"></ul>
+<section aria-labelledby="calendar-classes-heading"><h2 id="calendar-classes-heading">Мои пары</h2>
+<p id="calendar-classes-status" role="status" aria-live="polite"></p>
+<ul id="calendar-classes"></ul>
+<p><a href="/planning">Добавить или изменить расписание</a></p>
+<button id="calendar-classes-prepare" type="button" disabled>Добавить пары в Google Calendar</button>
+<p><a id="calendar-classes-review" href="/#panel" hidden>Просмотреть и подтвердить добавление</a></p></section>
 <details id="calendar-journal" hidden><summary>Журнал чтения календаря</summary><pre id="calendar-trace"></pre></details>
 <p>Отключение удаляет сохранённый доступ из приложения. Разрешение Google можно отозвать
 в настройках Google-аккаунта → Безопасность → Сторонние приложения.</p>
@@ -113,7 +119,40 @@ if(location.pathname==='/google-calendar/connect'){
 }else{
   const connect=document.getElementById('calendar-connect'),refresh=document.getElementById('calendar-refresh'),
     disconnect=document.getElementById('calendar-disconnect'),list=document.getElementById('calendar-events');
+  const classList=document.getElementById('calendar-classes'),classStatus=document.getElementById('calendar-classes-status'),
+    prepare=document.getElementById('calendar-classes-prepare'),review=document.getElementById('calendar-classes-review');
+  let classesLoading=false;
+  async function loadClasses(){
+    if(!classList||classesLoading)return;
+    classesLoading=true;prepare.disabled=true;review.hidden=true;classList.replaceChildren();
+    classStatus.textContent='Читаем сохранённые пары…';
+    try{
+      const response=await fetch('/api/account/classes',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw Error();
+      const data=await response.json(),week=data.schedule;
+      if(!week){classStatus.textContent='Пары пока не сохранены. Добавьте расписание из PDF, скриншота или вручную.';return;}
+      const days=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+      for(const lesson of [...week.classes].sort((a,b)=>a.weekday-b.weekday||a.start.localeCompare(b.start))){
+        const item=document.createElement('li');
+        item.textContent=days[lesson.weekday]+' · '+lesson.start+'–'+lesson.end+' · '+lesson.subject;
+        classList.append(item);
+      }
+      classStatus.textContent='Сохранено на сайте: '+week.valid_from+' — '+week.valid_until+'.'+
+        (week.classes.length?' Для записи в Google Calendar откройте добавление и подтвердите пары.':' В этот период пар нет.');
+      prepare.disabled=!week.classes.length;
+    }catch{classStatus.textContent='Не удалось прочитать пары. Обновите страницу или откройте редактор расписания.';}
+    finally{classesLoading=false;}
+  }
+  prepare?.addEventListener('click',async()=>{
+    prepare.disabled=true;review.hidden=true;classStatus.textContent='Готовим пары для Google Calendar…';
+    try{
+      await calendarPost('/api/google-calendar/plans/classes');
+      review.hidden=false;classStatus.textContent='Пары готовы. Откройте просмотр, подтвердите и нажмите «Применить в Google Calendar».';
+    }catch{classStatus.textContent='Пары сохранены на сайте. Проверьте подключение Calendar, разрешение на добавление событий, даты и пересечения. Затем повторите добавление.';}
+    finally{prepare.disabled=false;}
+  });
   async function load(){
+    loadClasses();
     connect.disabled=refresh.disabled=true;list.replaceChildren();document.getElementById('calendar-range').textContent='';
     status.textContent='Читаем календарь…';
     try{

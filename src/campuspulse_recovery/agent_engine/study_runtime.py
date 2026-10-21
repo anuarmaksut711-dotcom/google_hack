@@ -49,7 +49,9 @@ def _preload_runtime():
 STUDY_INSTRUCTIONS = """
 Ты работаешь в облачном Agent Engine. Для актуальных заданий и дедлайнов сам
 вызови read_assignments. Для плана с конкретным временем также сам вызови
-read_schedule: он читает расписание пар текущего пользователя. Не используй
+read_schedule: он читает сохранённые пары и актуальные события Google Calendar.
+Занятые интервалы из context исключай из плана, даже если недельные пары ещё не сохранены.
+Если запрошенное время занято, объясни пересечение и выбери другое время в указанных пользователем рамках. Не используй
 старый ответ из истории как доказательство актуальных источников. Выбирай
 нужные инструменты по запросу: приветствие не требует обращения к источникам.
 Для плана read_assignments и read_schedule независимы: запроси оба в одном
@@ -157,10 +159,14 @@ def _safe_source(tool, value, timezone):
     else:
         schedule = ClassSchedule.model_validate(value.get('class_schedule'))
         lines = value.get('context')
-        if not isinstance(lines, list) or len(lines) > 100 or any(
+        if not isinstance(lines, list) or len(lines) > 150 or any(
                 not isinstance(line, str) or len(line) > 500 for line in lines):
             raise ValueError('study_source_invalid')
-        output.update(class_schedule=schedule.model_dump(mode='json'), context=lines)
+        event_count = value.get('calendar_event_count', 0)
+        if type(event_count) is not int or not 0 <= event_count <= 99:
+            raise ValueError('study_source_invalid')
+        output.update(class_schedule=schedule.model_dump(mode='json'), context=lines,
+                      calendar_event_count=event_count)
     return output
 
 
@@ -216,7 +222,7 @@ async def _run_study(application, settings, target, documents, invocation, *, mo
             sources[tool] = source
             status = 'completed' if source['status'] == 'available' else source['status']
             count = (len(source['assignments']) if tool == 'read_assignments'
-                     else len(source['class_schedule']['busy']))
+                     else len(source['class_schedule']['busy']) + source.get('calendar_event_count', 0))
             return source
         except asyncio.CancelledError:
             raise

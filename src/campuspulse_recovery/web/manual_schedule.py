@@ -39,7 +39,7 @@ ACCOUNT_CLASSES = '''<section aria-labelledby="classes-heading"><h2 id="classes-
 <p>Скриншот одного дня не показывает всю неделю. Добавьте остальные дни перед сохранением.</p></div>
 <button type="submit">Сохранить расписание</button></fieldset></form>
 <button id="classes-calendar" type="button" disabled>Подготовить пары для Google Calendar</button>
-<p><a id="classes-calendar-review" href="/#panel" hidden>Просмотреть и подтвердить пары в Google Calendar</a></p>
+<p><a id="classes-calendar-review" href="/#calendar" hidden>Посмотреть расписание на сайте</a></p>
 <p id="classes-status" role="status" aria-live="polite">Загружаем расписание…</p></section>'''
 
 
@@ -247,17 +247,32 @@ CLASSES_SCRIPT = r'''
       await api('/api/account/classes', {valid_from:from.value, valid_until:until.value, classes});
       reviewRequired = false; review.hidden = true; resetReview();
       savedReady = classes.length > 0;
-      status.textContent = 'Расписание сохранено. Новые планы будут учитывать эти пары. Для добавления пар в календарь нажмите «Подготовить пары для Google Calendar».';
+      calendarReview.hidden = false; calendarReview.href = '/#calendar';
+      calendarReview.textContent = 'Посмотреть расписание на сайте';
+      status.textContent = 'Расписание сохранено на сайте. Новые планы будут учитывать эти пары.';
+      if(savedReady) {
+        try {
+          const connection = await api('/api/account/google-calendar');
+          if(connection.connected && connection.can_write !== false) await prepareCalendar();
+          else status.textContent += ' Подключите Google Calendar с разрешением на добавление событий на странице календаря.';
+        } catch(error) {
+          status.textContent = 'Расписание сохранено на сайте. ' + error.message;
+        }
+      }
     });
   });
+  async function prepareCalendar() {
+    status.textContent = 'Расписание сохранено. Проверяем Calendar и готовим пары для просмотра…';
+    await api('/api/google-calendar/plans/classes', {});
+    calendarReview.href = '/#panel'; calendarReview.hidden = false;
+    calendarReview.textContent = 'Просмотреть и подтвердить добавление в Google Calendar';
+    status.textContent = 'Расписание сохранено на сайте. Пары готовы к добавлению в Google Calendar: откройте просмотр, подтвердите и нажмите «Применить в Google Calendar».';
+  }
   calendar.addEventListener('click', () => {
     if(busy || needsReload || !loaded || !savedReady) return;
     action(async () => {
       calendarReview.hidden = true;
-      status.textContent = 'Проверяем Calendar и готовим пары для просмотра…';
-      await api('/api/google-calendar/plans/classes', {});
-      calendarReview.hidden = false;
-      status.textContent = 'Пары подготовлены. Откройте предложенное расписание, проверьте даты повторов и подтвердите добавление.';
+      await prepareCalendar();
     });
   });
   async function load() {

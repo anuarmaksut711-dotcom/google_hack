@@ -179,3 +179,45 @@ async def test_saved_class_schedule_is_bound_and_marks_busy_time(tmp_path):
     await docs.transact(save)
     with pytest.raises(AccessDenied):
         await source.read_schedule(value)
+
+
+@run_async
+async def test_connected_google_calendar_is_read_for_schedule_without_manual_week(tmp_path):
+    docs, sessions = await setup(tmp_path)
+    session = sessions['alice']
+    calls = []
+    class Calendar:
+        async def status(self, owner):
+            assert owner == session.binding.owner_id
+            return {'connected': True}
+        async def read(self, owner):
+            calls.append(owner)
+            return {'timezone': 'Asia/Qyzylorda', 'read_at': NOW.isoformat(),
+                'horizon': {'start': NOW.isoformat(), 'end': (NOW + timedelta(hours=72)).isoformat()},
+                'events': [{'id': 'event', 'summary': 'Operating System Practice',
+                    'start': {'dateTime': (NOW + timedelta(hours=1)).isoformat()},
+                    'end': {'dateTime': (NOW + timedelta(hours=2)).isoformat()},
+                    'description': 'PRIVATE_DESCRIPTION', 'attendees': ['PRIVATE_EMAIL']}]}
+    source = StudySources(docs, demo_config(), clock=lambda: NOW, calendar=Calendar())
+    result = await source.read_schedule({'owner': session.binding.owner_id,
+        'session': session.binding.session_id, 'timezone': 'Asia/Qyzylorda'})
+    assert calls == [session.binding.owner_id]
+    assert result['status'] == 'available'
+    assert result['calendar_event_count'] == 1
+    assert any('Operating System Practice' in line for line in result['context'])
+    assert any((NOW + timedelta(hours=1)).isoformat() in line for line in result['context'])
+    assert 'PRIVATE_' not in json.dumps(result)
+
+
+@run_async
+async def test_connected_calendar_failure_does_not_become_empty_availability(tmp_path):
+    docs, sessions = await setup(tmp_path)
+    session = sessions['alice']
+    class Calendar:
+        async def status(self, owner): return {'connected': True}
+        async def read(self, owner): raise RuntimeError('private refresh token')
+    source = StudySources(docs, demo_config(), clock=lambda: NOW, calendar=Calendar())
+    result = await source.read_schedule({'owner': session.binding.owner_id,
+        'session': session.binding.session_id, 'timezone': 'Asia/Qyzylorda'})
+    assert result['status'] == 'unavailable'
+    assert 'private refresh token' not in json.dumps(result)
