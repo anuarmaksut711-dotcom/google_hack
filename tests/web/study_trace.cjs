@@ -56,7 +56,7 @@ async function showsOnlyObservedToolsAndTruthfulResults() {
   assert.equal(queued.hidden, false);
   assert.equal(rows(queued).length, 0, 'Queued work must not fabricate a prearranged tool pipeline');
   assert.equal(queued.querySelector('.agent-work-badge').hidden, true, 'No MCP badge before a real call');
-  assert.match(queued.textContent, /Запрос передан агенту/);
+  assert.match(queued.textContent, /Ожидаю запуск агента/);
   const active = h.create(turn('working', [call('read_assignments', 'running')]));
   assert.match(active.textContent, /Получаю задания Moodle/);
   assert.match(active.textContent, /Выполняется/);
