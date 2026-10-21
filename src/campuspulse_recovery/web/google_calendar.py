@@ -38,12 +38,26 @@ from .calendar_plans import SCRIPT as PLAN_SCRIPT
 
 SCRIPT = r"""'use strict';
 const status=document.getElementById('calendar-status');
+let calendarSessionId=null;
+async function calendarCsrf(){
+  for(let attempt=0;attempt<2;attempt++){
+    const response=await fetch('/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',
+      signal:AbortSignal.timeout(15000),headers:{'X-CSRF-Bootstrap':'1'}});
+    if(response.status===409&&attempt===0)continue;
+    if(!response.ok)throw Error(response.status===403?'signin':'request');
+    const session=await response.json();
+    if(typeof session.session_id!=='string'||!session.session_id||
+      typeof session.csrf_token!=='string'||!/^[A-Za-z0-9_-]{20,256}$/.test(session.csrf_token))throw Error('request');
+    if(calendarSessionId!==null&&calendarSessionId!==session.session_id)throw Error('signin');
+    calendarSessionId=session.session_id;
+    return session.csrf_token;
+  }
+}
 async function calendarPost(path,value={}){
-  const csrf=document.cookie.split(';').map(s=>s.trim()).find(s=>s.startsWith('__Host-cp-csrf='));
   const token=path.startsWith('/auth/google-calendar/signin/')?
-    sessionStorage.getItem('cp-calendar-login-csrf'):(csrf?decodeURIComponent(csrf.split('=')[1]):null);
+    sessionStorage.getItem('cp-calendar-login-csrf'):await calendarCsrf();
   if(!token)throw Error('signin');
-  const response=await fetch(path,{method:'POST',credentials:'same-origin',
+  const response=await fetch(path,{method:'POST',credentials:'same-origin',redirect:'error',cache:'no-store',
     headers:{'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify(value)});
   if(!response.ok)throw Error(response.status===403?'signin':'request');
   return response.json();
@@ -103,6 +117,7 @@ if(location.pathname==='/google-calendar/connect'){
     connect.disabled=refresh.disabled=true;list.replaceChildren();document.getElementById('calendar-range').textContent='';
     status.textContent='Читаем календарь…';
     try{
+      await calendarCsrf();
       const stateResponse=await fetch('/api/account/google-calendar',{credentials:'same-origin'});
       if(!stateResponse.ok)throw Error(stateResponse.status===403?'signin':'request');
       const state=await stateResponse.json();

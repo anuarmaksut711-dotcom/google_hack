@@ -594,6 +594,11 @@ SCRIPT = r"""'use strict';
       }
       if (code) { code.append(document.createTextNode(raw + '\n')); continue; }
       if (!line) { paragraph = list = null; continue; }
+      if (/^\/planning#draft=[0-9a-f]{64}$/.test(line)) {
+        paragraph = list = null;
+        const link = document.createElement('a'); link.href = line;
+        link.textContent = 'Просмотреть и сохранить пары'; node.append(link); continue;
+      }
       const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?$/);
       const item = line.match(/^(?:[-*+]|\d+[.)])\s+(.+)$/);
       if (heading) {

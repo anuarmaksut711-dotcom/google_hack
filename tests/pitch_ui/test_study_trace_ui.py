@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 
-@pytest.mark.parametrize("case", ["legacy", "actual", "failed", "escaped", "run_id", "malformed"])
+@pytest.mark.parametrize("case", ["legacy", "actual", "failed", "escaped", "run_id", "malformed", "timetable_link"])
 def test_chat_renders_only_observed_tool_results(case):
     node = shutil.which("node")
     if node is None:

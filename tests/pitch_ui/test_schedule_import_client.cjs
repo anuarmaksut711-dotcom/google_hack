@@ -18,7 +18,7 @@ async function fixture(options={}) {
  const nodes=new Map(), $=id=> { if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id); };
  for(const id of ['class-schedule','classes-fields','classes-rows','classes-status','classes-from','classes-until',
    'class-add','classes-file','classes-import','classes-review','classes-reviewed','classes-reload'])$(id);
- const calls=[], location={replace(value){this.redirect=value;}};
+ const draftId='a'.repeat(64), calls=[], location={hash:options.chatDraft?'#draft='+draftId:'',replace(value){this.redirect=value;}};
  let imported=false, holdImport=null, holdSave=null, session='session-one', saved=false;
  const draft={classes:[{subject:'<img onerror=secret>',weekday:1,start:'12:00',end:'14:00'}],valid_from:null,valid_until:null};
  const response=(status,value)=>({status,ok:status>=200&&status<300,json:async()=>structuredClone(value)});
@@ -30,6 +30,11 @@ async function fixture(options={}) {
      imported=true;
      return response(options.failure?422:200,options.failure?{error:'schedule_import_unreadable'}:{draft,warning:'Review required'});
    }
+   if(url==='/api/account/classes/drafts/'+draftId) {
+     if(options.holdDraft)await new Promise(resolve=>holdImport=resolve);
+     return response(200,{draft,warning:'Review required'});
+   }
+   if(url==='/api/google-calendar/plans/classes')return response(200,{status:'draft'});
    if(url==='/api/account/classes') {
      if(init.method==='POST') {
        if(options.holdSave)await new Promise(resolve=>holdSave=resolve);
@@ -65,6 +70,27 @@ async function fixture(options={}) {
    h.$('classes-reviewed').checked=true;h.$('classes-week-complete').checked=true;h.fire('class-schedule','submit');await settle();
    assert.equal(posts(h).length,2);assert.equal(posts(h)[1].url,'/api/account/classes');
    assert.deepEqual(JSON.parse(posts(h)[1].body),{valid_from:'2026-10-19',valid_until:'2026-11-01',classes:[{subject:'<img onerror=secret>',weekday:1,start:'12:00',end:'14:00'}]});
+ } else if(selected==='chat_draft') {
+   const h=await fixture({chatDraft:true});
+   assert.equal(h.$('classes-rows').children.length,1);
+   assert.equal(h.$('classes-rows').children[0].querySelectorAll('[data-field]').find(e=>e.dataset.field==='subject').value,'<img onerror=secret>');
+   assert.equal(h.$('classes-from').value,'');assert.equal(h.$('classes-until').value,'');
+   assert.equal(h.$('classes-review').hidden,false);assert.equal(posts(h).length,0);
+   assert.equal(h.$('classes-calendar').disabled,true,'unreviewed chat draft cannot be published');
+ } else if(selected==='chat_draft_session_change') {
+   const h=await fixture({chatDraft:true,holdDraft:true});h.setSession();h.releaseImport();await settle();
+   assert.equal(h.$('classes-fields').disabled,true);
+   assert.equal(h.$('classes-rows').children.length,0,'foreign session draft is not rendered');
+ } else if(selected==='calendar_after_save') {
+   const h=await fixture({chatDraft:true});
+   h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
+   h.$('classes-reviewed').checked=true;h.$('classes-week-complete').checked=true;
+   h.fire('class-schedule','submit');await settle();
+   assert.equal(h.$('classes-calendar').disabled,false);assert.equal(posts(h).length,1,'saving does not publish');
+   h.fire('classes-calendar','click');await settle();
+   assert.equal(posts(h).length,2);assert.equal(posts(h)[1].url,'/api/google-calendar/plans/classes');
+   assert.deepEqual(JSON.parse(posts(h)[1].body),{});
+   assert.equal(h.$('classes-calendar-review').hidden,false);
  } else if(selected==='manual') {
    const h=await fixture();h.$('classes-from').value='2026-10-19';h.$('classes-until').value='2026-11-01';
    const controls=h.$('classes-rows').children[0].querySelectorAll('[data-field]');controls.find(e=>e.dataset.field==='subject').value='Manual class';

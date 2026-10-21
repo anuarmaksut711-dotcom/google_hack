@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import Contract, Instant, Interval
+from .chat_schedule import ChatTimetable
 from .time_rules import instant
 
 
@@ -32,9 +33,16 @@ class AdviceBlock(BaseModel):
 class AdviceReply(BaseModel):
     """Model wire format; times appear only in blocks, never prose."""
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['message', 'plan']
+    kind: Literal['message', 'plan', 'classes']
     message: str = Field(max_length=4000, description='Questions or explanation for message; empty for plan')
     blocks: list[AdviceBlock] = Field(max_length=40)
+    timetable: ChatTimetable | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode='after')
+    def separate_drafts(self):
+        if (self.kind == 'classes') != (self.timetable is not None) or (self.kind == 'classes' and self.blocks):
+            raise ValueError('timetable_kind_mismatch')
+        return self
 
 
 def advice_output_schema():
@@ -57,10 +65,14 @@ def intersects(first, second):
     return first.start < second.end and second.start < first.end
 
 
-def render_advice(raw, *, schedule, now, timezone, validated_blocks=None):
+def render_advice(raw, *, schedule, now, timezone, validated_blocks=None, validated_timetables=None):
     """No raw model timetable is shown or saved, including on validation failure."""
     try:
         advice = AdviceReply.model_validate_json(raw)
+        if advice.kind == 'classes':
+            if validated_timetables is not None:
+                validated_timetables.append(advice.timetable.model_dump(mode='json'))
+            return advice.timetable.preview(timezone)
         if advice.kind == 'message':
             if advice.blocks or not advice.message.strip():
                 raise ValueError()

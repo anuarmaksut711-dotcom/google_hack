@@ -14,6 +14,10 @@ class Selection(Contract):
     payload_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
+class ClassPublication(Contract):
+    """The saved owner-bound timetable is the only source of class events."""
+
+
 def install_plan_routes(app, *, auth, calendar):
     owner = auth.policy.config.student.trusted_user_id
 
@@ -27,6 +31,30 @@ def install_plan_routes(app, *, auth, calendar):
         await calendar.grants.session(calendar.raw_documents, owner, session)
         return True
     app.state.calendar_plan_proposer = propose
+
+    @app.post('/api/google-calendar/plans/classes')
+    async def propose_classes(request: Request):
+        credential = await auth.load(request, mutation=True)
+        if request.query_params:
+            raise ValueError('calendar_selectors_forbidden')
+        await body(request, ClassPublication)
+        try:
+            horizon = await calendar.plans.class_horizon(owner,
+                class_timezone=auth.policy.config.student.timezone)
+            source = await calendar.tools(owner).read(session=credential.session.binding.session_id,
+                horizon=horizon)
+            if source.get('error'):
+                return JSONResponse({'error': 'calendar_source_unavailable'}, status_code=503)
+            if (await auth.load(request, mutation=True)).session != credential.session:
+                raise AccessDenied('calendar_session_changed')
+            plan = await calendar.plans.propose_classes(owner, source,
+                class_timezone=auth.policy.config.student.timezone)
+            if (await auth.load(request, mutation=True)).session != credential.session:
+                raise AccessDenied('calendar_session_changed')
+            _, state = await calendar.plans.get(owner, plan['plan_id'])
+            return {'status': state['status'], 'plan_id': plan['plan_id']}
+        except BindingConflict as error:
+            return JSONResponse({'error': str(error)}, status_code=409)
 
     @app.get('/api/google-calendar/plans')
     async def plans(request: Request):
@@ -45,7 +73,9 @@ def install_plan_routes(app, *, auth, calendar):
             raise ValueError('calendar_selectors_forbidden')
         value = await body(request, Selection)
         try:
-            source = await calendar.tools(owner).read(session=credential.session.binding.session_id)
+            plan, _ = await calendar.plans.preflight(owner, value.plan_id)
+            source = await calendar.tools(owner).read(session=credential.session.binding.session_id,
+                **({'horizon': plan['horizon']} if plan.get('purpose') == 'classes' else {}))
             if source.get('error'):
                 return JSONResponse({'error': 'calendar_source_unavailable'}, status_code=503)
             await calendar.plans.approve(owner, value.plan_id, value.payload_hash,
@@ -114,13 +144,20 @@ SCRIPT = r'''
    list.replaceChildren();
    for(const {plan,state} of data.items){
     const card=document.createElement('article');card.className='calendar-plan-card';card.dataset.status=state.status;
-    const heading=document.createElement('h3');heading.textContent=labels[state.status]||'Не удалось определить состояние расписания';card.append(heading);
-    const format=new Intl.DateTimeFormat('ru-RU',{dateStyle:'medium',timeStyle:'short',timeZone:plan.timezone});
+    const heading=document.createElement('h3');heading.textContent=(plan.purpose==='classes'?'Пары · ':'Учебные блоки · ')+(labels[state.status]||'Не удалось определить состояние расписания');card.append(heading);
+    const format=new Intl.DateTimeFormat('ru-RU',{dateStyle:'medium',timeStyle:'short',timeZone:plan.purpose==='classes'?plan.class_timezone:plan.timezone});
     const ul=document.createElement('ul');
-    for(const block of plan.blocks){const li=document.createElement('li');li.textContent=
-     format.format(new Date(block.start))+' — '+format.format(new Date(block.end))+' · '+block.title;ul.append(li);}
+    for(const block of plan.blocks){const li=document.createElement('li');
+     if(plan.purpose==='classes'&&block.recurrence){
+      const day=new Intl.DateTimeFormat('ru-RU',{weekday:'long',timeZone:block.timezone});
+      const time=new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit',timeZone:block.timezone});
+      const date=new Intl.DateTimeFormat('ru-RU',{dateStyle:'medium',timeZone:'UTC'});
+      li.textContent=day.format(new Date(block.start))+', '+time.format(new Date(block.start))+' — '+time.format(new Date(block.end))+' · '+block.title+
+       '. Каждую неделю до '+date.format(new Date(block.valid_until+'T12:00:00Z'))+'. Ближайшая пара: '+format.format(new Date(block.start))+'.';
+     }else li.textContent=format.format(new Date(block.start))+' — '+format.format(new Date(block.end))+' · '+block.title;
+     ul.append(li);}
     card.append(ul);
-    const zone=document.createElement('p');zone.textContent='Часовой пояс: '+plan.timezone;card.append(zone);
+    const zone=document.createElement('p');zone.textContent='Часовой пояс: '+(plan.purpose==='classes'?plan.class_timezone:plan.timezone);card.append(zone);
     const details=document.createElement('details'),summary=document.createElement('summary'),operations=document.createElement('pre');
     summary.textContent='Сведения о расписании и подтверждении';
     const trace=state.last_tool_call;

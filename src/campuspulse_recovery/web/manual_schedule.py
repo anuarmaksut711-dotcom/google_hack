@@ -24,7 +24,8 @@ ACCOUNT_CLASSES = '''<section aria-labelledby="classes-heading"><h2 id="classes-
 <p>Проверьте распознанные пары и добавьте остальные дни. Даты действия укажите сами, если их нет в файле.
 Изменения учитываются в плане после сохранения.</p>
 <details><summary>Как учитываются пары</summary><p>До 30 пар, период от 1 до 91 дня с покрытием ближайших 72 часов.
-Время — по часовому поясу аккаунта. Сами пары не переносятся в Google Calendar.
+Время — по часовому поясу аккаунта. После сохранения можно подготовить пары для Google Calendar,
+просмотреть повторы и отдельно подтвердить добавление.
 Названия и время занятий передаются Gemini при составлении плана.
 Неясные данные могут не распознаться; чередующиеся недели введите вручную.</p></details>
 <label for="classes-from">Действует с</label><input id="classes-from" type="date" required>
@@ -37,6 +38,8 @@ ACCOUNT_CLASSES = '''<section aria-labelledby="classes-heading"><h2 id="classes-
 <label for="classes-week-complete">Все пары недели добавлены. В остальные дни пар нет</label>
 <p>Скриншот одного дня не показывает всю неделю. Добавьте остальные дни перед сохранением.</p></div>
 <button type="submit">Сохранить расписание</button></fieldset></form>
+<button id="classes-calendar" type="button" disabled>Подготовить пары для Google Calendar</button>
+<p><a id="classes-calendar-review" href="/#panel" hidden>Просмотреть и подтвердить пары в Google Calendar</a></p>
 <p id="classes-status" role="status" aria-live="polite">Загружаем расписание…</p></section>'''
 
 
@@ -50,16 +53,20 @@ CLASSES_SCRIPT = r'''
   const recognize = document.getElementById('classes-import'), reload = document.getElementById('classes-reload');
   const review = document.getElementById('classes-review'), reviewed = document.getElementById('classes-reviewed');
   const weekComplete = document.getElementById('classes-week-complete');
+  const calendar = document.getElementById('classes-calendar'), calendarReview = document.getElementById('classes-calendar-review');
+  const chatDraft = String(location.hash || '').match(/^#draft=([0-9a-f]{64})$/)?.[1];
   const days = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
-  let serial = 0, busy = false, loaded = false, needsReload = true, sessionId = null, reviewRequired = false, sourceVersion = 0, starter = null;
+  let serial = 0, busy = false, loaded = false, needsReload = true, sessionId = null, reviewRequired = false, sourceVersion = 0, starter = null, savedReady = false, draftPending = !!chatDraft;
   function controls() {
     fields.disabled = busy || needsReload || !loaded;
     reload.disabled = busy;
     add.disabled = rows.children.length >= 30;
     recognize.disabled = busy || needsReload || !loaded || !file.files.length;
+    calendar.disabled = busy || needsReload || !loaded || !savedReady;
     form.setAttribute('aria-busy', String(busy));
   }
   function resetReview() { reviewed.checked = false; if(weekComplete) weekComplete.checked = false; }
+  function changedSchedule() { savedReady = false; calendarReview.hidden = true; resetReview(); controls(); }
   function readRow(fieldset) {
     const value = {};
     fieldset.querySelectorAll('[data-field]').forEach(input => {
@@ -76,6 +83,12 @@ CLASSES_SCRIPT = r'''
       Number.isInteger(value.weekday) && value.weekday >= 0 && value.weekday <= 6 &&
       typeof value.start === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.start) &&
       typeof value.end === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value.end) && value.end > value.start;
+  }
+  function validDraft(draft) {
+    return draft && Array.isArray(draft.classes) && draft.classes.length && draft.classes.length <= 30 &&
+      draft.classes.every(validClass) && (draft.valid_from == null || validDate(draft.valid_from)) &&
+      (draft.valid_until == null || validDate(draft.valid_until)) && (!draft.valid_from || !draft.valid_until ||
+        (draft.valid_until >= draft.valid_from && (Date.parse(draft.valid_until)-Date.parse(draft.valid_from))/86400000 <= 90));
   }
   function classKey(value) { return JSON.stringify([value.subject.trim(),value.weekday,value.start,value.end]); }
   function row(value = {}, isStarter = false) {
@@ -98,22 +111,22 @@ CLASSES_SCRIPT = r'''
     const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Удалить пару';
     remove.addEventListener('click', () => {
       if(busy || needsReload) return;
-      fieldset.remove(); resetReview(); controls(); add.focus();
+      fieldset.remove(); changedSchedule(); add.focus();
     });
     fieldset.append(remove); rows.append(fieldset); return subject;
   }
   add.addEventListener('click', () => {
-    if(!busy && !needsReload && rows.children.length < 30) { row().focus(); resetReview(); controls(); }
+    if(!busy && !needsReload && rows.children.length < 30) { row().focus(); changedSchedule(); }
   });
   function changed(event) {
     if(event.target === reviewed || event.target === weekComplete) return;
     if(starter && Array.from(starter.querySelectorAll('[data-field]')).includes(event.target)) starter = null;
-    resetReview();
+    changedSchedule();
   }
   form.addEventListener('input', changed);
   form.addEventListener('change', changed);
   file.addEventListener('change', () => {
-    sourceVersion++; resetReview(); controls();
+    sourceVersion++; changedSchedule();
     if(!busy && file.files.length) status.textContent = 'Файл выбран. Он будет отправлен на распознавание только по кнопке «Распознать пары».';
   });
   async function session(bootstrap = false) {
@@ -162,6 +175,8 @@ CLASSES_SCRIPT = r'''
         };
         throw Error(messages[response.status] || 'Не удалось распознать пары. Выберите чёткий файл одного дня или недели либо введите пары вручную.');
       }
+      if(path === '/api/google-calendar/plans/classes')
+        throw Error('Не удалось подготовить пары. Проверьте подключение Google Calendar, даты расписания и занятое время. Затем повторите подготовку.');
       throw Error(needsReload ? 'Не удалось подтвердить сохранение. Перечитайте расписание перед повтором.' :
         'Не удалось сохранить расписание. Проверьте даты, предметы и время.');
     }
@@ -188,12 +203,7 @@ CLASSES_SCRIPT = r'''
       resetReview(); status.textContent = 'Распознаём пары. Сохранённое расписание пока не изменилось…';
       const value = await api('/api/account/classes/import', selected, selected.type), draft = value && value.draft;
       if(version !== sourceVersion) throw Error('Выбран другой файл. Распознайте его перед проверкой.');
-      if(!draft || !Array.isArray(draft.classes) || !draft.classes.length || draft.classes.length > 30 ||
-          !draft.classes.every(validClass) ||
-          (draft.valid_from != null && !validDate(draft.valid_from)) ||
-          (draft.valid_until != null && !validDate(draft.valid_until)) ||
-          (draft.valid_from && draft.valid_until && (draft.valid_until < draft.valid_from ||
-            (Date.parse(draft.valid_until) - Date.parse(draft.valid_from)) / 86400000 > 90)))
+      if(!validDraft(draft))
         throw Error('Не удалось разобрать расписание. Пары можно заполнить вручную.');
       const existing = Array.from(rows.children).filter(fieldset => fieldset !== starter);
       const keys = new Set(existing.map(fieldset => classKey(readRow(fieldset)))), additions = [];
@@ -208,6 +218,7 @@ CLASSES_SCRIPT = r'''
       if(!from.value && draft.valid_from) from.value = draft.valid_from;
       if(!until.value && draft.valid_until) until.value = draft.valid_until;
       reviewRequired = true; review.hidden = false; resetReview();
+      savedReady = false; calendarReview.hidden = true;
       status.textContent = additions.length ? 'Пары добавлены в черновик. Загрузите остальные дни или добавьте их вручную. Перед сохранением проверьте всю неделю и даты действия.' :
         'Эти пары уже есть в черновике. Загрузите остальные дни и проверьте всю неделю перед сохранением.';
       from.focus();
@@ -235,21 +246,41 @@ CLASSES_SCRIPT = r'''
       status.textContent = 'Сохраняем расписание…';
       await api('/api/account/classes', {valid_from:from.value, valid_until:until.value, classes});
       reviewRequired = false; review.hidden = true; resetReview();
-      status.textContent = 'Расписание сохранено. Новые планы будут учитывать эти пары.';
+      savedReady = classes.length > 0;
+      status.textContent = 'Расписание сохранено. Новые планы будут учитывать эти пары. Для добавления пар в календарь нажмите «Подготовить пары для Google Calendar».';
+    });
+  });
+  calendar.addEventListener('click', () => {
+    if(busy || needsReload || !loaded || !savedReady) return;
+    action(async () => {
+      calendarReview.hidden = true;
+      status.textContent = 'Проверяем Calendar и готовим пары для просмотра…';
+      await api('/api/google-calendar/plans/classes', {});
+      calendarReview.hidden = false;
+      status.textContent = 'Пары подготовлены. Откройте предложенное расписание, проверьте даты повторов и подтвердите добавление.';
     });
   });
   async function load() {
     needsReload = true; sessionId = null; controls();
     status.textContent = 'Загружаем сохранённое расписание…';
     const current = await session(); sessionId = current.session_id;
-    const value = await api('/api/account/classes'); await session();
+    const value = await api('/api/account/classes');
+    const draftValue = draftPending ? await api('/api/account/classes/drafts/' + chatDraft) : null;
+    await session();
+    if(draftValue && !validDraft(draftValue.draft)) throw Error('Не удалось прочитать черновик из чата. Вернитесь в чат и запросите его снова.');
     rows.replaceChildren(); starter = null; from.value = ''; until.value = ''; file.value = '';
-    if(value.schedule) {
+    if(draftValue) {
+      from.value = draftValue.draft.valid_from || ''; until.value = draftValue.draft.valid_until || '';
+      draftValue.draft.classes.forEach(lesson => row(lesson));
+    } else if(value.schedule) {
       from.value = value.schedule.valid_from; until.value = value.schedule.valid_until; value.schedule.classes.forEach(lesson => row(lesson));
     } else row({}, true);
-    reviewRequired = false; review.hidden = true; resetReview(); sourceVersion++;
+    reviewRequired = !!draftValue; review.hidden = !reviewRequired; resetReview(); sourceVersion++;
+    savedReady = !draftValue && !!value.schedule?.classes.length;
+    calendarReview.hidden = true; draftPending = false;
     loaded = true; needsReload = false;
-    status.textContent = value.connected ? 'Ваше сохранённое расписание. Изменения нужно сохранить.' :
+    status.textContent = draftValue ? 'Черновик из чата. Проверьте все пары недели и даты. Сохранение заменит ранее сохранённое расписание. Google Calendar изменится только после отдельного подтверждения.' :
+      value.connected ? 'Ваше сохранённое расписание. Изменения нужно сохранить.' :
       'Укажите период и добавьте пары вручную или распознайте файл расписания.';
   }
   reload.addEventListener('click', () => action(load));
@@ -260,6 +291,18 @@ CLASSES_SCRIPT = r'''
 def install_class_routes(app, *, auth, account, importer=None):
     importer = importer if importer is not None else getattr(app.state, 'class_schedule_importer', None)
     importing = set()
+    app.state.class_schedule_drafter = account.save_draft
+
+    @app.get('/api/account/classes/drafts/{draft_id}')
+    async def chat_draft(request: Request, draft_id: str):
+        credential = await auth.load(request)
+        if request.query_params:
+            raise ValueError('class_schedule_selectors_forbidden')
+        with auth.request_scope(credential) as context:
+            draft = await account.read_draft(context, draft_id)
+        if (await auth.load(request)).session != credential.session:
+            raise AccessDenied('class_draft_session_changed')
+        return JSONResponse({'draft': draft, 'warning': IMPORT_REVIEW_WARNING})
 
     @app.post('/api/account/classes/import')
     async def extract(request: Request):

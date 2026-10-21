@@ -114,5 +114,15 @@ const descend=node=>[node,...node.children.flatMap(value=>typeof value==='string
  releaseFreshRead({status:'applied_unverified',operations:[]});await settle();
  assert.equal(nodes.get('calendar-plan-list').children[0].dataset.status,'applied_unverified');
  await settle();assert.equal(reads,2,'Panel replacement does not start a refresh loop');
+ plan.purpose='classes';plan.class_timezone='Asia/Almaty';
+ plan.blocks=[{title:'Алгоритмы',start:'2026-10-22T14:00:00Z',end:'2026-10-22T15:20:00Z',
+  timezone:'Asia/Almaty',valid_until:'2026-11-19',recurrence:['RRULE:FREQ=WEEKLY;UNTIL=20261119T140000Z']}];
+ sandbox.fetch=async()=>({ok:true,status:200,json:async()=>({items:[{plan,state:{status:'draft',operations:[]}}]})});
+ await handlers.get('campuspulse:panel-ready')();await settle();
+ const weekly=nodes.get('calendar-plan-list').textContent;
+ assert(weekly.includes('Пары · Проверьте расписание'),'Class publication is distinct from study blocks');
+ assert(weekly.includes('Каждую неделю до')&&weekly.includes('19 нояб. 2026'),'Recurrence final date is visible before consent');
+ assert(weekly.includes('четверг')&&weekly.includes('19:00')&&weekly.includes('20:20'),'Weekly day and local class time are visible');
+ assert(weekly.includes('Asia/Almaty'),'Student timezone is visible for the recurring series');
  console.log('Student Calendar review checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

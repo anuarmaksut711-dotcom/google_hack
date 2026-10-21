@@ -98,6 +98,14 @@ if (caseName === 'legacy') {
     node.children.some(child => child.localName === 'summary' && child.textContent === 'Сведения о запросе'));
   assert(metadata.textContent.includes('Запуск агента: ' + runId));
   assert.equal(trace(log), undefined);
+} else if (caseName === 'timetable_link') {
+  const href='/planning#draft='+'a'.repeat(64);
+  const {log}=render({response:'Черновик пар.\n\n'+href});
+  const link=descendants(log).find(node=>node.localName==='a');
+  assert(link,'A validated timetable has an actionable editor link');assert.equal(link.href,href);
+  assert.equal(link.textContent,'Просмотреть и сохранить пары');
+  for(const response of ['https://other.example/planning#draft='+'a'.repeat(64),'/planning#draft=bad','javascript:alert(1)'])
+    assert.equal(descendants(render({response}).log).some(node=>node.localName==='a'),false);
 } else if (caseName === 'malformed') {
   for (const tool_trace of [null, {}, 'read_assignments', [null, {}, false]]) {
     assert.equal(trace(render({tool_trace}).log), undefined);
