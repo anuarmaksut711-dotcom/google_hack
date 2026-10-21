@@ -793,7 +793,8 @@ SCRIPT = r"""'use strict';
         chats.selection(); updateNavigation({preserveNavigation: true});
       }
       const turn = {request_key, message, status: 'working', created_at: new Date().toISOString(), response: null, duration_ms: null};
-      submitted = {chatId: activeChat, session: scope, selection: chatGeneration};
+      submitted = {chatId: activeChat, session: scope, selection: chatGeneration, requestKey: request_key,
+        previous: renderedChat};
       showChat({...renderedChat, available: true, turns: [...(renderedChat?.turns || []).filter(item => item.request_key !== request_key), turn]});
       const conversation = $('conversation-scroll');
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
@@ -801,12 +802,15 @@ SCRIPT = r"""'use strict';
       watchChatProgress(request_key);
       const chat = await (await response).json();
       if (submitted.chatId !== activeChat || submitted.session !== scope || submitted.selection !== chatGeneration) return;
+      const settled = chat.turns.find(item => item.request_key === request_key);
+      if (settled?.status === 'working') {
+        showChat(chat); watchChatProgress(request_key); return;
+      }
       chatPoller?.stop();
       stored(pendingChatKey(), null); pendingText = null;
       $('recovery-message').value = '';
       saveDraft();
       const displayed = renderedChat?.turns?.find(item => item.request_key === request_key);
-      const settled = chat.turns.find(item => item.request_key === request_key);
       if (displayed?.status !== 'completed' || displayed.response !== settled?.response)
         showChat(chat, {animateRequestKey: request_key});
       conversation.scrollTo({top: conversation.scrollHeight, behavior: 'instant'});
@@ -821,13 +825,20 @@ SCRIPT = r"""'use strict';
         return;
       }
       if (!hadPending && (error.code === 'session_required' || error.code === 'request_not_sent')) {
+        chatPoller?.stop();
+        if (submitted?.previous) showChat(submitted.previous);
         pendingText = null; stored(pendingChatKey(), null); saveDraft();
       }
       if (error.status === 403) {
+        chatPoller?.stop();
+        if (submitted && renderedChat && (hadPending || !['session_required', 'request_not_sent'].includes(error.code))) showChat({...renderedChat,
+          turns: renderedChat.turns.map(turn => turn.request_key === submitted.requestKey ? {...turn, status: 'unknown'} : turn)});
         $('chat-status').textContent = 'Сессия входа недействительна. Войдите заново — текст сохранён в поле.';
         return;
       }
       if (error.code === 'chat_history_limit') {
+        chatPoller?.stop();
+        if (submitted?.previous) showChat({...submitted.previous, limit_reached: true});
         chatLimitReached = true; pendingText = null; stored(pendingChatKey(), null);
         saveDraft();
         $('chat-status').textContent = 'Этот диалог заполнен. Начните новый диалог — история сохранена.';

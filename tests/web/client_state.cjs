@@ -42,7 +42,13 @@ function harness() {
     }},
     location: {pathname: '/', search: '', hash: '#workspace'}, history: {replaceState() {}},
     chats: {data: {chat_available: true, speech_available: true}, reset() {}, selection() {}, async load() {}},
-    controls() {}, showChat(chat) { sandbox.lastChat = chat; }, updateNavigation() {}, feedback() {}, clearMoodle() {},
+    controls() {}, showChat(chat) {
+      sandbox.lastChat = chat;
+      sandbox.renderTarget = chat;
+      vm.runInContext(`renderedChat=renderTarget; chatWorking=renderTarget.turns.some(turn => turn.status==='working');
+        chatAvailable=renderTarget.available`, sandbox);
+      delete sandbox.renderTarget;
+    }, updateNavigation() {}, feedback() {}, clearMoodle() {},
     keyFor(name) { if (!pending.get(name)) pending.set(name, 'stable-first-send'); return pending.get(name); },
     stored(name, value) {if (value !== undefined) pending.set(name, value); return pending.get(name) ?? null;},
   };
@@ -131,6 +137,66 @@ async function terminalProgressReconcilesOriginalDraftAndPreservesEdits() {
     assert.equal(h.pending.get('pending-chat'), null);
     assert.equal(h.run('pendingText'), null);
   }
+}
+
+async function bootstrapFailureClearsOptimisticWorkingAndAllowsRetry() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Keep my unsent question';
+  h.sandbox.fetch = async url => {requests.push(url); throw new Error('Bootstrap network unavailable');};
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(requests, ['/auth/session'], 'No chat POST was dispatched when CSRF bootstrap failed');
+  assert.equal(h.sandbox.lastChat.turns.length, 0, 'A definitively unsent request must remove its optimistic working row');
+  assert.equal(h.run('chatWorking'), false, 'The composer must not remain blocked on a request that was never sent');
+  assert.equal(h.run('chatBusy'), false);
+  assert.equal(h.run('pendingText'), null);
+  assert.equal(h.pending.get('pending-chat'), null, 'A known-unsent request permits a fresh explicit retry');
+  assert.equal(h.$('recovery-message').value, 'Keep my unsent question');
+  assert(h.pollers.length > 0 && h.pollers.every(poller => poller.stopped), 'No optimistic observation loop may remain running');
+}
+
+async function rejectedDispatchedPostPreservesRetryKeyAndShowsUnknown() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Possibly dispatched question';
+  h.sandbox.fetch = async (url, options) => {
+    requests.push({url, method: options.method || 'GET'});
+    return url === '/auth/session' ?
+      {ok: true, status: 200, json: async () => ({session_id: 'session-1', csrf_token: 'valid_session_token_123456789'})} :
+      {ok: false, status: 403};
+  };
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.deepEqual(requests, [{url: '/auth/session', method: 'GET'}, {url: '/api/chat', method: 'POST'}]);
+  assert.equal(h.sandbox.lastChat.turns.length, 1);
+  assert.equal(h.sandbox.lastChat.turns[0].status, 'unknown', 'A server rejection after dispatch cannot be presented as continuing work');
+  assert.equal(h.run('chatWorking'), false);
+  assert.equal(h.run('pendingText'), 'Possibly dispatched question');
+  assert.equal(h.pending.get('pending-chat'), 'stable-first-send', 'Preserve the original idempotency key when dispatch was attempted');
+  assert.equal(h.$('recovery-message').value, 'Possibly dispatched question');
+  assert(h.pollers.length > 0 && h.pollers.every(poller => poller.stopped), 'Rejected session must stop progress polling');
+}
+
+async function idempotentPostStillWorkingRetainsDraftKeyAndPolling() {
+  const h = harness(), requests = [];
+  h.sandbox.showChat({available: true, turns: []});
+  h.$('recovery-message').value = 'Original in-flight question';
+  h.pending.set('pending-chat', 'original-key');
+  h.run("pendingText='Original in-flight question'");
+  h.sandbox.api = async (url, payload) => {
+    requests.push({url, payload});
+    return {json: async () => ({available: true, turns: [{request_key: payload.request_key,
+      message: payload.message, status: 'working'}]})};
+  };
+  await h.run('sendMessage({preventDefault(){}})');
+  assert.equal(requests.length, 1, 'The explicit retry makes one POST with the saved key');
+  assert.equal(requests[0].payload.request_key, 'original-key');
+  assert.equal(h.pending.get('pending-chat'), 'original-key', 'A working response is not a settled request');
+  assert.equal(h.run('pendingText'), 'Original in-flight question');
+  assert.equal(h.$('recovery-message').value, 'Original in-flight question');
+  assert.equal(h.run('chatWorking'), true);
+  assert.equal(h.run('chatBusy'), false);
+  assert.equal(h.pollers.at(-1).stopped, false, 'Progress observation must continue until a terminal response');
+  assert.equal(h.pollers.at(-1).requestKey, 'original-key');
 }
 
 async function openingDraftDoesNotReadOrCreateServerChat() {
@@ -538,7 +604,8 @@ async function deletedBookmarkPreservesUnsentTextWithoutReadingDeletedHistory() 
   let failures = 0;
   for (const test of [progressReadsNeverPostOrDiscardLastObservationOnFailure,
     progressUpdatesExistingDisclosureAndPreservesScrollPosition, progressSelectionAndSessionGuardsIgnoreOldChat,
-    terminalProgressReconcilesOriginalDraftAndPreservesEdits]) {
+    terminalProgressReconcilesOriginalDraftAndPreservesEdits, bootstrapFailureClearsOptimisticWorkingAndAllowsRetry,
+    rejectedDispatchedPostPreservesRetryKeyAndShowsUnknown, idempotentPostStillWorkingRetainsDraftKeyAndPolling]) {
     try {await test(); console.log('PASS', test.name);}
     catch (error) {++failures; console.error('FAIL', test.name, error.message);}
   }

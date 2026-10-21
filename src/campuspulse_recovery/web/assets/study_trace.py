@@ -31,7 +31,7 @@ SCRIPT = r"""
     if (turn.status === 'completed') return 'Ответ подготовлен';
     const phase = turn.agent_progress?.phase;
     if (phase === 'composing') return 'Готовлю ответ по результатам проверки';
-    return {queued: 'Запрос передан агенту', thinking: 'Агент выбирает нужные инструменты',
+    return {queued: 'Ожидаю запуск агента', thinking: 'Агент выбирает нужные инструменты',
       tools: 'Агент получает данные из источников', failed: 'Не удалось продолжить работу агента'}[phase] ||
       'Ожидаю ответ агента';
   }
