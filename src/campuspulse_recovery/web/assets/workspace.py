@@ -162,15 +162,19 @@ window.CampusPulseChats = class {
     }
   }
   async load() {
-    const epoch = this.epoch;
+    const epoch = this.epoch, previous = this.data;
+    let data;
     try {
-      const data = await (await this.api('/api/chat/workspace')).json(); if (epoch !== this.epoch) return;
-      this.data = data; this.folderState(); this.$('chat-library').hidden = false; this.message(''); this.render();
+      data = await (await this.api('/api/chat/workspace')).json();
     } catch {
-      if (epoch !== this.epoch) return; this.data = null; this.$('chat-library').hidden = false;
+      if (epoch !== this.epoch || this.data !== previous) return;
+      this.data = null; this.$('chat-library').hidden = false;
       this.$('chat-library-list').replaceChildren(); this.message('Список чатов недоступен. Нажмите «Обновить состояние».', true); this.controls();
       this.$('chat-project-list').replaceChildren();
+      return;
     }
+    if (epoch !== this.epoch || (this.data && data.revision < this.data.revision)) return;
+    this.data = data; this.folderState(); this.$('chat-library').hidden = false; this.message(''); this.render();
   }
   startChat(folderId = null) {
     if (!this.data || this.mutating || this.blocked()) return;

@@ -191,10 +191,31 @@ async function resetRejectsLateDeleteResponse() {
   assert.equal(h.chats.data, null);
 }
 
+async function backgroundReadCannotReplaceNewerCreatedChat() {
+  for (const failed of [false, true]) {
+    const h = harness(), newChat = {...h.chat, chat_id: 'c'.repeat(32), title: 'Новый чат'};
+    let resolveRead, rejectRead;
+    h.respond((url, payload) => payload
+      ? Promise.resolve({json: async () => ({revision: 2, item_id: newChat.chat_id,
+          chats: [h.chat, newChat], folders: [h.folder]})})
+      : new Promise((resolve, reject) => {resolveRead = resolve; rejectRead = reject;}));
+    const reading = h.chats.load();
+    assert.equal(await h.chats.materialize(null, 'new-chat'), newChat.chat_id);
+    if (failed) rejectRead(new Error('Earlier read failed'));
+    else resolveRead({json: async () => ({revision: 1, chats: [h.chat], folders: [h.folder]})});
+    await reading;
+    assert.equal(h.chats.data?.revision, 2, 'A delayed read must not erase a completed workspace mutation');
+    assert.equal(h.chats.data.chats[1].chat_id, newChat.chat_id);
+    assert.equal(h.get('chat-library-list').querySelectorAll('.chat-link').length, 2);
+    assert.equal(h.get('chat-library-status').textContent, '');
+  }
+}
+
 (async () => {
   for (const test of [deleteRequiresConfirmationWithCancelFocused, projectDeletionSendsNoTitleAndRendersPreservedChats,
     inflightDeleteBlocksDuplicateSubmitAndCancel, lostResponseCanRetryAfterClosingDialogWithSameKey,
-    conflictReloadsBeforeExplicitRetry, deletionIsBlockedWhileVoiceOrMessageIsBusy, resetRejectsLateDeleteResponse]) {
+    conflictReloadsBeforeExplicitRetry, deletionIsBlockedWhileVoiceOrMessageIsBusy, resetRejectsLateDeleteResponse,
+    backgroundReadCannotReplaceNewerCreatedChat]) {
     await test(); process.stdout.write('PASS ' + test.name + '\n');
   }
 })().catch(error => {console.error(error); process.exitCode = 1;});
