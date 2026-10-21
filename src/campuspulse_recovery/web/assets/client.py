@@ -32,8 +32,9 @@ SCRIPT = r"""'use strict';
     if (scope) loadChat().then(() => $('recovery-message').focus({preventScroll: true}));
   }
   const views = {
-    assistant: ['Ассистент', 'Спланируем учёбу вместе'],
+    assistant: ['Ассистент', 'Ваши задачи и планы'],
     tasks: ['Мои задания', 'Задания и ближайшие сроки'],
+    calendar: ['Google Calendar', 'Ваш календарь на ближайшие три дня'],
     plan: ['Мой план', 'Изменения календаря и ваше подтверждение'],
     journal: ['Журнал', 'Действия агента и результаты запуска']
   };
@@ -47,7 +48,8 @@ SCRIPT = r"""'use strict';
     const chatMatch = /^#chat\/([a-f0-9]{32})$/.exec(selected);
     if (chatMatch || selected === '#workspace') selectChat(chatMatch?.[1] || 'default');
     let view = {'#workspace': 'assistant', '#moodle': 'tasks', '#sources': 'plan',
-      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal'}[selected] || 'assistant';
+      '#diff-heading': 'plan', '#panel': 'plan', '#review-heading': 'plan', '#journal-heading': 'journal',
+      '#calendar': document.getElementById('google-calendar') ? 'calendar' : 'assistant'}[selected] || 'assistant';
     if (view === 'tasks' && !moodleEnabled) view = 'plan';
     document.body.dataset.view = view;
     if ($('view-title')) $('view-title').textContent = view === 'assistant' ? chats.title() : views[view][0];
@@ -603,3 +605,5 @@ SCRIPT = r"""'use strict';
 })();
 """
 SCRIPT = WORKSPACE_SCRIPT + SCRIPT
+from .sidebar import SCRIPT as SIDEBAR_SCRIPT
+SCRIPT = SIDEBAR_SCRIPT + SCRIPT

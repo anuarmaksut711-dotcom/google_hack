@@ -7,10 +7,10 @@ CampusPulse помогает студенту собрать дедлайны Mo
 Gemini для диалога и Firestore для сохранения состояния. Отдельный recovery-агент
 строит проверяемый план через MCP и Google Calendar.
 
-**Приложение:** [открыть CampusPulse](https://campuspulse-585736102295.us-central1.run.app/login).
+**Приложение:** [открыть сайт](https://campuspulse-403025736340.us-central1.run.app/).
 
-Основной стек: Python 3.12, FastAPI, Google ADK, Gemini API для обычного чата,
-Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Firestore.
+Основной стек: Python 3.12, FastAPI, Google ADK, Gemini через Vertex AI,
+Vertex AI Agent Engine для recovery, MCP и Firestore.
 
 ## Текущее состояние
 
@@ -20,6 +20,7 @@ Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Fi
 | --- | --- |
 | Cloud Run, Google-вход, Firestore | Приложение развёрнуто; личные задания и история сохраняются между перезагрузками браузера. |
 | Moodle и Gemini-чат | Проверены через опубликованный сайт: получены реальные задания и новый ответ Gemini по их дедлайнам. |
+| Личный Google Calendar | Подключается через согласие Google. Сайт и чат читают события через приватный MCP. Новые события из чата сохраняются после просмотра и подтверждения точного плана; доступ и планы зашифрованы в Firestore. Изменение и удаление существующих событий этим подключением не реализованы. |
 | My DU | Подключение реализовано; реальный Microsoft-вход и соответствие импортированных пар требуют проверки с аккаунтом AITU. |
 | Agent Engine и приватный MCP | Облачные ресурсы развёрнуты. Персональный recovery ещё требует согласованного обновления кода и настроек этих ресурсов. |
 | Планирование → согласование → Google Calendar → verify | Код и автоматические проверки есть; персональный сценарий на опубликованном сайте пока выключен. |
@@ -31,6 +32,8 @@ Vertex AI Agent Engine и Gemini через Vertex AI для recovery, MCP и Fi
 
 Актуальные облачные сведения и оставшиеся условия активации:
 [rollout checkpoint](setup/RECOVERY-ROLLOUT-2026-10-20.md).
+Подключение личного календаря на текущем сайте:
+[Google Calendar в облаке](setup/GOOGLE-CALENDAR-CLOUD.md).
 Результаты CI используют синтетические внешние сервисы и локальный эмулятор;
 зелёный CI не подтверждает доступность реальных Gemini, Moodle или Calendar.
 
@@ -41,7 +44,7 @@ flowchart LR
     Browser[Веб-интерфейс] --> Backend[Cloud Run / FastAPI]
     Moodle[Moodle iCalendar] --> Backend
     Backend --> Store[Firestore]
-    Backend --> Chat[Google ADK / Gemini API]
+    Backend --> Chat[Google ADK / Vertex Gemini]
     Backend -.-> Engine[Vertex AI Agent Engine]
     Engine --> Vertex[Gemini через Vertex AI]
     Engine --> MCP[Приватный MCP]
@@ -107,6 +110,17 @@ python -m campuspulse_recovery.demo --demo --port 8951
 самоподписанный сертификат. В этом запуске внешняя сеть и Google credentials
 отключены; настоящий Gemini не вызывается. Для остановки нажмите `Ctrl+C`.
 Настоящий вход и личные данные проверяются в опубликованном приложении.
+
+## Локальное подключение Google Calendar
+
+Запуск: `./run-google-calendar.ps1`. Откройте
+<https://127.0.0.1:8981/google-calendar>, добавьте JSON OAuth веб-клиента проекта
+и предоставьте доступ в Google. Режим показывает реальные события на следующие
+72 часа после подключения, с доступом только для чтения. Настройки и токены
+сохраняются зашифрованно в профиле Windows вне репозитория.
+
+Установка зависимостей, точный redirect URI и границы режима:
+[локальный Google Calendar](setup/LOCAL-GOOGLE-CALENDAR.md).
 
 ## Установка для разработки и тестов
 

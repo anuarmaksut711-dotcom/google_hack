@@ -56,7 +56,7 @@ def interval(value, timezone):
     return f"{stamp(value.start, timezone)} → {stamp(value.end, timezone)}"
 
 
-def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None, planning_url=None):
+def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None, moodle_enabled=False, chat_mode='recovery', account_url=None, planning_url=None, google_calendar_enabled=False):
     from ..assets.workspace import CHAT_NAV, CHAT_NEW
     notice = ''
     if demo_mode:
@@ -81,12 +81,13 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     greeting = 'Над чем поработаем?'
     introduction = ('Разберём дедлайны, найдём время на задания и соберём понятный план.' if advice else
         'Агент сверит задания и календарь, найдёт конфликты и предложит новый план.')
-    consent_note = ('Агент предлагает расписание в чате. Запись в Google Calendar в этом режиме недоступна.' if advice else
+    consent_note = (('Ассистент предлагает события. Вы подтверждаете их перед добавлением в Google Calendar.' if google_calendar_enabled else
+        'Агент предлагает расписание в чате. Запись в Google Calendar в этом режиме недоступна.') if advice else
         'Календарь изменится только после согласования точной версии плана и отдельного нажатия «Применить».')
     prompts = ('По будням свободен с 18:00 до 21:00. Помоги распределить задания.',
                'Помоги оценить, сколько времени нужно на каждое задание.',
                'Помоги расставить приоритеты по ближайшим дедлайнам.') if advice else (
-               'Объясни, как восстановить учебное расписание.',
+               'Объясни, как восстановить расписание.',
                'Как проверить предложенные изменения перед согласованием?',
                'Что происходит после применения плана?')
     prompt_labels = ('Распланировать неделю', 'Оценить время', 'С чего начать?') if advice else (
@@ -99,9 +100,16 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
     account_label = 'Настройки' if account_url == '/settings' else 'Моё подключение'
     account_link = f'<a class="account-link" href="{e(account_url)}" aria-label="{account_label}" title="{account_label}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg><span>{account_label}</span></a>' if account_url else ''
     sources_nav = f'<a class="nav-link" data-view="tasks" href="{sources_target}" aria-label="{sources_title}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="17" rx="2"/><path d="M8 2v4M16 2v4M8 11h8M8 15h5"/></svg><span class="nav-label">{sources_title}</span><span class="nav-short" aria-hidden="true">Задания</span></a>' if moodle_enabled else ''
+    calendar_nav = calendar_section = calendar_assets = ''
+    if google_calendar_enabled:
+        from ..google_calendar import CALENDAR_SECTION
+        calendar_section = CALENDAR_SECTION
+        calendar_nav = '<a class="nav-link" data-view="calendar" href="#calendar" aria-label="Google Calendar"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4m8-4v4M4 11h16"/></svg><span class="nav-label">Google Calendar</span></a>'
+        calendar_assets = '<link rel="stylesheet" href="/assets/google-calendar.css"><script src="/assets/google-calendar.js" defer></script>'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CampusPulse · Восстановление плана</title>
 <link rel="stylesheet" href="/assets/campuspulse.css"><script src="/assets/campuspulse.js" defer></script>
+{calendar_assets}
 <script src="/assets/logo/vendor/gsap.min.js" defer></script>
 <script type="module" src="/assets/logo/welcome.js"></script></head>
 <body data-view="assistant" data-chat-mode="{e(chat_mode)}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К содержимому</a>
@@ -118,14 +126,15 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <nav aria-label="Разделы плана">
 <a id="focus-composer" class="nav-link current" data-view="assistant" href="#workspace" aria-label="Ассистент" aria-current="location"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5a9.5 9.5 0 1 1 19 0Z"/><path d="M7 10h8M7 14h5"/></svg><span class="nav-label">Ассистент</span></a>
 {sources_nav}
+{calendar_nav}
 {plan_nav}
 </nav>
 {CHAT_NAV}
 <details class="conversation-navigation"><summary>Сообщения чата</summary><div id="conversation-index" class="conversation-index" aria-label="Сообщения диалога"></div></details>
 <div class="sidebar-bottom"><footer><span>{e(timezone)}</span><details><summary>О расписании</summary><p>{'Ваш календарь под вашим контролем.' if advice else 'Вы решаете, какие изменения применить.'} Интервалы [начало, конец): конец не включён. Запланированное время не означает, что задание выполнено.</p></details></footer></div>
 </aside>
-<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваше учебное пространство</span></div><button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></header>
-<main id="workspace">{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
+<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваши задачи и планы</span></div><button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></header>
+<main id="workspace">{calendar_section}{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <img id="welcome-fallback" src="/assets/logo/assets/g-reference.png" alt="" width="409" height="413" hidden>
 <canvas id="welcome-canvas"></canvas></div><h1 id="home-heading">{greeting}</h1><p>{introduction}</p></div>
@@ -133,7 +142,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <div class="recovery-controls"{' hidden' if advice else ''}><div><h2>Проверим ваше расписание?</h2><p>Сначала просмотр изменений. Затем ваше согласование и применение.</p></div><button id="start" type="button" disabled><span>Проверить расписание</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button></div>
 </div><div class="composer-dock"><div class="command-bar"><div class="composer-context"><a href="{sources_target}" title="Открыть задания"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/></svg>{sources_title}</a><a href="#panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8v3h4v15H4V6h4Zm0 0v5h8V3M8 12h8m-8 4h5"/></svg>Мой план</a></div>
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение CampusPulse</label>
-<textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="{'Когда вы свободны и что нужно успеть?' if advice else 'Задайте вопрос об учебном плане…'}" aria-describedby="chat-status"></textarea>
+<textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="{'Когда вы свободны и что нужно успеть?' if advice else 'Задайте вопрос о вашем плане…'}" aria-describedby="chat-status"></textarea>
 <div class="chat-submit"><details class="composer-options"><summary aria-label="Примеры вопросов" title="Примеры вопросов"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></summary><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}</div></details><details class="chat-help"><summary>Об ассистенте<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><p id="chat-status" role="status">Проверяем подключение чата…</p></details><button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
 </form>
 </div>
@@ -164,7 +173,7 @@ def render_panel(*, run, plan, approval, current, sources, timezone, now, runtim
         return ('<section class="outcome" data-status="needs_input" data-runtime="false">'
             '<h2>Составьте план с ассистентом</h2><p>Дедлайны находятся в разделе «Мои задания». '
             'Расскажите ассистенту, когда вы свободны и сколько времени нужно на задания. '
-            'Он предложит расписание в чате. Запись в Google Calendar в этом режиме недоступна.</p>'
+            'Он предложит события для подтверждения в разделе «Мой план».</p>'
             '<p><a href="#workspace">Перейти к ассистенту</a></p></section>')
     status = "needs_input" if not runtime_available else "ready"
     if run is not None:

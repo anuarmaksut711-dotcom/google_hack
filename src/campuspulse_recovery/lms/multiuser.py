@@ -193,8 +193,18 @@ form.addEventListener('submit',async event=>{
 def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=None,
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
                          application=None, documents=None, feed_factory=None, my_du_transport=None,
-                         recovery_factory=None, recovery_chat_factory=None):
+                         recovery_factory=None, recovery_chat_factory=None, local_google_calendar=None,
+                         cloud_google_calendar=None):
     environment = 'local' if application is None else 'cloud'
+    if local_google_calendar is not None and environment != 'local':
+        raise ValueError('local_calendar_requires_local_application')
+    if cloud_google_calendar is not None:
+        from ..cloud.connected_calendar import CloudConnectedCalendar
+        if environment != 'cloud' or local_google_calendar is not None or not isinstance(cloud_google_calendar, CloudConnectedCalendar):
+            raise ValueError('explicit_cloud_calendar_required')
+        if cloud_google_calendar.client['web']['client_id'] != client_id:
+            raise ValueError('matching_calendar_signin_client_required')
+        local_google_calendar = cloud_google_calendar
     if environment == 'cloud' and (documents is None or feed_factory is None or test_verifier is not None):
         raise ValueError('explicit_cloud_dependencies_required')
     verifier = GoogleSignInVerifier(client_id) if test_verifier is None else test_verifier
@@ -227,10 +237,14 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
     async def headers(request, call_next):
         response = await call_next(request)
         response.headers.update({'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
-            'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'DENY'})
+            'X-Frame-Options': 'DENY'})
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
         return response
 
     install_login(app, public_auth, client_id, moodle=True, email_password=True)
+    if local_google_calendar is not None:
+        from ..web.google_calendar import install_calendar_public
+        install_calendar_public(app, origin=origin)
 
     async def scoped_app(principal):
         async with lock:
@@ -248,6 +262,19 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             await feed.restore()
             selected_agent = (recovery_chat_factory if recovery is not None and recovery_chat_factory is not None
                               else agent_factory)
+            async def calendar_sources(context):
+                owner = context.trusted.owner_id
+                state = await local_google_calendar.status(owner)
+                if not state['connected']:
+                    return {'status': 'not_connected'}
+                from ..integrations.local_calendar import LocalCalendarTools
+                result = (await local_google_calendar.tools(owner).read(session=context.session_id)
+                          if hasattr(local_google_calendar, 'tools') else
+                          await LocalCalendarTools(local_google_calendar, owner).read())
+                if 'error' in result:
+                    return {'status': 'unavailable'}
+                from ..integrations.calendar_agenda import agenda_source
+                return agenda_source(result)
             inner = create_ui_app(policy=policy, documents=documents, verifier=verifier,
                 origin=origin, environment=environment, clock=clock, moodle_enabled=True,
                 signin_url='/login', chat_agent=None if selected_agent is None else selected_agent(),
@@ -255,7 +282,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 runs_factory=None if recovery is None else recovery.runs,
                 approval_store=None if recovery is None else recovery.approvals,
                 planning_url=None if recovery is None else '/planning',
-                owner_chat_history=True, account_url='/settings', email_credentials=email_credentials)
+                owner_chat_history=True, account_url='/settings', email_credentials=email_credentials,
+                google_calendar_enabled=local_google_calendar is not None,
+                chat_sources=calendar_sources if local_google_calendar is not None else None)
             auth = inner.state.web_auth
             if recovery is not None:
                 from ..web.moodle_planning import install_planning_routes
@@ -265,6 +294,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             install_moodle_routes(inner, auth=auth, reader=feed.read, refresh=feed.refresh,
                 source_kind='calendar_feed', update_local_status=feed.status)
             install_my_du_routes(inner, auth=auth, account=my_du)
+            if local_google_calendar is not None:
+                from ..web.google_calendar import install_calendar_routes
+                install_calendar_routes(inner, auth=auth, calendar=local_google_calendar)
 
             @inner.get('/account', response_class=HTMLResponse)
             @inner.get('/settings', response_class=HTMLResponse)
@@ -274,7 +306,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                     connected = await feed.connected(context)
                 if (await auth.load(request)).session != credential.session:
                     raise AccessDenied('account_session_changed')
-                return render_moodle_settings(connected=connected, my_du_html=ACCOUNT_MY_DU)
+                from ..web.google_calendar import ACCOUNT_GOOGLE_CALENDAR
+                return render_moodle_settings(connected=connected, my_du_html=ACCOUNT_MY_DU,
+                    google_calendar_html=ACCOUNT_GOOGLE_CALENDAR if local_google_calendar is not None else '')
 
             @inner.get('/assets/account.js')
             async def account_script(request: Request):
@@ -294,7 +328,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             @inner.middleware('http')
             async def account_headers(request, call_next):
                 response = await call_next(request)
-                if request.url.path in ('/account', '/settings'):
+                if request.url.path in ('/account', '/settings') or (local_google_calendar is not None and request.url.path == '/google-calendar'):
                     response.headers['Content-Security-Policy'] = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
                 return response
 
@@ -331,6 +365,58 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
         _set(response, CSRF_COOKIE, csrf, age, httponly=False)
         response.delete_cookie(CHALLENGE_COOKIE, secure=True, httponly=True, samesite='strict', path='/')
         return response
+
+    if local_google_calendar is not None:
+        from ..integrations.local_calendar import CalendarConnectionError
+        from ..web.google_calendar import CONNECT_PAGE, Completion
+
+        @app.get('/google-calendar/connect', response_class=HTMLResponse)
+        async def calendar_signin_page(request: Request):
+            public_auth.check_login_navigation(request, additional_paths=('/google-calendar/connect',))
+            return HTMLResponse(CONNECT_PAGE, headers={'Content-Security-Policy':
+                "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"})
+
+        @app.post('/auth/google-calendar/signin/start')
+        async def calendar_signin_start(request: Request):
+            challenge = await public_auth.challenge_for_signin(request)
+            if request.query_params:
+                raise ValueError('calendar_selectors_forbidden')
+            await body(request, Contract)
+            provisional = 'signin-' + digest(challenge.nonce)
+            url = await local_google_calendar.start(owner=provisional,
+                session=challenge.nonce, nonce=challenge.nonce)
+            response = JSONResponse({'authorization_url': url})
+            response.set_cookie('__Host-cp-calendar-flow', 'signin', secure=True,
+                samesite='strict', path='/', max_age=300)
+            return response
+
+        @app.post('/auth/google-calendar/signin/complete')
+        async def calendar_signin_complete(request: Request):
+            challenge = await public_auth.challenge_for_signin(request)
+            if request.query_params:
+                raise ValueError('calendar_selectors_forbidden')
+            value = await body(request, Completion)
+            provisional = 'signin-' + digest(challenge.nonce)
+            try:
+                connection = await local_google_calendar.exchange(owner=provisional,
+                    session=challenge.nonce, principal='prelogin', state=value.state, code=value.code,
+                    return_id_token=True)
+                # The signed Google ID token goes through exactly the existing
+                # verifier and one-use challenge/session creation path.
+                token = connection.pop('_signin_id_token')
+                identity = await verifier.verify(token, nonce=challenge.nonce, now=public_auth.now())
+                if identity.principal_id != 'https://accounts.google.com#' + connection['subject']:
+                    raise AccessDenied('calendar_subject_mismatch')
+                inner = await scoped_app(identity.principal_id)
+                auth = inner.state.web_auth
+                result = await auth.signin(request, token)
+                owner = auth.policy.config.student.trusted_user_id
+                await local_google_calendar.save(owner, {**connection, 'owner': owner})
+                response = signed_in(auth, result)
+                response.delete_cookie('__Host-cp-calendar-flow', secure=True, samesite='strict', path='/')
+                return response
+            except CalendarConnectionError:
+                return JSONResponse({'error': 'calendar_authorization_failed'}, status_code=400)
 
     async def email_signin(request, *, register):
         # Establish browser intent before parsing or hashing a credential. The
@@ -376,12 +462,14 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
             inner = await scoped_app(session.principal_id)
             await inner.state.web_auth.load(request)
         except Exception:
-            response = RedirectResponse('/login') if request.method == 'GET' and request.url.path in ('/', '/account', '/settings') else JSONResponse({'error': 'access_denied'}, status_code=403)
+            login_pages = ('/', '/account', '/settings') + (('/google-calendar',) if local_google_calendar is not None else ())
+            login_target = '/google-calendar/connect' if request.url.path in ('/', '/google-calendar') and local_google_calendar is not None else '/login'
+            response = RedirectResponse(login_target) if request.method == 'GET' and request.url.path in login_pages else JSONResponse({'error': 'access_denied'}, status_code=403)
             await response(scope, receive, send)
             return
         if request.method == 'GET' and request.url.path == '/':
             owner = inner.state.web_auth.policy.config.student.trusted_user_id
-            if await documents.get('cp_moodle_accounts/' + owner) is None:
+            if local_google_calendar is None and await documents.get('cp_moodle_accounts/' + owner) is None:
                 await RedirectResponse('/account')(scope, receive, send)
                 return
         await inner(scope, receive, send)

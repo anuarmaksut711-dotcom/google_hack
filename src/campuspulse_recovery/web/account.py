@@ -1,7 +1,7 @@
 """First Moodle connection and optional settings; saved feed URLs stay server-side."""
 
 
-def render_moodle_settings(*, connected, my_du_html):
+def render_moodle_settings(*, connected, my_du_html, google_calendar_html=''):
     instructions = ('<p>Откройте Moodle AITU → Календарь → Экспорт календаря. Выберите все события, '
         'нажмите Get calendar URL и вставьте полученную ссылку сюда.</p>')
     privacy = ('<p>Ссылка даёт доступ к вашему календарю и сохраняется для этого аккаунта CampusPulse. '
@@ -28,4 +28,4 @@ def render_moodle_settings(*, connected, my_du_html):
         '</head><body><main><a href="/">К заданиям и чатам</a><h1>Настройки</h1>'
         '<section aria-labelledby="moodle-settings-heading"><h2 id="moodle-settings-heading">Moodle</h2>'
         + moodle + '<p id="account-status" role="status" aria-live="polite"></p></section>'
-        + my_du_html + '</main><script src="/assets/account.js"></script></body></html>')
+        + google_calendar_html + my_du_html + '</main><script src="/assets/account.js"></script></body></html>')

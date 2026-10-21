@@ -148,7 +148,7 @@ class WebAuth(_Repository):
         if (mutation or supplied is not None) and supplied != self.origin:
             raise AccessDenied("request_origin_rejected")
 
-    def check_login_navigation(self, request):
+    def check_login_navigation(self, request, *, additional_paths=()):
         """Accept external top-level links to public authentication documents.
 
         This grants no identity, challenge or session. All authentication and
@@ -158,7 +158,7 @@ class WebAuth(_Repository):
         destination = request.headers.get("sec-fetch-dest")
         site = request.headers.get("sec-fetch-site")
         supplied = request.headers.get("origin")
-        if (request.method != "GET" or request.url.path not in ("/login", "/register")
+        if (request.method != "GET" or request.url.path not in ("/login", "/register", *additional_paths)
                 or request.url.scheme != "https" or request.headers.get("host") != self.host
                 or mode not in (None, "navigate") or destination not in (None, "document")
                 or supplied not in (None, self.origin)

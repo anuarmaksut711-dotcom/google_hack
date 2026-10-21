@@ -111,7 +111,7 @@ class ChatStore(_Repository):
         return await self.documents.transact(transact)
 
 
-def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False):
+def create_chat_router(*, auth, documents, policy, agent=None, projection=None, owner_history=False, additional_sources=None):
     router = APIRouter()
     store = ChatStore(documents, policy, owner_history=owner_history)
     workspace = WorkspaceStore(documents, policy, owner_history=owner_history)
@@ -170,9 +170,22 @@ def create_chat_router(*, auth, documents, policy, agent=None, projection=None, 
 
                     sources = {} if projection is None else (await projection.project(
                         context, run=None, plan=None)).model_dump(mode='json', include={'assignments', 'calendar'})
+                    if additional_sources is not None:
+                        sources['google_calendar'] = await additional_sources(context)
+                    sources['calendar_write'] = {'enabled': callable(getattr(request.app.state, 'calendar_plan_proposer', None)),
+                        'now': auth.now().isoformat(), 'timezone': policy.config.student.timezone, 'horizon_hours': 72}
                     await fresh(request, credential)
                     response = await agent.reply(history=chat.turns[:-1], message=value.message,
                         user_id=context.trusted.owner_id, session_id=context.session_id, sources=sources)
+
+                    proposer = getattr(request.app.state, 'calendar_plan_proposer', None)
+                    if proposer is not None:
+                        from ..domain.chat_plan import render_advice
+                        blocks = []
+                        response = render_advice(response, schedule=None, now=auth.now(),
+                            timezone=policy.config.student.timezone, validated_blocks=blocks)
+                        if blocks and await proposer(blocks, value.chat_id + ':' + value.request_key, context.session_id):
+                            response += '\n\nПодтвердите события в разделе «Мой план», чтобы добавить их в Google Calendar.'
 
                     response = ChatTurn(request_key=value.request_key, message=value.message,
                         status='completed', created_at=auth.now(), response=response).response

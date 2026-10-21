@@ -56,12 +56,23 @@ def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
     if not settings.scheduler_service_account.endswith('@' + settings.application.project_id + '.iam.gserviceaccount.com'):
         raise ValueError('scheduler_project_mismatch')
     factory = lambda **kwargs: CloudCalendarFeed(documents=documents, clock=clock, **kwargs)
+    google_calendar = None
+    if os.environ.get('CAMPUSPULSE_CALENDAR_OAUTH'):
+        import json
+        from .connected_calendar import CloudConnectedCalendar
+        config = json.loads(Path(os.environ['CAMPUSPULSE_CALENDAR_OAUTH']).read_text())
+        if (config['project_id'] != settings.application.project_id or config['origin'] != settings.origin
+                or config['database'] != settings.application.firestore_database):
+            raise ValueError('calendar_oauth_deployment_mismatch')
+        google_calendar = CloudConnectedCalendar(documents, client=config['client'], key=config['key'],
+            project_id=config['project_id'], origin=config['origin'], mcp_origin=config['mcp_origin'], clock=clock)
     app = create_multiuser_app(origin=settings.origin, client_id=settings.google_client_id,
         directory=Path('/tmp/campuspulse'), application=settings.application, documents=documents,
         feed_factory=factory, agent_factory=lambda: CalendarConversation(settings.chat), clock=clock,
         recovery_factory=(None if settings.recovery is None else
             lambda principal, clock: settings.recovery.backend(principal, documents, clock=clock)),
-        recovery_chat_factory=lambda: CalendarConversation(settings.chat, recovery=True))
+        recovery_chat_factory=lambda: CalendarConversation(settings.chat, recovery=True),
+        cloud_google_calendar=google_calendar)
 
     # These routes must precede the multi-user catch-all mount.
     mount = app.router.routes.pop()
