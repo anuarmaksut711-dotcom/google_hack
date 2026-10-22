@@ -13,7 +13,7 @@ if ($build.status -ne 'SUCCESS' -or $build.results.images[0].digest -notmatch '^
 }
 $image = $cfg.image_tag.Split(':')[0] + '@' + $build.results.images[0].digest
 $secrets = "/var/run/campuspulse/settings.json=campuspulse-calendar-settings:$($cfg.settings_version),GEMINI_API_KEY=campuspulse-calendar-gemini:$($cfg.gemini_version)"
-$environment = 'CAMPUSPULSE_CALENDAR_SETTINGS=/var/run/campuspulse/settings.json'
+$environment = 'CAMPUSPULSE_CALENDAR_SETTINGS=/var/run/campuspulse/settings.json,CAMPUSPULSE_TELEGRAM_SUPPORT=v1'
 $null = Gcp @('run','deploy','campuspulse',"--region=$($cfg.region)","--image=$image",
     '--command=python','--args=-m,campuspulse_recovery.cloud.calendar_app',
     "--service-account=$($cfg.runtime)",'--execution-environment=gen2','--port=8080',

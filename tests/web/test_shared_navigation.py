@@ -100,7 +100,7 @@ def test_standalone_shell_preserves_original_forms_notices_and_scripts(page, act
         assert 'в настройках Google-аккаунта → Безопасность → Сторонние приложения.' in html
 
 
-def test_wrap_preserves_body_attributes_without_adding_an_appearance_control():
+def test_wrap_preserves_body_attributes_without_adding_appearance_controls():
     page = ('<!doctype html><html lang="ru"><head><title>Old</title>'
             '<script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/theme.css">'
             '</head><body class="settings-page" data-extra="kept"><header></header>'

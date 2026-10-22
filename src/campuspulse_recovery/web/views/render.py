@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from ...storage.plans import plan_reference
-from ..assets.theme import THEME_BUTTON, THEME_HEAD
+from ..assets.theme import THEME_HEAD
 from .navigation import render_navigation
 
 STATUS = {
@@ -113,7 +113,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <script type="module" src="/assets/logo/welcome.js"></script></head>
 <body data-view="assistant" data-chat-mode="{e(chat_mode)}" data-calendar-plan-available="{str(calendar_plan_available).lower()}" data-signin-url="{e(signin_url or '')}" data-moodle-enabled="{str(moodle_enabled).lower()}" data-timezone="{e(timezone)}"><a class="skip" href="#workspace">К содержимому</a>
 {navigation}
-<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваши задания и расписание</span></div><div class="topbar-actions">{THEME_BUTTON}<button id="reload" type="button" title="Обновить сохранённое состояние"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg><span>Обновить состояние</span></button></div></header>
+<div class="app-content"><header class="topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><div class="view-heading"><span id="view-title">Ассистент</span><span id="view-subtitle">Ваши задания и расписание</span></div></header>
 <main id="workspace">{calendar_section}{moodle}<section class="recovery-home" aria-labelledby="home-heading"><div id="conversation-scroll" class="conversation-scroll" tabindex="0" aria-label="История диалога">{notice}<div class="intro">
 <div id="welcome-logo" class="welcome-logo" data-state="loading" aria-hidden="true">
 <canvas id="welcome-fallback" width="409" height="413" hidden></canvas>
@@ -123,7 +123,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
 <div id="chat-limit" hidden role="status"><p>Этот диалог заполнен. Начните новый чат — история останется доступна.</p><button id="chat-limit-new" type="button">Начать новый диалог</button></div>
 <form id="chat-form" class="command-body"><label class="message-label" for="recovery-message">Сообщение Google AI</label>
 <textarea id="recovery-message" name="message" rows="2" maxlength="4000" placeholder="Что нужно успеть?" aria-describedby="chat-status"></textarea>
-<div class="chat-submit"><details class="composer-options"><summary aria-label="Примеры вопросов" title="Примеры вопросов"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></summary><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}{planning_action}</div></details><details class="chat-help"><summary>Об ассистенте<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><p id="chat-status" role="status">Проверяем подключение чата…</p></details>
+<div class="chat-submit"><details class="composer-options"><summary aria-label="Примеры вопросов" title="Примеры вопросов"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg></summary><div class="prompt-suggestions" aria-label="Примеры вопросов">{suggestions}{planning_action}</div></details><p id="chat-status" class="message-label" role="status" aria-live="polite">Проверяем подключение чата…</p>
 <button id="voice-toggle" type="button" disabled aria-pressed="false" aria-label="Голосовой ввод" title="Голосовой ввод" aria-describedby="voice-status"><svg class="voice-mic-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg><svg class="voice-stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span id="voice-toggle-label" class="message-label">Голосовой ввод</span></button>
 <button id="chat-send" type="submit" disabled aria-label="Отправить сообщение" title="Отправить сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div>
 <div class="voice-input">

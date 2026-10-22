@@ -1,9 +1,11 @@
 """Public sign-in surfaces sharing a one-use server nonce and CSRF check."""
 from html import escape
 import secrets
+from pathlib import Path
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from ..web.assets.theme import THEME_HEAD, install_theme
 
 SCRIPT = r"""'use strict';
@@ -103,7 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!window.google?.accounts?.id) throw new Error('google_unavailable');
     google.accounts.id.initialize({
       client_id: document.body.dataset.clientId, nonce: challenge.nonce,
-      auto_select: false, ux_mode: 'popup', context: signup ? 'signup' : 'signin',
+      auto_select: false, button_auto_select: false, ux_mode: 'popup', context: signup ? 'signup' : 'signin',
       callback: async ({credential}) => {
         if (submitting) return;
         busy(true); message('Проверяем вход…', 'working');
@@ -124,8 +126,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const width = Math.floor(Math.min(400, provider.clientWidth));
       if (!width || width === lastWidth) return;
       lastWidth = width; provider.replaceChildren();
+      // Google's medium button excludes account-name/email personalization.
       google.accounts.id.renderButton(provider,
-        {type: 'standard', theme: 'filled_black', shape: 'pill', size: 'large',
+        {type: 'standard', theme: 'filled_black', shape: 'pill', size: 'medium',
           text: 'continue_with', locale: 'ru', logo_alignment: 'center', width});
     };
     provider.hidden = false;
@@ -169,12 +172,12 @@ body.auth-page {
   background:linear-gradient(105deg,#252525 0%,#1b1b1b 42%,#151515 100%);
   box-shadow:0 24px 64px -28px #000b;
 }
-.auth-page .auth-orb {
-  position:relative; width:64px; height:64px; margin:0 auto 28px; border-radius:50%; overflow:hidden;
-  background:repeating-linear-gradient(132deg,#f8f8f8 0px,#f8f8f8 3px,#acacac 5px,#e8e8e8 8px);
-  box-shadow:inset -10px -8px 16px #0009,inset 9px 8px 14px #fff8,0 4px 12px -4px #0009;
+.auth-page .auth-logo {
+  position:relative; width:128px; height:96px; margin:0 auto 12px;
 }
-.auth-page .auth-orb::after{content:'';position:absolute;inset:0;border-radius:inherit;background:radial-gradient(circle at 28% 22%,#fff9,transparent 60%,#0008)}
+.auth-page .auth-logo canvas { position:absolute; inset:0; display:block; width:100%; height:100%; }
+.auth-page .auth-logo #welcome-fallback { inset:auto; top:50%; left:50%; width:50%; height:auto; transform:translate(-50%,-50%); }
+.auth-page .auth-logo[data-state=loading] canvas { visibility:hidden; }
 .auth-page h1{margin:0;font-size:28px;line-height:1.3;letter-spacing:-.03em;font-weight:600;color:var(--auth-ink)}
 .auth-page .auth-title{margin:28px 0 8px;font-size:18px;font-weight:500;color:#e7e7e7}
 .auth-page .auth-description{max-width:34ch;margin:0 auto;color:var(--auth-muted);font-size:14px;line-height:1.75;text-wrap:balance}
@@ -198,7 +201,7 @@ body.auth-page {
 .auth-page[data-email-password=true] #login-status{min-height:22px;margin-top:16px}
 .auth-page[data-email-password=true] .auth-switch{margin-top:16px}
 .auth-page #provider-status{margin:10px 0 0;font-size:12px;color:var(--auth-muted)}
-.auth-page #google-signin{display:flex;justify-content:center;width:100%;min-height:60px;padding:8px 0;border-radius:999px;background:#202124}
+.auth-page #google-signin{display:flex;align-items:center;justify-content:center;width:100%;min-height:60px;padding:8px 0;border-radius:999px;background:#202124}
 .auth-page #google-signin>div{max-width:100%}
 /* Match the GIS document's scheme so its transparent canvas stays transparent.
    The button itself keeps Google's filled_black theme. */
@@ -219,7 +222,7 @@ body.auth-page {
 @media(max-width:520px){
   body.auth-page{padding:24px 16px}
   .auth-page .auth-card{padding:36px 24px 30px;border-radius:26px}
-  .auth-page .auth-orb{width:58px;height:58px;margin-bottom:24px}
+  .auth-page .auth-logo{width:116px;height:87px;margin-bottom:12px}
   .auth-page h1{font-size:26px}
   .auth-page .auth-title{margin-top:24px}
   .auth-page .auth-description{font-size:13px}
@@ -258,10 +261,14 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
         '<meta name="color-scheme" content="dark">'
         f'<title>{title} · Google AI</title><link rel="stylesheet" href="/assets/login.css">' + THEME_HEAD +
         f'<script id="google-sdk" src="https://accounts.google.com/gsi/client"{nonce_attribute} async></script>'
-        '<script src="/assets/login.js" defer></script></head>'
+        '<script src="/assets/login.js" defer></script>'
+        '<script src="/assets/logo/vendor/gsap.min.js" defer></script>'
+        '<script type="module" src="/assets/logo/welcome.js"></script></head>'
         f'<body class="auth-page" data-email-password="{str(email_password).lower()}" data-auth-mode="{"signup" if signup else "signin"}" data-client-id="{escape(client_id, quote=True)}">'
         '<main class="auth-card" aria-labelledby="auth-heading">'
-        '<div class="auth-orb" aria-hidden="true"></div>'
+        '<div id="welcome-logo" class="auth-logo" data-state="loading" aria-hidden="true">'
+        '<canvas id="welcome-fallback" width="409" height="413" hidden></canvas>'
+        '<canvas id="welcome-canvas"></canvas></div>'
         '<h1 id="auth-heading">Google AI</h1>'
         f'<p class="auth-title">{"Создать аккаунт" if signup else "С возвращением"}</p>'
         + ('' if email_password else f'<p class="auth-description">{description}</p>') + email_form +
@@ -275,6 +282,9 @@ def render_login(client_id, *, moodle=False, signup=False, style_nonce=None, ema
 
 def install_login(app, auth, client_id, *, moodle=False, email_password=False):
     install_theme(app)
+    # The sign-in animation uses the same packaged, non-sensitive assets as chat.
+    if not any(getattr(route, 'path', None) == '/assets/logo' for route in app.routes):
+        app.mount('/assets/logo', StaticFiles(directory=Path(__file__).resolve().parents[1] / 'web/assets/logo'), name='public-welcome-logo')
     @app.get('/login', response_class=HTMLResponse)
     async def login(request: Request):
         auth.check_login_navigation(request)

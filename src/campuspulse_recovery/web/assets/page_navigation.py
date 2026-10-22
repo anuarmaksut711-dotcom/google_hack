@@ -117,12 +117,12 @@ SCRIPT = r'''
     changed: () => {}, removed: () => {}, blocked: () => !scope || loading || signingOut});
   function invalidate() {
     scope = null; chats.reset(); $('signout').hidden = true; $('chat-library').hidden = false;
-    chats.message('Не удалось проверить вход. Обновите список чатов или войдите в приложение заново.', true);
+    chats.message('Не удалось проверить вход. Обновите страницу или войдите в приложение заново.', true);
     chats.controls();
   }
   async function load() {
     if (loading || signingOut || chats.mutating) return;
-    loading = true; $('page-navigation-reload').disabled = true; chats.controls();
+    loading = true; chats.controls();
     try {
       const session = await (await api('/auth/session')).json();
       if (session.status !== 'authenticated' || typeof session.session_id !== 'string' ||
@@ -133,10 +133,9 @@ SCRIPT = r'''
       await chats.load();
     } catch {
       scope = null; chats.reset(); $('signout').hidden = true; $('chat-library').hidden = false;
-      chats.message('Не удалось загрузить чаты. Обновите список или войдите в приложение заново.', true);
-    } finally { loading = false; $('page-navigation-reload').disabled = false; chats.controls(); }
+      chats.message('Не удалось загрузить чаты. Обновите страницу или войдите в приложение заново.', true);
+    } finally { loading = false; chats.controls(); }
   }
-  $('page-navigation-reload').addEventListener('click', load);
   $('signout').addEventListener('click', async () => {
     if (!scope || loading || signingOut || chats.mutating) return;
     signingOut = true; $('signout').disabled = true; chats.controls();

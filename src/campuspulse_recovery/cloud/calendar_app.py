@@ -96,7 +96,9 @@ def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
         return StudyConversation(settings.study_agent, documents, policy=policy,
             delegate=CalendarConversation(settings.chat), clock=clock)
 
-    app = create_multiuser_app(origin=settings.origin, client_id=settings.google_client_id,
+    from .telegram_reminders import TelegramReminders
+    telegram = TelegramReminders.from_environment(documents, timezone=settings.application.student.timezone, clock=clock)
+    app = create_multiuser_app(telegram=telegram, origin=settings.origin, client_id=settings.google_client_id,
         directory=Path('/tmp/campuspulse'), application=settings.application, documents=documents,
         feed_factory=factory, agent_factory=lambda: CalendarConversation(settings.chat), clock=clock,
         recovery_factory=(None if settings.recovery is None else
@@ -141,6 +143,29 @@ def create_calendar_cloud_app(settings, documents, *, clock=utcnow):
         failed = results.count(False)
         return JSONResponse({'accounts': len(results), 'updated': results.count(True), 'failed': failed},
                             status_code=503 if failed else 200)
+
+    @app.post('/telegram/webhook')
+    async def telegram_webhook(request: Request):
+        headers = request.headers.getlist('x-telegram-bot-api-secret-token')
+        if len(headers) != 1 or not telegram.verify_webhook(headers[0]):
+            return JSONResponse({'error': 'webhook_auth_required'}, status_code=403)
+        from ..web.telegram_settings import bounded_json
+        try:
+            update = await bounded_json(request, limit=65536)
+        except (ValueError, TypeError):
+            return JSONResponse({'error': 'invalid_update'}, status_code=400)
+        await telegram.webhook(update)
+        return {'ok': True}
+
+    @app.post('/internal/telegram/remind')
+    async def telegram_remind(request: Request):
+        try:
+            await ServiceIdentity(settings.origin, settings.scheduler_service_account).verify(request)
+        except AccessDenied:
+            return JSONResponse({'error': 'service_identity_required'}, status_code=403)
+        async with asyncio.timeout(240):
+            result = await telegram.run_due(origin=settings.origin)
+        return JSONResponse(result, status_code=503 if result['source_errors'] else 200)
 
     app.router.routes.append(mount)
     return app

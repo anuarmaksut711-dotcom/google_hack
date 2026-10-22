@@ -201,7 +201,7 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                          transport=None, test_verifier=None, clock=lambda: datetime.now(UTC),
                          application=None, documents=None, feed_factory=None, my_du_transport=None,
                          recovery_factory=None, recovery_chat_factory=None, local_google_calendar=None,
-                         cloud_google_calendar=None, scoped_agent_factory=None):
+                         cloud_google_calendar=None, scoped_agent_factory=None, telegram=None):
     environment = 'local' if application is None else 'cloud'
     if local_google_calendar is not None and environment != 'local':
         raise ValueError('local_calendar_requires_local_application')
@@ -311,6 +311,9 @@ def create_multiuser_app(*, origin, client_id, directory: Path, agent_factory=No
                 from ..web.google_calendar import install_calendar_routes
                 install_calendar_routes(inner, auth=auth, calendar=local_google_calendar,
                     moodle_enabled=True, planning_url='/planning', account_url='/settings')
+
+            from ..web.telegram_settings import install_user_routes
+            install_user_routes(inner, auth=auth, telegram=telegram)
 
             @inner.get('/account', response_class=HTMLResponse)
             @inner.get('/settings', response_class=HTMLResponse)
