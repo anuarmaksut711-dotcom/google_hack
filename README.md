@@ -1,13 +1,8 @@
-# CampusPulse AI
-
-**Учебный AI-ассистент, который получает реальные задания, учитывает расписание и помогает найти время на учёбу.**
+# Google AI
 
 [![CI](https://github.com/anuarmaksut711-dotcom/google_hack/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/anuarmaksut711-dotcom/google_hack/actions/workflows/ci.yml)
 
-[Открыть приложение](https://campuspulse-403025736340.us-central1.run.app/login) · [Презентация PDF](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf) · [Презентация PPTX](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx)
-
-Проект для кейса **GDG Astana — Smart Autonomous AI Agent with MCP Support**.
-В интерфейсе рабочей версии используется название **Google AI**; название проекта — **CampusPulse AI**.
+[Открыть Google AI](https://campuspulse-403025736340.us-central1.run.app/#workspace) · [Презентация PDF](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf) · [Презентация PPTX](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx)
 
 [Возможности](#что-умеет-приложение) · [Демо](#попробовать-на-реальных-заданиях) · [Архитектура](#архитектура) · [Локальный запуск](#установка-для-разработки) · [Деплой](#развёртывание-в-google-cloud)
 
@@ -16,7 +11,7 @@
 Задания находятся в Moodle, пары — в отдельном расписании, личные дела — в календаре.
 Чтобы понять, за что браться сегодня, студенту приходится собирать эту информацию вручную.
 
-CampusPulse AI объединяет эти источники в одном рабочем пространстве. Студент задаёт
+Google AI объединяет эти источники в одном рабочем пространстве. Студент задаёт
 свободное время и примерную длительность работы, а агент получает актуальные данные
 через MCP и предлагает конкретные учебные блоки. В интерфейсе видно, какие инструменты
 он вызвал и что удалось прочитать.
@@ -130,6 +125,9 @@ Backend вызывает управляемую операцию `async_query`. 
 | Проверки и сборка | Pytest, Firestore Emulator, GitHub Actions, Cloud Build |
 
 ### Соответствие кейсу GDG Astana
+
+Тема кейса хакатона — **CampusPulse AI: Smart Autonomous AI Agent with MCP Support**.
+Наше решение для этого кейса — **Google AI**.
 
 | Требование | Реализация в проекте |
 | --- | --- |
@@ -355,8 +353,8 @@ python deploy/study-agent.py \
 
 | Материал | Ссылка |
 | --- | --- |
-| Презентация PDF | [CampusPulse AI — PDF](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf) |
-| Редактируемая презентация | [CampusPulse AI — PPTX](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx) |
+| Презентация PDF | [Открыть PDF](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pdf) |
+| Редактируемая презентация | [Открыть PPTX](presentation/pitch-2026-10-22/output/CampusPulse-AI-Pitch-2026-10-22-final.pptx) |
 | Выступление и вопросы жюри | [Текст выступления](presentation/pitch-2026-10-22/SPEECH-RU.md), [ответы жюри](presentation/pitch-2026-10-22/JURY-QA-RU.md) |
 | Контракт облачного study-agent и история проверок | [PITCH-CLOUD-HANDOFF.md](setup/PITCH-CLOUD-HANDOFF.md) |
 | История интеграции интерфейса | [PITCH-UI-HANDOFF.md](setup/PITCH-UI-HANDOFF.md) |
