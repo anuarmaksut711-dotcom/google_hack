@@ -334,12 +334,8 @@ footer p { max-width: 65ch; }
 }
 /* Only the assistant owns a viewport-sized shell; other views scroll normally. */
 body[data-view=assistant] { display: flow-root; height: 100dvh; overflow: hidden; }
-body[data-view=assistant] .app-content {
-  height: 100dvh; min-height: 0; margin-right: 0; border-radius: 0;
-  display: flex; flex-direction: column; overflow: hidden;
-  background: #101010 radial-gradient(ellipse 80% 85% at 50% 58%, #1a2c62 0%, #131e3f 42%, #101522 72%, #101010 100%);
-}
-body[data-view=assistant] .topbar { flex-shrink: 0; background: transparent; }
+body[data-view=assistant] .app-content { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(ellipse at 50% 46%, #14255080 0%, #10162650 35%, #101010 72%); }
+body[data-view=assistant] .topbar { flex-shrink: 0; }
 body[data-view=assistant] #workspace { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
 body[data-view=assistant] .recovery-home { flex: 1; min-height: 0; overflow: hidden; padding: 0; }
 .conversation-scroll { flex: 1; min-height: 0; width: 100%; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable both-edges; display: flex; flex-direction: column; align-items: center; padding: 16px 10px 12px; }
