@@ -8,8 +8,8 @@ from .models import Contract
 
 class StudyToolProgress(Contract):
     call_id: Annotated[StrictInt, Field(ge=1, le=8)]
-    tool: Literal['read_assignments', 'read_schedule']
-    status: Literal['running', 'completed', 'failed', 'unavailable', 'not_connected', 'unknown']
+    tool: Literal['read_assignments', 'read_schedule', 'read_github_assignment']
+    status: Literal['running', 'completed', 'partial', 'failed', 'unavailable', 'not_connected', 'unknown']
     duration_ms: Annotated[StrictInt, Field(ge=0, le=150000)] | None = None
     result_count: Annotated[StrictInt, Field(ge=0, le=1000)] | None = None
 

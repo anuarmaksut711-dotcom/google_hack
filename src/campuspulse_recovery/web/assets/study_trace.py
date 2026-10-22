@@ -4,7 +4,8 @@ SCRIPT = r"""
 (() => {
   const tools = {
     read_assignments: ['Задания Moodle', 'Получаю задания Moodle'],
-    read_schedule: ['Расписание пар', 'Проверяю расписание пар']
+    read_schedule: ['Расписание пар', 'Проверяю расписание пар'],
+    read_github_assignment: ['Репозиторий GitHub', 'Читаю репозиторий GitHub']
   };
   const seconds = value => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 1})
     .format(value / 1000) + ' с';
@@ -17,13 +18,16 @@ SCRIPT = r"""
   function result(call, working) {
     if (call.status === 'unknown') return 'Результат не получен';
     if (call.status === 'running') return working ? 'Выполняется' : 'Результат не получен';
-    if (call.status === 'not_connected') return call.tool === 'read_schedule' ?
-      'Расписание пар не заполнено' : 'Moodle не подключён';
+    if (call.status === 'not_connected') return {
+      read_schedule: 'Расписание пар не заполнено', read_assignments: 'Moodle не подключён',
+      read_github_assignment: 'Репозиторий недоступен'
+    }[call.tool];
+    if (call.status === 'partial') return 'Получена часть данных';
     if (call.status === 'unavailable') return 'Данные сейчас недоступны';
     if (call.status !== 'completed') return 'Не удалось получить данные';
     const count = Number.isInteger(call.result_count) && call.result_count >= 0 ? call.result_count : null;
     if (count === null) return 'Данные получены';
-    return (call.tool === 'read_assignments' ? 'Получено записей: ' : 'Получено занятий: ') + count;
+    return (call.tool === 'read_schedule' ? 'Получено занятий: ' : 'Получено записей: ') + count;
   }
   function phaseText(turn, calls) {
     if (turn.status === 'failed') return 'Не удалось подготовить ответ';

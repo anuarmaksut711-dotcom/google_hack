@@ -93,7 +93,7 @@ async def test_protocol_exposes_only_read_tools_reads_real_owner_feed_and_schedu
         mcp_origin=MCP_ORIGIN, clock=lambda: NOW, feed_factory=source_factory)
     async with channel(server) as (mcp, app):
         tools = (await mcp.list_tools()).tools
-        assert {tool.name for tool in tools} == {'read_assignments', 'read_schedule'}
+        assert {tool.name for tool in tools} == {'read_assignments', 'read_schedule', 'read_github_assignment'}
         assert all(tool.annotations.readOnlyHint and not tool.annotations.destructiveHint for tool in tools)
         for name, user in [('alice', 42), ('bob', 43)]:
             invocation = await parent(grants, sessions[name])
@@ -221,3 +221,66 @@ async def test_connected_calendar_failure_does_not_become_empty_availability(tmp
         'session': session.binding.session_id, 'timezone': 'Asia/Qyzylorda'})
     assert result['status'] == 'unavailable'
     assert 'private refresh token' not in json.dumps(result)
+
+
+@run_async
+async def test_github_real_mcp_call_uses_grant_repository_and_refuses_replay(tmp_path):
+    from campuspulse_recovery.lms.github_repository import GitHubRepositorySnapshot
+    docs, sessions = await setup(tmp_path)
+    session = sessions['alice']
+    grants = StudyGrants(docs, clock=lambda: NOW)
+    invocation = await grants.consume_invocation(await grants.issue_invocation(
+        session.binding.owner_id, session.binding.session_id,
+        'Разбери https://github.com/student/lab и составь чеклист', [], 'Asia/Qyzylorda'))
+    reads = []
+    async def reader(repository):
+        reads.append(repository)
+        return GitHubRepositorySnapshot(repository_url=repository, owner='student', repository='lab',
+            status='available', readme={'status': 'available', 'text': 'Write two tests',
+                'source_url': repository + '#readme'},
+            issues={'status': 'available', 'items': [{'number': 7, 'title': 'Add tests',
+                'body': 'Cover the parser', 'url': repository + '/issues/7'}]})
+    server = create_study_server(documents=docs, application=demo_config(), mcp_origin=MCP_ORIGIN,
+        clock=lambda: NOW, github_reader=reader)
+    async with channel(server) as (mcp, _):
+        tool = next(tool for tool in (await mcp.list_tools()).tools if tool.name == 'read_github_assignment')
+        assert set(tool.inputSchema['properties']) == {'reference'}
+        assert tool.annotations.readOnlyHint and not tool.annotations.destructiveHint
+        child = await grants.issue_tool(invocation, 'read_github_assignment',
+            repository_url='https://github.com/student/lab')
+        result = await mcp.call_tool('read_github_assignment', {'reference': child})
+        assert not result.isError
+        assert result.structuredContent['readme']['text'] == 'Write two tests'
+        assert result.structuredContent['issues']['items'][0]['number'] == 7
+        assert result.structuredContent['timezone'] == 'Asia/Qyzylorda'
+        assert 'reference' not in result.structuredContent
+        assert (await mcp.call_tool('read_github_assignment', {'reference': child})).isError
+    assert reads == ['https://github.com/student/lab']
+
+
+@run_async
+async def test_github_revoked_session_during_read_never_returns_source_text(tmp_path):
+    from campuspulse_recovery.lms.github_repository import GitHubRepositorySnapshot
+    docs, sessions = await setup(tmp_path)
+    session = sessions['alice']
+    grants = StudyGrants(docs, clock=lambda: NOW)
+    invocation = await grants.consume_invocation(await grants.issue_invocation(
+        session.binding.owner_id, session.binding.session_id,
+        'Разбери https://github.com/student/lab', [], 'Asia/Qyzylorda'))
+    async def reader(repository):
+        index = await docs.get('cp_web_session_index/' + digest(session.binding.session_id))
+        async def revoke(tx):
+            await tx.get(index['path'])
+            tx.set(index['path'], _encode('web_session', session.model_copy(update={'revoked': True})))
+        await docs.transact(revoke)
+        return GitHubRepositorySnapshot(repository_url=repository, owner='student', repository='lab',
+            status='available', readme={'status': 'available', 'text': 'source-only-marker',
+                'source_url': repository + '#readme'}, issues={'status': 'available', 'items': []})
+    server = create_study_server(documents=docs, application=demo_config(), mcp_origin=MCP_ORIGIN,
+        clock=lambda: NOW, github_reader=reader)
+    child = await grants.issue_tool(invocation, 'read_github_assignment',
+        repository_url='https://github.com/student/lab')
+    async with channel(server) as (mcp, _):
+        result = await mcp.call_tool('read_github_assignment', {'reference': child})
+        assert result.isError
+        assert 'source-only-marker' not in str(result)

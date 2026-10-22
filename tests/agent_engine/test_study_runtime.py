@@ -67,6 +67,19 @@ def schedule():
         'timezone': 'Asia/Qyzylorda'}
 
 
+GITHUB_URL = 'https://github.com/student/lab'
+
+
+def github_source():
+    return {'status': 'available', 'repository_url': GITHUB_URL, 'owner': 'student',
+        'repository': 'lab', 'now': '2026-10-22T12:00:00+00:00', 'timezone': 'Asia/Qyzylorda',
+        'readme': {'status': 'available', 'text': 'Implement a binary search tree.',
+            'source_url': GITHUB_URL + '#readme', 'truncated': False},
+        'issues': {'status': 'available', 'items': [{'number': 2, 'title': 'Add insertion tests',
+            'body': 'Cover an empty tree and duplicate values.', 'url': GITHUB_URL + '/issues/2'}],
+            'truncated': False}, 'oauth_token': 'secret-must-not-reach-model'}
+
+
 def reply(plan=False):
     return {'kind': 'plan' if plan else 'message', 'message': '' if plan else 'Сначала Algorithms.',
         'blocks': [{'title': 'Algorithms, примерный блок', 'start': '2026-10-23T14:00:00+05:00',
@@ -84,6 +97,8 @@ class ScriptedModel(BaseLlm):
             parts = [types.Part(function_call=types.FunctionCall(name=name, args={})) for name in item]
         elif isinstance(item, str):
             parts = [types.Part(function_call=types.FunctionCall(name=item, args={}))]
+        elif 'tool' in item:
+            parts = [types.Part(function_call=types.FunctionCall(name=item['tool'], args=item['args']))]
         else:
             parts = [types.Part(text='private reasoning', thought=True),
                      types.Part(text=json.dumps(item, ensure_ascii=False))]
@@ -92,14 +107,21 @@ class ScriptedModel(BaseLlm):
 
 def install_tools(monkeypatch, *, unavailable=False, revoked=False, fail_on_repeat=None,
                   schedule_unavailable=False, progress_events=None, progress_failure=None,
-                  reverse_parallel=False):
+                  reverse_parallel=False, github_value=None, github_arguments=None):
     calls = []
     second_committed = asyncio.Event()
     class Grants:
         def __init__(self, documents):
             pass
-        async def issue_tool(self, value, tool, *, with_call_id=False):
+        async def issue_tool(self, value, tool, *, with_call_id=False, repository_url=None):
             assert value['owner'] == invocation()['owner']
+            if tool == 'read_github_assignment':
+                assert repository_url == GITHUB_URL
+                assert repository_url in value['message']
+                if github_arguments is not None:
+                    github_arguments.append(repository_url)
+            else:
+                assert repository_url is None
             if reverse_parallel and tool == 'read_assignments':
                 await second_committed.wait()
             calls.append(tool)
@@ -120,7 +142,9 @@ def install_tools(monkeypatch, *, unavailable=False, revoked=False, fail_on_repe
         assert reference == 'private-capability-' + tool
         if tool == fail_on_repeat and calls.count(tool) > 1:
             raise ValueError('source_refresh_failed')
-        value = assignments() if tool == 'read_assignments' else schedule()
+        value = (assignments() if tool == 'read_assignments' else
+                 (github_source() if github_value is None else github_value)
+                 if tool == 'read_github_assignment' else schedule())
         if unavailable and tool == 'read_assignments':
             value.update(status='unavailable', assignments=[], total=0)
         if schedule_unavailable and tool == 'read_schedule':
@@ -131,13 +155,15 @@ def install_tools(monkeypatch, *, unavailable=False, revoked=False, fail_on_repe
     return calls
 
 
-def run_model(monkeypatch, script, **options):
+def run_model(monkeypatch, script, *, user_message=None, **options):
     calls = install_tools(monkeypatch, **options)
     model = ScriptedModel(model='gemini-synthetic')
     model._script = script
     app, study, chat = configuration()
     async def scenario():
         saved = invocation()
+        if user_message is not None:
+            saved['message'] = user_message
         if options.get('progress_events') is not None:
             saved['progress_id'] = 'd' * 64
         return await module._run_study(app, module.StudyAgentSettings.model_validate(study),
@@ -241,6 +267,123 @@ def test_model_decides_to_read_only_assignments_for_deadline_question(monkeypatc
 def test_greeting_requires_no_source_reads(monkeypatch):
     result, calls, _ = run_model(monkeypatch, [reply()])
     assert calls == [] and result['trace'] == []
+
+
+def github_call():
+    return {'tool': 'read_github_assignment', 'args': {'repository_url': GITHUB_URL}}
+
+
+def github_reply():
+    return {'kind': 'message', 'message': 'По [README](' + GITHUB_URL + '#readme):\n'
+        '- [ ] Реализовать двоичное дерево поиска.\n'
+        'Открытые задачи:\n- [ ] Добавить тесты вставки — [Issue #2](' + GITHUB_URL + '/issues/2).',
+        'blocks': []}
+
+
+def test_model_reads_real_github_mcp_tool_and_publishes_checklist_with_live_trace(monkeypatch):
+    events, arguments = [], []
+    result, calls, model = run_model(monkeypatch, [github_call(), github_reply()],
+        user_message='Разбери требования и открытые задачи ' + GITHUB_URL,
+        progress_events=events, github_arguments=arguments)
+    assert calls == ['read_github_assignment'] and arguments == [GITHUB_URL]
+    assert json.loads(result['reply']) == github_reply()
+    assert result['class_schedule'] is None
+    assert [(row['tool'], row['status'], row['result_count']) for row in result['trace']] == [
+        ('read_github_assignment', 'completed', 2)]
+    observed = [event['call'] for event in events if event['call']]
+    assert [(item['tool'], item['status']) for item in observed] == [
+        ('read_github_assignment', 'running'), ('read_github_assignment', 'completed')]
+    visible = json.dumps([content.model_dump(mode='json')
+        for content in model._requests[-1].contents], ensure_ascii=False)
+    assert 'binary search tree' in visible and 'Add insertion tests' in visible
+    assert 'secret-must-not-reach-model' not in visible and 'private-capability-' not in visible
+    assert 'read_github_assignment' in model._requests[0].tools_dict
+    assert 'Markdown-чеклист' in model._requests[0].config.system_instruction
+    assert 'не выполняй' in model._requests[0].config.system_instruction
+
+
+def test_explicit_github_repository_cannot_be_answered_without_actual_tool_read(monkeypatch):
+    with pytest.raises(ValueError, match='study_github_source_missing'):
+        run_model(monkeypatch, [github_reply()], user_message='Разбери ' + GITHUB_URL)
+
+
+def test_moodle_read_cannot_substitute_for_explicit_github_repository(monkeypatch):
+    with pytest.raises(ValueError, match='study_github_source_missing'):
+        run_model(monkeypatch, ['read_assignments', github_reply()],
+            user_message='Разбери ' + GITHUB_URL)
+
+
+def test_partial_github_read_is_marked_partial_in_final_trace(monkeypatch):
+    value = github_source()
+    value.update(status='partial')
+    value['readme'].update(status='rate_limited', text='')
+    result, calls, _ = run_model(monkeypatch, [github_call(), reply()],
+        user_message='Разбери ' + GITHUB_URL, github_value=value)
+    assert calls == ['read_github_assignment']
+    assert result['trace'][0]['status'] == 'partial' and result['trace'][0]['result_count'] == 1
+
+
+def test_unavailable_github_is_not_reported_as_empty_success(monkeypatch):
+    value = github_source()
+    value.update(status='unavailable')
+    value['readme'].update(status='unavailable', text='')
+    value['issues'].update(status='rate_limited', items=[])
+    result, _, model = run_model(monkeypatch, [github_call(), reply()],
+        user_message='Разбери ' + GITHUB_URL, github_value=value)
+    assert result['trace'][0]['status'] == 'unavailable' and result['trace'][0]['result_count'] == 0
+    assert 'rate_limited' in json.dumps([content.model_dump(mode='json')
+        for content in model._requests[-1].contents])
+
+
+def test_github_checklist_cannot_become_calendar_blocks(monkeypatch):
+    with pytest.raises(ValueError, match='study_github_checklist_requires_message'):
+        run_model(monkeypatch, ['read_assignments', 'read_schedule', github_call(), reply(plan=True)],
+            user_message='Разбери ' + GITHUB_URL)
+
+
+def test_github_checklist_cannot_become_imported_classes(monkeypatch):
+    from tests.domain.test_chat_schedule import DRAFT
+    timetable = {'kind': 'classes', 'message': '', 'blocks': [], 'timetable': DRAFT}
+    with pytest.raises(ValueError, match='study_github_checklist_requires_message'):
+        run_model(monkeypatch, [github_call(), timetable], user_message='Разбери ' + GITHUB_URL)
+
+
+def test_github_source_must_match_repository_bound_in_tool_call(monkeypatch):
+    value = github_source()
+    value['repository_url'] = 'https://github.com/foreign/lab'
+    value['owner'] = 'foreign'
+    value['readme']['source_url'] = value['repository_url'] + '#readme'
+    value['issues']['items'] = []
+    result, _, model = run_model(monkeypatch, [github_call(), reply()],
+        user_message='Разбери ' + GITHUB_URL, github_value=value)
+    assert result['trace'][0]['status'] == 'failed' and result['trace'][0]['result_count'] == 0
+    visible = json.dumps([content.model_dump(mode='json')
+        for content in model._requests[-1].contents])
+    assert 'source_read_failed' in visible and 'https://github.com/foreign/lab' not in visible
+
+
+def test_github_source_allowlist_drops_private_fields_at_each_level():
+    value = github_source()
+    value['readme']['oauth_token'] = 'private-readme-token'
+    value['issues']['owner_id'] = 'private-owner'
+    value['issues']['items'][0]['credential'] = 'private-issue-token'
+    source = module._safe_source('read_github_assignment', value, 'Asia/Qyzylorda')
+    visible = json.dumps(source)
+    assert source['source_kind'] == 'github_repository'
+    assert not any(private in visible for private in [
+        'secret-must-not-reach-model', 'private-readme-token', 'private-owner', 'private-issue-token'])
+
+
+@pytest.mark.parametrize('field, url', [('readme', 'https://evil.example/readme'),
+    ('issue', 'https://github.com/foreign/lab/issues/2')])
+def test_github_source_rejects_foreign_citation_urls(field, url):
+    value = github_source()
+    if field == 'readme':
+        value['readme']['source_url'] = url
+    else:
+        value['issues']['items'][0]['url'] = url
+    with pytest.raises(ValueError):
+        module._safe_source('read_github_assignment', value, 'Asia/Qyzylorda')
 
 
 def test_assignment_without_moodle_category_stays_readable():

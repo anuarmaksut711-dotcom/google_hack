@@ -15,12 +15,13 @@ from ..agent.mcp_auth import cloud_run_audience
 from ..config import ServiceAccount
 from ..domain.models import Contract, Identifier, IanaZone, Instant
 from ..domain.study_progress import StudyProgress, StudyToolProgress
+from ..lms.github_repository import extract_github_repository, normalize_github_repository
 from ..security.context import AccessDenied
 from ..web.agent_client import AgentEngineTarget
 from ..web.auth import digest
 from .connected_calendar import CalendarReadGrants
 
-STUDY_TOOLS = ('read_assignments', 'read_schedule')
+STUDY_TOOLS = ('read_assignments', 'read_schedule', 'read_github_assignment')
 
 
 class StudyAgentSettings(Contract):
@@ -70,8 +71,18 @@ class _ToolGrant(Contract):
     session: Identifier
     timezone: IanaZone
     expires: Instant
-    tool: Literal['read_assignments', 'read_schedule']
+    tool: Literal['read_assignments', 'read_schedule', 'read_github_assignment']
+    repository_url: str | None = None
     consumed: StrictBool = False
+
+    @model_validator(mode='after')
+    def repository_scope(self):
+        if self.tool == 'read_github_assignment':
+            if self.repository_url is None or normalize_github_repository(self.repository_url) != self.repository_url:
+                raise ValueError('explicit_github_repository_required')
+        elif self.repository_url is not None:
+            raise ValueError('unexpected_repository_scope')
+        return self
 
 
 def _reference(value):
@@ -81,7 +92,10 @@ def _reference(value):
 
 
 def _public(value):
-    return value.model_dump(mode='json', exclude={'schema_version', 'consumed', 'tool_count'})
+    excluded = {'schema_version', 'consumed', 'tool_count'}
+    if getattr(value, 'repository_url', None) is None:
+        excluded.add('repository_url')
+    return value.model_dump(mode='json', exclude=excluded)
 
 
 class StudyGrants:
@@ -191,10 +205,20 @@ class StudyGrants:
             return _public(record)
         return await self.documents.transact(claim)
 
-    async def issue_tool(self, invocation, tool, *, with_call_id=False):
+    async def issue_tool(self, invocation, tool, *, with_call_id=False, repository_url=None):
         if tool not in STUDY_TOOLS:
             raise AccessDenied('study_tool_rejected')
         value = _Invocation.model_validate(invocation)
+        if tool == 'read_github_assignment':
+            try:
+                repository_url = normalize_github_repository(repository_url)
+                requested = extract_github_repository(value.message)
+            except (ValueError, TypeError):
+                raise AccessDenied('study_github_repository_rejected') from None
+            if requested != repository_url:
+                raise AccessDenied('study_github_repository_rejected')
+        elif repository_url is not None:
+            raise AccessDenied('study_tool_rejected')
         reference = secrets.token_urlsafe(32)
         async def save(tx):
             parent_path = 'cp_study_invocations/' + value.invocation_id
@@ -210,6 +234,7 @@ class StudyGrants:
             await tx.get(child_path)
             child = _ToolGrant(invocation_id=parent.invocation_id, owner=parent.owner,
                 session=parent.session, timezone=parent.timezone, tool=tool,
+                repository_url=repository_url,
                 expires=min(parent.expires, current.expires_at, self.clock() + timedelta(seconds=60)))
             tx.set(parent_path, {**parent.model_dump(mode='json'), 'tool_count': parent.tool_count + 1})
             tx.create(child_path, child.model_dump(mode='json'))
@@ -235,6 +260,9 @@ class StudyGrants:
             if (not parent.consumed or self.clock() >= parent.expires or
                     (parent.owner, parent.session, parent.timezone) != (child.owner, child.session, child.timezone)):
                 raise AccessDenied('study_grant_rejected')
+            if (tool == 'read_github_assignment'
+                    and extract_github_repository(parent.message) != child.repository_url):
+                raise AccessDenied('study_github_repository_rejected')
             await self.session(tx, child.owner, child.session)
             tx.set(path, {**child.model_dump(mode='json'), 'consumed': True})
             return _public(child)

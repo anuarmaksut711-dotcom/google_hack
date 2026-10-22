@@ -93,6 +93,37 @@ async function preservesCallOrderAndRepeatedCallsFromDurableTrace() {
   assert.match(node.textContent, /Ответ подготовлен/);
 }
 
+async function githubObservationsUseActualStatusAndNeverExposeSourceContents() {
+  const h = harness(), node = h.create(turn('working', [call('read_github_assignment', 'running')]));
+  assert.equal(rows(node).length, 1);
+  assert.match(node.textContent, /Читаю репозиторий GitHub/);
+  assert.match(node.textContent, /Выполняется/);
+  assert.equal(rows(node)[0].dataset.state, 'running');
+  assert.equal(node.querySelector('code').textContent, 'read_github_assignment');
+  assert(!node.textContent.includes('Moodle'));
+  assert(!node.textContent.includes('Расписание пар'));
+  h.update(node, {status: 'completed', tool_trace: [call('read_github_assignment', 'completed', {
+    duration_ms: 800, result_count: 4, readme: '<script>private()</script>', issues: ['source data']})]});
+  assert.match(node.textContent, /Репозиторий GitHub/);
+  assert.match(node.textContent, /Получено записей: 4/);
+  assert.equal(rows(node)[0].dataset.state, 'completed');
+  assert(!node.textContent.includes('<script>'));
+  assert(!node.textContent.includes('source data'));
+  for (const [status, message] of [['partial', 'Получена часть данных'],
+    ['unavailable', 'Данные сейчас недоступны'], ['failed', 'Не удалось получить данные'],
+    ['not_connected', 'Репозиторий недоступен']]) {
+    h.update(node, {status: 'completed', tool_trace: [call('read_github_assignment', status, {result_count: 0})]});
+    assert(node.textContent.includes(message));
+    assert.equal(rows(node)[0].dataset.state, 'warning');
+    assert(!node.textContent.includes('Получено записей: 0'));
+    assert(!node.textContent.includes('Moodle не подключён'));
+  }
+  h.update(node, turn('unknown', [call('read_github_assignment', 'running')]));
+  assert.match(node.textContent, /Результат не получен/);
+  assert.equal(rows(node)[0].dataset.state, 'warning');
+  assert(!node.textContent.includes('Выполняется'));
+}
+
 async function finalTraceSupersedesAnEarlierPartialProgressSnapshot() {
   const h = harness(), node = h.create({status: 'completed',
     agent_progress: {phase: 'tools', tool_calls: [call('read_assignments', 'running')]},
@@ -249,6 +280,7 @@ async function restartAndDeadlineDiscardOldResults() {
 
 (async () => {
   for (const test of [showsOnlyObservedToolsAndTruthfulResults, preservesCallOrderAndRepeatedCallsFromDurableTrace,
+    githubObservationsUseActualStatusAndNeverExposeSourceContents,
     finalTraceSupersedesAnEarlierPartialProgressSnapshot, completedChatRerenderPreservesCollapsedDisclosure,
     handlesFailuresAndNeverTreatsUnknownOrRunningAsSuccessful, unsafeSourceTextIsNotHTMLAndDetailsStayCollapsed,
     pollingDoesNotOverlapAndStopsAtTerminalTurn, staleAndStoppedReadsCannotUpdateOrReschedule,

@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 import pytest
 
 from campuspulse_recovery.domain.models import Contract, Instant, canonical_json
@@ -101,3 +101,34 @@ def test_real_final_and_partial_progress_remain_durable_after_recreation():
         assert recreated.turns[0].agent_progress == progress
         assert recreated.turns[0].agent_progress.tool_calls[1].status == 'unknown'
         assert _encode('chat-v1', recreated) == document
+
+
+@pytest.mark.parametrize('status', ['completed', 'partial', 'failed', 'unavailable'])
+def test_github_observations_are_typed_and_durable_without_source_content(status):
+    observation = dict(tool='read_github_assignment', status=status, duration_ms=25, result_count=3)
+    trace = ChatToolTrace(**observation)
+    progress = StudyProgress(phase='completed', tool_calls=(StudyToolProgress(call_id=1, **observation),))
+    value = ChatTurn(**turn_values(), tool_trace=(trace,), agent_progress=progress)
+    document = _encode('chat-v1', Conversation(turns=(value,)))
+    restored = _conversation(document).turns[0]
+    assert restored.tool_trace == (trace,)
+    assert restored.agent_progress == progress
+    assert _encode('chat-v1', Conversation(turns=(restored,))) == document
+
+
+@pytest.mark.parametrize('tool', ['write_github_issue', 'read_unknown', 'apply_plan'])
+def test_new_github_allowlist_keeps_unknown_and_mutating_tools_closed(tool):
+    observation = dict(tool=tool, status='completed', duration_ms=25, result_count=1)
+    with pytest.raises(ValidationError):
+        ChatToolTrace(**observation)
+    with pytest.raises(ValidationError):
+        StudyToolProgress(call_id=1, **observation)
+
+
+def test_github_observations_reject_repository_source_contents():
+    observation = dict(tool='read_github_assignment', status='completed', duration_ms=25,
+                       result_count=1, readme='Untrusted repository text')
+    with pytest.raises(ValidationError):
+        ChatToolTrace(**observation)
+    with pytest.raises(ValidationError):
+        StudyToolProgress(call_id=1, **observation)

@@ -177,3 +177,45 @@ async def test_parallel_progress_calls_preserve_all_results_and_terminal_state(t
     await grants.progress(parent, phase='completed')
     with pytest.raises(AccessDenied, match='study_progress_settled'):
         await grants.progress(parent, phase='thinking')
+
+
+@run_async
+async def test_github_grant_is_bound_to_the_explicit_repository_and_single_use(tmp_path):
+    docs, _, session = await setup(tmp_path)
+    grants = StudyGrants(docs, clock=lambda: NOW)
+    parent = await grants.consume_invocation(await invocation(grants, session,
+        message='Разбери https://github.com/student/lab.git, составь чеклист.'))
+    with pytest.raises(AccessDenied, match='study_github_repository_rejected'):
+        await grants.issue_tool(parent, 'read_github_assignment', repository_url='https://github.com/other/lab')
+    with pytest.raises(AccessDenied):
+        await grants.issue_tool(parent, 'read_assignments', repository_url='https://github.com/student/lab')
+    child = await grants.issue_tool(parent, 'read_github_assignment',
+        repository_url='https://github.com/student/lab')
+    public = await grants.consume_tool(child, 'read_github_assignment')
+    assert public['repository_url'] == 'https://github.com/student/lab'
+    assert public['owner'] == session.binding.owner_id
+    with pytest.raises(AccessDenied):
+        await grants.consume_tool(child, 'read_github_assignment')
+    async def tamper(tx):
+        from campuspulse_recovery.web.auth import digest
+        path = 'cp_study_tool_grants/' + digest(child)
+        value = await tx.get(path)
+        tx.set(path, {**value, 'consumed': False, 'repository_url': 'https://github.com/other/lab'})
+    await docs.transact(tamper)
+    with pytest.raises(AccessDenied, match='study_github_repository_rejected'):
+        await grants.consume_tool(child, 'read_github_assignment')
+
+
+@pytest.mark.parametrize('message', [
+    'Проверь мой GitHub',
+    'Проверь https://github.com/student/first и https://github.com/student/second',
+    'Проверь https://github.com.evil.example/student/lab',
+])
+@run_async
+async def test_github_does_not_infer_a_repository_from_history_or_other_urls(tmp_path, message):
+    docs, _, session = await setup(tmp_path)
+    grants = StudyGrants(docs, clock=lambda: NOW)
+    parent = await grants.consume_invocation(await invocation(grants, session, message=message,
+        history=[{'message': 'https://github.com/student/lab', 'response': 'Предыдущий разбор'}]))
+    with pytest.raises(AccessDenied, match='study_github_repository_rejected'):
+        await grants.issue_tool(parent, 'read_github_assignment', repository_url='https://github.com/student/lab')

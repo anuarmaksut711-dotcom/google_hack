@@ -28,8 +28,8 @@ Reply = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=1
 
 class ChatToolTrace(Contract):
     """Confirmed runtime observations; no prompts, tokens or source contents."""
-    tool: Literal['read_assignments', 'read_schedule']
-    status: Literal['completed', 'failed', 'unavailable', 'not_connected']
+    tool: Literal['read_assignments', 'read_schedule', 'read_github_assignment']
+    status: Literal['completed', 'partial', 'failed', 'unavailable', 'not_connected']
     duration_ms: Annotated[StrictInt, Field(ge=0, le=150_000)]
     result_count: Annotated[StrictInt, Field(ge=0, le=1000)] = 0
 

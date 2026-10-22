@@ -138,7 +138,8 @@ async def test_recovered_legacy_calendar_and_study_transports_compose_without_ex
              {'read_assignments', 'read_calendar', 'apply_plan', 'verify_plan'}),
             ('/calendar/mcp', 'website', 'campuspulse_connected_calendar',
              {'read_calendar', 'apply_plan', 'verify_plan'}),
-            ('/study/mcp', 'study', 'campuspulse_study_readonly', {'read_assignments', 'read_schedule'}),
+            ('/study/mcp', 'study', 'campuspulse_study_readonly',
+             {'read_assignments', 'read_schedule', 'read_github_assignment'}),
         ):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=ORIGIN,
                     headers={'Authorization': f'Bearer synthetic-{identity}-identity',
