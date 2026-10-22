@@ -36,7 +36,7 @@ def test_theme_assets_are_public_and_installation_is_idempotent():
     asyncio.run(scenario())
 
 
-def test_multiuser_pages_share_theme_without_weakening_content_security(tmp_path):
+def test_multiuser_pages_are_dark_without_appearance_controls_or_weaker_security(tmp_path):
     async def scenario():
         service = application(tmp_path, [])
         async with client(service) as browser:
@@ -60,12 +60,12 @@ def test_multiuser_pages_share_theme_without_weakening_content_security(tmp_path
                     if tag == 'link' and attributes.get('rel') == 'stylesheet']
                 assert styles[-1] == '/assets/theme.css'
                 assert len(styles) >= 2
-                buttons = [(tag, attributes) for tag, attributes in page.elements if 'data-theme-toggle' in attributes]
-                assert len(buttons) == 1
-                tag, attributes = buttons[0]
-                assert tag == 'button' and attributes['type'] == 'button'
-                assert attributes['aria-label'] and attributes['title']
-                assert 'onclick' not in attributes
+                assert not any('data-theme-toggle' in attributes for _, attributes in page.elements)
+                assert 'Светлая тема' not in response.text and 'Тёмная тема' not in response.text
+                assert 'auth-theme' not in response.text
+                schemes = [attrs['content'] for tag, attrs in page.elements
+                    if tag == 'meta' and attrs.get('name') == 'color-scheme']
+                assert all(scheme == 'dark' for scheme in schemes)
                 directives = dict(part.strip().split(' ', 1)
                     for part in response.headers['content-security-policy'].split(';') if part.strip())
                 assert directives['default-src'] == "'none'"
@@ -79,10 +79,13 @@ def test_multiuser_pages_share_theme_without_weakening_content_security(tmp_path
     asyncio.run(scenario())
 
 
-def test_shipped_theme_script_persists_and_synchronizes_appearance():
+def test_shipped_appearance_is_fixed_dark_even_with_a_saved_light_preference():
     node = shutil.which('node')
     if node is None:
         pytest.skip('Node.js is required for theme state regressions')
     result = subprocess.run([node, str(Path(__file__).with_name('theme_state.cjs'))],
         input=THEME_SCRIPT, capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert 'color-scheme: dark;' in THEME_STYLES
+    assert 'data-theme=light' not in THEME_STYLES
+    assert '.theme-toggle' not in THEME_STYLES

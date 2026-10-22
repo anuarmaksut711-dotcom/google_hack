@@ -18,8 +18,8 @@ body[data-shared-navigation=true] [hidden] { display: none !important; }
 .app-content { position: relative; min-height: 100svh; background: var(--surround); }
 .page-navigation-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; padding: 14px 28px; color: var(--ink); }
 .page-navigation-topbar #view-title { color: var(--ink); font-size: 14px; font-weight: 600; }
-.page-navigation-topbar button:not(.theme-toggle) { display: inline-flex; align-items: center; justify-content: center; width: 40px; min-height: 40px; margin: 0; padding: 9px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; cursor: pointer; }
-.page-navigation-topbar button:not(.theme-toggle):hover { background: var(--selected); }
+.page-navigation-topbar button { display: inline-flex; align-items: center; justify-content: center; width: 40px; min-height: 40px; margin: 0; padding: 9px; border: 0; border-radius: 12px; color: var(--muted); background: transparent; cursor: pointer; }
+.page-navigation-topbar button:hover { background: var(--selected); }
 .page-navigation-topbar #mobile-nav-toggle { display: none; }
 body[data-shared-navigation=true] .skip { position: fixed; left: 12px; top: -100px; z-index: 50; padding: 10px 16px; background: var(--selected); color: var(--ink); }
 body[data-shared-navigation=true] .skip:focus { top: 10px; }

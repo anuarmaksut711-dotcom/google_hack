@@ -1,5 +1,6 @@
 """Offline auth and UI contract tests. No student credentials or LMS requests."""
 from datetime import timedelta
+from pathlib import Path
 import json
 import shutil
 import subprocess
@@ -175,42 +176,34 @@ def test_client_rendering_zero_missing_scores_and_untrusted_text():
     node = shutil.which('node')
     if not node:
         pytest.skip('Node is required for the production JavaScript renderer test')
-    renderer = SCRIPT[SCRIPT.index('  function moodleDate'):SCRIPT.index('  async function loadMoodle')]
     state = dict(connected=True, stale=False, syncing=False, error=None,
                  last_success=NOW.isoformat(), snapshot=snapshot().model_dump(mode='json'))
+    harness = Path(__file__).resolve().parents[1] / 'web' / 'moodle_compact.cjs'
     program = r'''
 const assert = require('node:assert/strict');
-class Element {
-  constructor(tag) { this.tag = tag; this.children = []; this.text = ''; }
-  set textContent(value) { this.text = String(value); this.children = []; }
-  get textContent() { return this.text + this.children.map(child => child.textContent).join(' '); }
-  set innerHTML(value) { throw new Error('HTML injection is forbidden'); }
-  replaceChildren(...nodes) { this.text = ''; this.children = nodes; }
-  append(...nodes) { this.children.push(...nodes); }
-}
-const nodes = Object.fromEntries(['moodle-tasks', 'moodle-courses', 'moodle-status'].map(id => [id, new Element('div')]));
-const $ = id => nodes[id];
-const document = {body: {dataset: {timezone: 'Asia/Qyzylorda'}}, createElement: tag => new Element(tag)};
-''' + renderer + '\nconst state = ' + json.dumps(state, ensure_ascii=False) + r''';
-showMoodle(state);
+''' + 'const {rendererHarness} = require(' + json.dumps(str(harness)) + ');\n' + \
+        'const h = rendererHarness(' + json.dumps(SCRIPT) + ');\n' + \
+        "const nodes = Object.fromEntries(['moodle-tasks', 'moodle-courses', 'moodle-status'].map(id => [id, h.$(id)]));\n" + \
+        'const state = ' + json.dumps(state, ensure_ascii=False) + r''';
+h.render(state);
 assert.match(nodes['moodle-tasks'].textContent, /0 \/ 10/);
 assert.match(nodes['moodle-courses'].textContent, /0 \/ 100/);
 assert.match(nodes['moodle-tasks'].textContent, /<script>secret\(\)<\/script>/);
 const tags = node => [node.tag, ...node.children.flatMap(tags)];
 assert(!tags(nodes['moodle-tasks']).includes('script'));
 assert(!tags(nodes['moodle-tasks']).includes('img'));
-assert.equal(moodleLink('javascript:alert(1)'), null);
-assert.equal(moodleLink('https://lms.astanait.edu.kz.evil.test/mod/assign/view.php?id=9'), null);
-assert.equal(moodleLink('https://lms.astanait.edu.kz/mod/assign/view.php?id=9&token=secret'), null);
+assert.equal(h.run("moodleLink('javascript:alert(1)')"), null);
+assert.equal(h.run("moodleLink('https://lms.astanait.edu.kz.evil.test/mod/assign/view.php?id=9')"), null);
+assert.equal(h.run("moodleLink('https://lms.astanait.edu.kz/mod/assign/view.php?id=9&token=secret')"), null);
 state.snapshot.tasks[0].grade_value = null;
-showMoodle(state);
+h.render(state);
 assert.match(nodes['moodle-tasks'].textContent, /Ещё не оценено/);
 assert(!nodes['moodle-tasks'].textContent.includes('0 / 10'));
 state.error = 'unavailable'; state.stale = true;
-showMoodle(state);
+h.render(state);
 assert.match(nodes['moodle-status'].textContent, /ранее полученные данные/);
 assert.match(nodes['moodle-tasks'].textContent, /<script>/);
-state.snapshot = null; showMoodle(state);
+state.snapshot = null; h.render(state);
 assert.equal(nodes['moodle-tasks'].textContent, '');
 assert.match(nodes['moodle-status'].textContent, /пока не получены/);
 '''

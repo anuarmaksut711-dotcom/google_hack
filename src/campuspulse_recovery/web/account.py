@@ -1,5 +1,5 @@
 """First Moodle connection and optional settings; saved feed URLs stay server-side."""
-from .assets.theme import THEME_BUTTON, THEME_HEAD
+from .assets.theme import THEME_HEAD
 
 
 def render_moodle_settings(*, connected, classes_html, google_calendar_html='', shared_shell=False):
@@ -24,7 +24,7 @@ def render_moodle_settings(*, connected, classes_html, google_calendar_html='', 
             'При следующих входах в этот аккаунт Google AI он загрузится автоматически.</p>'
             + instructions + privacy + form)
     header = ('' if shared_shell else '<header class="settings-header"><a class="settings-brand" href="/">Google AI</a>'
-        '<div class="settings-actions">' + THEME_BUTTON + '<a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
+        '<div class="settings-actions"><a class="settings-back" href="/"><svg viewBox="0 0 24 24" aria-hidden="true">'
         '<path d="m12 5-7 7 7 7M5 12h14"/></svg>К заданиям и чатам</a></div></header>'
     )
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'

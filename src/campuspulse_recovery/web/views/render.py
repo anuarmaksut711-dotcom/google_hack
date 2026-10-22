@@ -66,13 +66,20 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
         if live_chat:
             notice = '<details class="demo-notice"><summary>Тестовые источники · чат Gemini</summary><p>Чат настроен на Gemini. Задания и календарь тестовые; история хранится до перезапуска сервера. Восстановление работает на тестовых данных. <a href="/demo">Тестовый вход</a></p></details>'
     moodle = '''<section id="moodle" class="moodle" aria-labelledby="moodle-heading" aria-busy="true">
-<div class="section-heading"><h2 id="moodle-heading">Мои задания из Moodle</h2>
+<div class="moodle-heading-row"><div><h1 id="moodle-heading">Мои задания</h1>
+<p class="moodle-intro">Задания и ближайшие сроки</p></div>
 <button id="moodle-refresh" type="button" disabled>Обновить задания</button></div>
+<div class="moodle-toolbar"><div class="moodle-filters" role="group" aria-label="Группы заданий">
+<button id="moodle-filter-upcoming" type="button" data-moodle-group="upcoming" aria-pressed="true" aria-controls="moodle-group-upcoming">Ближайшие</button>
+<button id="moodle-filter-past" type="button" data-moodle-group="past" aria-pressed="false" aria-controls="moodle-group-past">Прошедшие</button>
+<button id="moodle-filter-completed" type="button" data-moodle-group="completed" aria-pressed="false" aria-controls="moodle-group-completed">Выполнено вами</button>
+</div></div>
 <p id="moodle-status" role="status" aria-live="polite">Загружаем задания из Moodle…</p>
-<div id="moodle-courses"></div><div id="moodle-tasks"></div></section>''' if moodle_enabled else ''
+<div id="moodle-courses"></div><div id="moodle-tasks"></div>
+<details class="moodle-source-details" hidden><summary>О данных Moodle</summary><p id="moodle-source-status"></p></details></section>''' if moodle_enabled else ''
     if moodle_enabled and account_url:
-        moodle = moodle.replace('<div id="moodle-courses">',
-            f'<p><a href="{e(account_url)}">Моё подключение Moodle</a></p><div id="moodle-courses">')
+        moodle = moodle.replace('</div></div>\n<p id="moodle-status"',
+            f'</div><a class="moodle-connection" href="{e(account_url)}">Моё подключение Moodle</a></div>\n<p id="moodle-status"')
     advice = chat_mode == 'calendar_advice'
     greeting = 'Над чем поработаем?'
     introduction = 'Помогу разобраться с заданиями и найти время на учёбу.'
@@ -99,7 +106,7 @@ def render_shell(timezone, *, demo_mode=False, live_chat=False, signin_url=None,
         calendar_assets = '<link rel="stylesheet" href="/assets/google-calendar.css"><script src="/assets/google-calendar.js" defer></script>'
     return f'''<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Google AI · Учебное расписание</title>
-<meta name="color-scheme" content="dark light"><link rel="stylesheet" href="/assets/campuspulse.css">{THEME_HEAD}<script src="/assets/campuspulse.js" defer></script>
+<meta name="color-scheme" content="dark"><link rel="stylesheet" href="/assets/campuspulse.css">{THEME_HEAD}<script src="/assets/campuspulse.js" defer></script>
 <script src="/assets/sidebar-head.js"></script>
 {calendar_assets}
 <script src="/assets/logo/vendor/gsap.min.js" defer></script>

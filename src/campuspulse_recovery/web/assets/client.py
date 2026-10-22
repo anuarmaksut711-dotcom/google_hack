@@ -187,7 +187,7 @@ SCRIPT = r"""'use strict';
   });
   if (!voiceMime) $('voice-status').textContent = 'Голосовой ввод недоступен в этом браузере. Используйте современный браузер и HTTPS.';
   const moodleEnabled = document.body.dataset.moodleEnabled === 'true';
-  let moodleRevision = 0, moodleBusy = false;
+  let moodleRevision = 0, moodleBusy = false, moodleGroup = 'upcoming';
   const draftChat = id => /^draft(?:-[a-f0-9]{32})?$/.test(id);
   const chatHash = id => id === 'default' ? '#workspace' : draftChat(id) ? '#new' + (id === 'draft' ? '' : '/' + id.slice(6)) : '#chat/' + id;
   const hashChat = hash => /^#chat\/([a-f0-9]{32})$/.exec(hash)?.[1] ||
@@ -373,6 +373,18 @@ SCRIPT = r"""'use strict';
     if (!moodleEnabled) return;
     $('moodle-tasks').replaceChildren(); $('moodle-courses').replaceChildren();
     $('moodle-status').textContent = message;
+    const source = $('moodle-source-status');
+    if (source) { source.textContent = ''; source.closest('details')?.setAttribute('hidden', ''); }
+    selectMoodleGroup('upcoming');
+  }
+  function selectMoodleGroup(group) {
+    if (!['upcoming', 'past', 'completed'].includes(group)) return;
+    moodleGroup = group;
+    for (const name of ['upcoming', 'past', 'completed']) {
+      $('moodle-filter-' + name)?.setAttribute('aria-pressed', String(name === group));
+      const section = $('moodle-group-' + name);
+      if (section) section.hidden = name !== group;
+    }
   }
   function moodleDate(value) {
     return new Date(value).toLocaleString('ru-RU', {timeZone: document.body.dataset.timezone,
@@ -398,19 +410,17 @@ SCRIPT = r"""'use strict';
   }
   function showMoodle(state) {
     const tasks = $('moodle-tasks'), courses = $('moodle-courses');
+    const focused = document.activeElement;
+    const focusedRow = focused && tasks.contains(focused) ? focused.closest('li[data-task-id]') : null;
+    const focusedKind = focusedRow ? focused.matches('button[data-task-id]') ? 'check' :
+      focused.matches('summary') ? 'summary' : focused.matches('a') ? 'link' : null : null;
+    const focus = focusedKind ? {taskId: focusedRow.dataset.taskId, kind: focusedKind,
+      index: [...focusedRow.parentElement.children].indexOf(focusedRow)} : null;
+    const expanded = new Set([...tasks.querySelectorAll('li[data-task-id]')]
+      .filter(item => item.querySelector('details')?.open).map(item => item.dataset.taskId));
     tasks.replaceChildren(); courses.replaceChildren();
     const snapshot = state.snapshot;
     const calendarFeed = state.source_kind === 'calendar_feed';
-    if (calendarFeed) {
-      $('moodle-heading').textContent = 'Дедлайны из Moodle';
-      const sourceLink = document.querySelector('.nav-link[href="#moodle"]');
-      if (sourceLink) {
-        const label = sourceLink.querySelector('.nav-label'), short = sourceLink.querySelector('.nav-short');
-        if (label) label.textContent = 'Мои задания';
-        if (short) short.textContent = 'Задания';
-        sourceLink.setAttribute('aria-label', 'Мои задания');
-      }
-    }
     let message;
     if (!state.connected) message = 'Moodle ещё не подключён. Обратитесь к команде Google AI, чтобы настроить доступ к своему аккаунту.';
     else if (!snapshot) message = state.error ?
@@ -425,7 +435,17 @@ SCRIPT = r"""'use strict';
     if (state.error === 'auth_failed' || state.error === 'identity_mismatch')
       message += ' Доступ к аккаунту Moodle нужно подключить заново через команду Google AI.';
     if (calendarFeed) message += ' Календарь передаёт события и сроки; оценки и статусы сдачи недоступны.';
-    $('moodle-status').textContent = message;
+    const source = $('moodle-source-status');
+    if (source) {
+      source.textContent = message;
+      const disclosure = source.closest('details');
+      if (disclosure) disclosure.hidden = !snapshot || !state.connected;
+    }
+    $('moodle-status').textContent = !snapshot || !state.connected || !source ? message :
+      state.error ? 'Не удалось обновить задания. Показаны ранее полученные данные.' +
+        (['auth_failed', 'identity_mismatch'].includes(state.error) ? ' Подключите Moodle заново через команду Google AI.' : '') :
+      state.stale ? 'Показаны сохранённые задания. Обновите список, чтобы проверить сроки.' :
+      state.syncing ? 'Обновляем задания…' : '';
     if (!snapshot || !state.connected) return;
     if (snapshot.courses.length) {
       const heading = document.createElement('h3'), list = document.createElement('ul');
@@ -437,32 +457,53 @@ SCRIPT = r"""'use strict';
       }
       courses.append(heading, list);
     }
-    const heading = document.createElement('h3'); heading.textContent = calendarFeed ? 'Будущие сроки' : 'Задания'; tasks.append(heading);
-    if (!snapshot.tasks.length) {
-      const empty = document.createElement('p'); empty.textContent = 'В полученных данных Moodle заданий нет.';
-      tasks.append(empty); return;
+    const lists = new Map();
+    const labels = {upcoming: 'Ближайшие задания', past: 'Прошедшие сроки', completed: 'Выполнено вами'};
+    for (const name of ['upcoming', 'past', 'completed']) {
+      const section = document.createElement('section'), list = document.createElement('ul');
+      section.id = 'moodle-group-' + name; section.className = 'moodle-task-group';
+      section.setAttribute('aria-label', labels[name]);
+      list.className = 'moodle-task-list'; section.append(list); tasks.append(section); lists.set(name, list);
     }
-    const list = document.createElement('ul'); list.className = 'moodle-task-list';
-    const pastList = document.createElement('ul'), doneList = document.createElement('ul');
-    pastList.className = doneList.className = 'moodle-task-list';
     for (const task of snapshot.tasks) {
-      const group = !calendarFeed ? 'upcoming' : task.view_group ||
-        (new Date(task.due_at).getTime() <= Date.now() ? 'past' : 'upcoming');
-      const item = document.createElement('li'), subject = document.createElement('p'), title = document.createElement('h4'),
+      const group = calendarFeed && (task.view_group === 'completed' || task.local_status === 'done') ? 'completed' :
+        ['upcoming', 'past'].includes(task.view_group) ? task.view_group :
+          task.due_at && new Date(task.due_at).getTime() <= Date.now() ? 'past' : 'upcoming';
+      const item = document.createElement('li'), main = document.createElement('div'),
+        subject = document.createElement('p'), title = document.createElement('h3'), deadline = document.createElement('time'),
         description = document.createElement('p'), details = document.createElement('dl'),
-        descriptionBox = document.createElement('details'), descriptionSummary = document.createElement('summary');
+        descriptionBox = document.createElement('details'), descriptionSummary = document.createElement('summary'),
+        descriptionContent = document.createElement('div');
+      item.className = 'moodle-task-row'; item.dataset.taskId = String(task.id);
+      item.dataset.group = group; main.className = 'moodle-task-main'; title.className = 'moodle-task-title';
       subject.className = 'moodle-subject'; subject.textContent = task.course_title;
       title.textContent = task.title; description.className = 'moodle-description';
       description.textContent = task.description || 'Описание не предоставлено в Moodle.';
+      main.append(title, subject);
+      deadline.className = 'moodle-task-deadline';
+      const deadlineIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'),
+        deadlineFrame = document.createElementNS('http://www.w3.org/2000/svg', 'rect'),
+        deadlineMarks = document.createElementNS('http://www.w3.org/2000/svg', 'path'),
+        deadlineLabel = document.createElement('span');
+      deadlineIcon.setAttribute('viewBox', '0 0 24 24'); deadlineIcon.setAttribute('aria-hidden', 'true');
+      deadlineIcon.setAttribute('focusable', 'false');
+      for (const [name, value] of Object.entries({x: 4, y: 5, width: 16, height: 16, rx: 2}))
+        deadlineFrame.setAttribute(name, value);
+      deadlineMarks.setAttribute('d', 'M8 3v4m8-4v4M4 11h16');
+      deadlineIcon.append(deadlineFrame, deadlineMarks);
+      deadlineLabel.textContent = task.due_at ? moodleDate(task.due_at) : 'Срок не указан';
+      deadline.append(deadlineIcon, deadlineLabel);
+      if (task.due_at) deadline.dateTime = task.due_at;
+      deadline.setAttribute('aria-label', 'Срок: ' + deadlineLabel.textContent);
       descriptionBox.className = 'moodle-description-details';
-      descriptionSummary.textContent = 'Описание задания';
-      descriptionBox.append(descriptionSummary, description);
+      descriptionBox.open = expanded.has(String(task.id));
+      descriptionSummary.textContent = 'Описание';
+      descriptionSummary.setAttribute('aria-label', 'Описание задания: ' + task.title);
+      descriptionContent.className = 'moodle-task-details';
       const values = calendarFeed ? [
-        ['Срок', moodleDate(task.due_at)],
         ['Статус', group === 'completed' ? 'Выполнено — ваша отметка в Google AI' :
           group === 'past' ? 'Срок прошёл; статус сдачи неизвестен' : 'Статус сдачи неизвестен'],
       ] : [
-        ['Срок сдачи', task.due_at ? moodleDate(task.due_at) : 'Не указан'],
         ['Сдача', {todo: 'Не сдано', draft: 'Черновик', submitted: 'Сдано', graded: 'Оценено', unknown: 'Статус недоступен'}[task.submission_status] || 'Статус недоступен'],
         ['Баллы', moodleGrade(task)],
       ];
@@ -470,30 +511,46 @@ SCRIPT = r"""'use strict';
         const term = document.createElement('dt'), detail = document.createElement('dd');
         term.textContent = label; detail.textContent = value; details.append(term, detail);
       }
-      item.append(subject, title, details, descriptionBox);
+      descriptionContent.append(description, details);
       const href = moodleLink(task.url);
       if (href) {
         const link = document.createElement('a'); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
-        link.textContent = 'Открыть задание в Moodle'; item.append(link);
+        link.textContent = 'Открыть задание в Moodle'; descriptionContent.append(link);
       }
       if (calendarFeed) {
         const button = document.createElement('button'); button.type = 'button';
-        button.dataset.taskId = task.id; button.dataset.done = String(group !== 'completed');
-        button.textContent = group === 'completed' ? 'Вернуть в работу' : 'Отметить выполненным';
+        button.className = 'moodle-task-check';
+        button.dataset.taskId = String(task.id); button.dataset.done = String(group !== 'completed');
+        button.setAttribute('aria-pressed', String(group === 'completed'));
+        button.setAttribute('aria-label', (group === 'completed' ? 'Вернуть в работу: ' : 'Отметить выполненным: ') + task.title);
+        button.title = group === 'completed' ? 'Вернуть в работу' : 'Отметить выполненным';
+        const marker = document.createElement('span'); marker.setAttribute('aria-hidden', 'true');
+        marker.textContent = group === 'completed' ? '✓' : ''; button.append(marker);
         item.append(button);
+      } else {
+        const marker = document.createElement('span'); marker.className = 'moodle-task-marker';
+        marker.setAttribute('aria-hidden', 'true'); item.append(marker);
       }
-      (group === 'completed' ? doneList : group === 'past' ? pastList : list).append(item);
+      descriptionBox.append(descriptionSummary, descriptionContent);
+      item.append(main, deadline, descriptionBox); lists.get(group).append(item);
     }
-    if (calendarFeed && !list.children.length) {
-      const empty = document.createElement('p'); empty.textContent = 'Будущих сроков в текущем экспорте нет.';
-      tasks.append(empty);
+    const emptyMessages = {upcoming: snapshot.tasks.length ? 'Ближайших сроков в полученных данных Moodle нет.' :
+      'В полученных данных Moodle заданий нет.', past: 'Заданий с прошедшим сроком нет.',
+      completed: 'Вы пока не отметили задания выполненными.'};
+    for (const [name, list] of lists) {
+      if (list.children.length) continue;
+      const empty = document.createElement('p'); empty.className = 'moodle-empty';
+      empty.textContent = emptyMessages[name]; list.parentElement.append(empty);
     }
-    tasks.append(list);
-    for (const [label, archived] of [['Прошедшие сроки', pastList], ['Выполнено вами', doneList]]) {
-      if (!archived.children.length) continue;
-      const section = document.createElement('details'), summary = document.createElement('summary');
-      summary.textContent = label + ' (' + archived.children.length + ')';
-      section.append(summary, archived); tasks.append(section);
+    selectMoodleGroup(moodleGroup);
+    if (focus) {
+      const visibleRows = [...lists.get(moodleGroup).children];
+      const sameRow = visibleRows.find(item => item.dataset.taskId === focus.taskId);
+      const selectors = {check: 'button[data-task-id]', summary: 'summary', link: 'a'};
+      const control = sameRow?.querySelector(selectors[focus.kind]);
+      const nextRow = visibleRows[Math.min(focus.index, visibleRows.length - 1)];
+      const nextCheck = nextRow?.querySelector('button[data-task-id]');
+      (control || nextCheck || $('moodle-filter-' + moodleGroup))?.focus({preventScroll: true});
     }
   }
   async function loadMoodle() {
@@ -1118,6 +1175,8 @@ SCRIPT = r"""'use strict';
     refresh().catch(error => feedback(error.message, true));
   });
   if (moodleEnabled) {
+    for (const name of ['upcoming', 'past', 'completed'])
+      $('moodle-filter-' + name)?.addEventListener('click', () => selectMoodleGroup(name));
     $('moodle-refresh').addEventListener('click', loadMoodle);
     // Keep a visible workspace current; the server coalesces feed requests.
     window.setInterval(() => { if (!document.hidden && scope) loadMoodle(); }, 5 * 60 * 1000);
@@ -1128,6 +1187,8 @@ SCRIPT = r"""'use strict';
       const button = event.target.closest('button[data-task-id]');
       if (!scope || !button || button.disabled) return;
       const session = scope, revision = moodleRevision;
+      if (document.activeElement === button)
+        $('moodle-filter-' + moodleGroup)?.focus({preventScroll: true});
       button.disabled = true;
       try {
         const state = await (await api('/api/moodle/task-status', {

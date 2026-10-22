@@ -141,9 +141,6 @@ body[data-view=journal] .recovery-home, body[data-view=journal] #moodle, body[da
 #voice-cancel, #voice-stop { flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px; padding: 10px; border: 0; border-radius: 50%; color: inherit; background: #f3f3f3; }
 #voice-cancel:hover, #voice-stop:hover { background: #e8e8e8; }
 #voice-cancel:active, #voice-stop:active { background: #ddd; }
-html[data-theme=light] #voice-cancel, html[data-theme=light] #voice-stop { background: #f3f3f3; color: #171717; }
-html[data-theme=light] #voice-cancel:hover, html[data-theme=light] #voice-stop:hover { background: #e8e8e8; }
-html[data-theme=light] #voice-cancel:active, html[data-theme=light] #voice-stop:active { background: #ddd; }
 #voice-cancel svg, #voice-stop svg { width: 20px; height: 20px; }
 #voice-stop svg { fill: currentColor; stroke: none; }
 #voice-waveform { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 4px; height: 32px; min-width: 0; overflow: hidden; }
@@ -211,25 +208,72 @@ tbody tr:last-child > * { border: 0; }
 #trace:hover, #trace-more:hover, button[data-action=revoke]:hover { background: var(--subtle); color: var(--ink); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading h2 { margin: 0; }
-#moodle-status { max-width: 75ch; color: var(--muted); font-size: 13px; margin-block: 14px 8px; }
-.moodle > p > a { font-size: 12px; }
-.moodle h3 { margin: 28px 0 12px; }
-.moodle h4 { font-size: 16px; line-height: 1.5; margin: 4px 0 12px; overflow-wrap: anywhere; }
+.moodle { max-width: 1160px; margin-inline: auto; }
+body[data-view=tasks] .topbar { justify-content: flex-end; }
+body[data-view=tasks] .view-heading { display: none; }
+.moodle-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+#moodle-heading { margin: 0 0 6px; font-size: 28px; font-weight: 550; line-height: 1.3; }
+.moodle-intro { margin: 0; font-size: 14px; color: var(--muted); }
+#moodle-refresh { flex-shrink: 0; }
+.moodle-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; margin-bottom: 20px; }
+.moodle-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.moodle-filters button { min-height: 42px; padding: 9px 16px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--muted); font-weight: 500; }
+.moodle-filters button:hover { background: var(--subtle); color: var(--ink); }
+.moodle-filters button[aria-pressed=true] { background: #26334f; border-color: #30405f; color: #dbe4ff; }
+.moodle-connection { font-size: 13px; text-decoration: none; }
+.moodle-connection:hover { text-decoration: underline; }
+#moodle-status { max-width: 75ch; color: var(--muted); font-size: 13px; margin-block: 12px; }
+#moodle-status:empty { display: none; }
+.moodle h3 { margin: 24px 0 12px; }
 .moodle ul { list-style: none; margin: 0; padding: 0; }
 .moodle-course-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .moodle-course-list li { display: flex; gap: 12px; padding: 10px 14px; border-radius: 8px; background: var(--subtle); overflow-wrap: anywhere; font-size: 12px; }
 .moodle-course-list span { color: var(--muted); }
-.moodle-task-list { display: grid; gap: 0; }
-.moodle-task-list > li { min-width: 0; padding: 22px 0; border-top: 1px solid var(--line); }
-.moodle-subject { margin: 0; font-size: 12px; color: var(--muted); }
+.moodle-task-list { display: grid; gap: 0; border-bottom: 1px solid var(--line); }
+.moodle-task-row { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(150px, auto) 104px; align-items: start; column-gap: 18px; min-width: 0; padding: 24px 4px; border-top: 1px solid var(--line); }
+.moodle-task-main { min-width: 0; grid-column: 2; }
+.moodle h3.moodle-task-title { margin: 0 0 4px; font-size: 16px; line-height: 1.5; font-weight: 600; text-wrap: pretty; overflow-wrap: anywhere; }
+.moodle-subject { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.moodle-task-deadline { grid-column: 3; display: flex; align-items: center; gap: 9px; padding-top: 4px; color: var(--ink); font-size: 13px; line-height: 1.6; white-space: nowrap; }
+.moodle-task-deadline svg { width: 18px; height: 18px; color: var(--accent); }
+.moodle-task-marker { grid-column: 1; width: 44px; height: 44px; display: grid; place-items: center; color: var(--muted); }
+.moodle-task-marker::before { content: ''; width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 4px; }
+.moodle-task-list .moodle-task-check { position: relative; grid-column: 1; width: 44px; height: 44px; min-height: 44px; margin-top: -4px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+.moodle-task-check::before { content: ''; position: absolute; inset: 8px; border: 2px solid currentColor; border-radius: 50%; }
+.moodle-task-list .moodle-task-check:hover { color: var(--accent); background: var(--subtle); }
+.moodle-task-check[aria-pressed=true] { color: var(--accent); }
+.moodle-task-check[aria-pressed=true] > span { font-size: 18px; }
+.moodle-task-check:disabled { opacity: .55; }
 .moodle-description { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 75ch; font-size: 13px; color: var(--muted); }
-.moodle-description-details { margin-block: 8px 12px; font-size: 12px; color: var(--muted); }
-.moodle-description-details summary { width: fit-content; min-height: 32px; }
+.moodle-description-details { grid-column: 1 / -1; min-width: 0; margin: 0; padding-left: 62px; font-size: 13px; color: var(--muted); }
+.moodle-description-details > summary { position: absolute; right: 4px; top: 24px; width: 104px; min-height: 44px; padding: 3px 0; }
+.moodle-task-details { margin-top: 18px; padding: 16px 20px; border-radius: 10px; background: var(--surface); }
+.moodle-task-details > p:last-child { margin-bottom: 0; }
 .moodle-task-list dl { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 5px 12px; margin-block: 12px; font-size: 12px; }
-.moodle-task-list a { display: inline-flex; margin-right: 16px; font-size: 12px; }
-.moodle-task-list button { font-size: 12px; min-height: 36px; padding: 7px 12px; background: var(--subtle); color: #b6bfd8; border-color: var(--line); }
-.moodle-task-list button:hover { background: var(--selected); }
-.moodle-tasks > details { margin-top: 16px; }
+.moodle-task-list dd { margin: 0; overflow-wrap: anywhere; }
+.moodle-task-list a { display: inline-flex; font-size: 13px; }
+.moodle-empty { padding: 28px 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.moodle-source-details { margin-top: 24px; color: var(--muted); font-size: 12px; }
+.moodle-source-details > summary { width: fit-content; min-height: 36px; }
+.moodle-source-details p { max-width: 75ch; }
+@media (min-width: 761px) and (max-width: 1100px) {
+  .moodle-task-row { grid-template-columns: 44px minmax(0, 1fr) 104px; column-gap: 12px; }
+  .moodle-task-deadline { grid-column: 2; padding-top: 8px; }
+  .moodle-description-details { padding-left: 56px; }
+}
+@media (max-width: 760px) {
+  body[data-view=tasks] #mobile-nav-toggle { margin-right: auto; }
+  .moodle-heading-row { align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 22px; }
+  #moodle-heading { font-size: 25px; }
+  .moodle-toolbar { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .moodle-filters { gap: 6px; }
+  .moodle-filters button { padding-inline: 12px; font-size: 12px; }
+  .moodle-task-row { grid-template-columns: 44px minmax(0, 1fr); gap: 6px 10px; padding: 20px 0; }
+  .moodle-task-deadline { grid-column: 2; padding-top: 2px; white-space: normal; }
+  .moodle-description-details { grid-column: 2; padding-left: 0; }
+  .moodle-description-details > summary { position: static; width: fit-content; min-height: 36px; padding-top: 3px; }
+  .moodle-task-details { padding: 14px; margin-top: 8px; }
+}
 .journal > p { color: var(--muted); font-size: 13px; max-width: 75ch; }
 #trace-records { list-style: none; padding: 0; margin: 24px 0; }
 #panel[data-stale=true]::before { content: "Показана сохранённая версия. Перечитайте состояние перед следующим действием."; display: block; padding: 16px; margin-bottom: 16px; border: 1px solid #a17a37; border-radius: 10px; color: var(--ink); background: var(--subtle); }

@@ -100,18 +100,17 @@ def test_standalone_shell_preserves_original_forms_notices_and_scripts(page, act
         assert 'в настройках Google-аккаунта → Безопасность → Сторонние приложения.' in html
 
 
-def test_wrap_preserves_body_attributes_and_has_one_theme_control():
+def test_wrap_preserves_body_attributes_without_adding_an_appearance_control():
     page = ('<!doctype html><html lang="ru"><head><title>Old</title>'
             '<script src="/assets/theme.js"></script><link rel="stylesheet" href="/assets/theme.css">'
-            '</head><body class="settings-page" data-extra="kept"><header>'
-            '<button data-theme-toggle type="button">Theme</button></header>'
+            '</head><body class="settings-page" data-extra="kept"><header></header>'
             '<main><form id="existing"><button type="submit">Сохранить</button></form></main>'
             '<script src="/assets/account.js"></script></body></html>')
     html = wrap_page(page, active='settings', title='Настройки <safe>')
     tags = Tags(html).tags
     assert next(attrs for tag, attrs in tags if tag == 'body')['class'] == 'settings-page'
     assert next(attrs for tag, attrs in tags if tag == 'body')['data-extra'] == 'kept'
-    assert sum('data-theme-toggle' in attrs for _, attrs in tags) == 1
+    assert not any('data-theme-toggle' in attrs for _, attrs in tags)
     assert 'Настройки &lt;safe&gt; · Google AI' in html
     assert '<form id="existing"><button type="submit">Сохранить</button></form>' in html
 

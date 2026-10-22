@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {Element} = require('./moodle_compact.cjs');
 const source = fs.readFileSync(path.join(process.argv[2], 'src/campuspulse_recovery/web/assets/client.py'), 'utf8').replace(/\r\n/g, '\n');
 function between(start, end) {
   const from = source.indexOf(start), to = source.indexOf(end, from);
@@ -11,14 +12,6 @@ function between(start, end) {
 }
 const deferred = () => {let resolve; const promise = new Promise(done => {resolve = done;}); return {promise, resolve};};
 const settle = async () => {for (let index = 0; index < 30; ++index) await Promise.resolve();};
-class Element {
-  constructor() {this.children = []; this.attributes = {}; this.dataset = {}; this.textContent = ''; this.hidden = false;
-    this.classList = {remove() {}}; this.events = {};}
-  addEventListener(name, callback) {this.events[name] = callback;}
-  setAttribute(name, value) {this.attributes[name] = value;}
-  replaceChildren(...children) {this.children = children;}
-  append(...children) {this.children.push(...children);}
-}
 function harness({failAuth = false, scope = null} = {}) {
   const auth = deferred(), moodle = deferred(), state = deferred(), elements = new Map(), requests = [], failures = [];
   let chatLoads = 0;
@@ -45,7 +38,7 @@ function harness({failAuth = false, scope = null} = {}) {
     }};
   vm.createContext(sandbox);
   vm.runInContext(`let scope=${JSON.stringify(scope)}, generation=0, moodleEnabled=true, moodleBusy=false,
-    moodleRevision=0,cursor=0,activeRun=null,pendingText=null,activeChat='default',chatAvailable=false,
+    moodleRevision=0,moodleGroup='upcoming',cursor=0,activeRun=null,pendingText=null,activeChat='default',chatAvailable=false,
     chatWorking=false,chatLimitReached=false,chatGeneration=0;const chatDrafts=new Map();
     ${between('  const csrf = ', '  function stored(')}
     ${between('  async function refresh()', '  async function act(')}`, sandbox);
@@ -73,7 +66,8 @@ async function noRequestOrSourceSyncBeforeSessionBootstrap() {
   assert(!h.requests.some(item => item.url === '/api/moodle/sync'));
   h.moodle.resolve(); await settle();
   assert(h.requests.some(item => item.url === '/api/moodle/sync' && item.method === 'POST'));
-  assert.match(h.$('moodle-status').textContent, /Последнее обновление/);
+  assert.match(h.$('moodle-source-status').textContent, /Последнее обновление/);
+  assert.equal(h.$('moodle-status').textContent, '', 'A successful refresh keeps routine source details out of the task list');
   assert(!h.$('moodle-status').textContent.includes('Войдите'));
   assert.equal(h.$('moodle').attributes['aria-busy'], 'false');
   assert.equal(h.chatLoads, 0, 'Moodle can finish while a slower UI/state response is still in flight');
@@ -95,7 +89,7 @@ async function earlyMoodleReadinessAndSlowMoodleBothLeaveAuthenticatedData() {
       h.moodle.resolve();
     }
     await settle();
-    assert.match(h.$('moodle-status').textContent, /Последнее обновление/);
+    assert.match(h.$('moodle-source-status').textContent, /Последнее обновление/);
     assert.equal(h.requests.filter(item => item.url === '/api/moodle/sync').length, 1);
     assert.equal(h.$('moodle-refresh').disabled, false);
   }
@@ -127,7 +121,7 @@ async function sameSessionRefreshKeepsExistingContentUntilFreshResponsesArrive()
   assert.equal(h.$('moodle-refresh').disabled, true);
   h.moodle.resolve(); await settle();
   assert.equal(h.$('moodle').attributes['aria-busy'], 'false');
-  assert.match(h.$('moodle-status').textContent, /Последнее обновление/);
+  assert.match(h.$('moodle-source-status').textContent, /Последнее обновление/);
   h.state.resolve(); await settle();
   assert.equal(h.$('panel').attributes['data-stale'], 'false');
   assert.notEqual(h.$('panel').children[0], oldPanel);
@@ -199,7 +193,7 @@ async function lateTaskStatusCannotPublishAfterAuthenticationOrSessionChanges() 
       };
       h.installTaskStatus();
       const oldButton = {disabled: false, dataset: {taskId: 'old-owner-task', done: 'true'}};
-      const marking = h.$('moodle-tasks').events.click({target: {closest: () => oldButton}});
+      const marking = h.$('moodle-tasks').fire('click', {target: {closest: () => oldButton}});
       await settle();
       assert.equal(h.requests.filter(item => item.url === '/api/moodle/task-status').length, 1);
       const refreshing = h.run('refresh()'); h.moodle.resolve(); h.state.resolve();
@@ -226,7 +220,7 @@ async function currentSessionTaskStatusStillPublishesSuccessAndRestoresRetryOnFa
       {ok: successful, status: successful ? 200 : 503, json: async () => ({connected: true, snapshot: null})} :
       originalFetch(url, options);
     const button = {disabled: false, dataset: {taskId: 'current-task', done: 'true'}};
-    await h.$('moodle-tasks').events.click({target: {closest: () => button}});
+    await h.$('moodle-tasks').fire('click', {target: {closest: () => button}});
     if (successful) assert.match(h.$('moodle-status').textContent, /Задания ещё не загружены/);
     else {
       assert.equal(button.disabled, false, 'A current-session failure permits retry');
