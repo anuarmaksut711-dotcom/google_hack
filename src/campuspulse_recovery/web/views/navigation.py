@@ -98,7 +98,7 @@ def wrap_page(html, *, active, title, moodle_enabled=True,
         head += f'<title>{_e(title)} · Google AI</title>'
     if '/assets/theme.js' not in head:
         head += '<script src="/assets/theme.js"></script>'
-    # Shared dark tokens stay last, as on the main workspace.
+    # Shared appearance tokens stay last, as on the main workspace.
     theme_css = '<link rel="stylesheet" href="/assets/theme.css">'
     head = head.replace(theme_css, '')
     head += ('<script src="/assets/sidebar-head.js"></script>'
@@ -110,10 +110,7 @@ def wrap_page(html, *, active, title, moodle_enabled=True,
                                    google_calendar_enabled=google_calendar_enabled)
     topbar = ('''<header class="topbar page-navigation-topbar"><button id="mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="sidebar" aria-expanded="false">'''
               + _icon('<path d="M4 6h16M4 12h16M4 18h16"/>')
-              + f'</button><div class="view-heading"><span id="view-title">{_e(title)}</span></div><div class="topbar-actions">'
-              + '<button id="page-navigation-reload" type="button" aria-label="Обновить список чатов" title="Обновить список чатов">'
-              + _icon('<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/>')
-              + '</button></div></header>')
+              + f'</button><div class="view-heading"><span id="view-title">{_e(title)}</span></div></header>')
     return ('<!doctype html><html lang="ru"><head>' + head + '</head><body' + body_attrs
             + f' data-shared-navigation="true" data-view="{_e(active)}">'
             + '<a class="skip" href="#page-content">К содержимому</a>' + navigation

@@ -85,6 +85,7 @@ summary:hover { color: var(--accent); }
 #recovery-message { display: block; width: 100%; min-height: 56px; max-height: min(360px, 42dvh); margin: 0; padding: 0; resize: none; overflow-y: hidden; border: 0; background: transparent; color: var(--ink); font-size: 16px; line-height: 1.7; caret-color: var(--accent); }
 #recovery-message::placeholder { color: var(--muted); opacity: 1; }
 #recovery-message:focus-visible { outline: none; }
+.chat-submit .composer-options { margin-right: auto; }
 .chat-submit { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 #chat-send, #voice-toggle { flex-shrink: 0; display: grid; place-items: center; width: 44px; min-height: 44px; padding: 10px; border-radius: 50%; }
 #chat-send { background: #e3e4e9; color: #1d1e22; transition: background-color 160ms, transform 160ms; }

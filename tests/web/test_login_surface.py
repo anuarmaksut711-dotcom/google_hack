@@ -55,7 +55,16 @@ def test_login_and_registration_are_read_only_google_surfaces_with_safe_client_i
                 assert not any(tag in ('input', 'form') for tag, _ in page.elements)
                 assert destination in [attrs.get('href') for tag, attrs in page.elements if tag == 'a']
                 assert [attrs.get('src') for tag, attrs in page.elements if tag == 'script'] == [
-                    '/assets/theme.js', 'https://accounts.google.com/gsi/client', '/assets/login.js']
+                    '/assets/theme.js', 'https://accounts.google.com/gsi/client', '/assets/login.js',
+                    '/assets/logo/vendor/gsap.min.js', '/assets/logo/welcome.js']
+                assert 'set-cookie' not in response.headers
+                assert page.by_id('welcome-logo')[1]['class'] == 'auth-logo'
+                assert page.by_id('welcome-canvas')[0] == 'canvas'
+                assert 'auth-orb' not in response.text
+            for asset in ('welcome.js', 'particles.js', 'vendor/gsap.min.js', 'vendor/three.module.js', 'vendor/three.core.js', 'assets/g-reference.png'):
+                response = await client.get('/assets/logo/' + asset)
+                assert response.status_code == 200
+                assert response.content
                 assert 'set-cookie' not in response.headers
             assert not client.cookies
         assert harness.documents.data == before

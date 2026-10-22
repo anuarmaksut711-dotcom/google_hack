@@ -611,7 +611,6 @@ SCRIPT = r"""'use strict';
     $('start').disabled = voiceState !== 'idle' || busy || chatBusy || !scope || (chatSchedule ? !chatAvailable : $('panel').querySelector('[data-runtime="true"]') === null);
     document.querySelectorAll('[data-action="compose-schedule"]').forEach(button => { button.disabled = voiceState !== 'idle' || busy || chatBusy || !scope || !chatAvailable; });
     document.querySelectorAll('[data-action="start"]').forEach(button => { button.disabled = $('start').disabled || $('panel').dataset.stale === 'true'; });
-    $('reload').disabled = busy || chatBusy || voiceState !== 'idle';
     $('signout').disabled = busy || chatBusy || voiceState !== 'idle';
     $('trace').disabled = !activeRun || traceBusy;
     if ($('clear-run')) $('clear-run').disabled = !activeRun || busy || traceBusy;
@@ -1170,9 +1169,6 @@ SCRIPT = r"""'use strict';
   $('focus-composer')?.addEventListener('click', () => {
     location.hash = chatHash(activeChat); updateNavigation();
     requestAnimationFrame(() => $('recovery-message').focus({preventScroll: true}));
-  });
-  $('reload').addEventListener('click', () => {
-    refresh().catch(error => feedback(error.message, true));
   });
   if (moodleEnabled) {
     for (const name of ['upcoming', 'past', 'completed'])

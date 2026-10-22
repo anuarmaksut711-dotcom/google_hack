@@ -1,5 +1,6 @@
 """First Moodle connection and optional settings; saved feed URLs stay server-side."""
-from .assets.theme import THEME_HEAD
+from .assets.theme import THEME_BUTTON, THEME_HEAD
+from .telegram_settings import SECTION as TELEGRAM_SECTION
 
 
 def render_moodle_settings(*, connected, classes_html, google_calendar_html='', shared_shell=False):
@@ -30,8 +31,12 @@ def render_moodle_settings(*, connected, classes_html, google_calendar_html='', 
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<title>Настройки · Google AI</title><link rel="stylesheet" href="/assets/campuspulse.css">'
-        + THEME_HEAD + '</head><body class="settings-page">' + header +
+        + THEME_HEAD + '<script src="/assets/telegram-settings.js" defer></script></head><body class="settings-page">' + header +
         '<main class="settings-main"><h1>Настройки</h1>'
+        '<section class="settings-appearance" aria-labelledby="appearance-heading">'
+        '<div><h2 id="appearance-heading">Оформление</h2>'
+        '<p>Тема применяется ко всем страницам и сохраняется в этом браузере.</p></div>'
+        + THEME_BUTTON + '</section>' + TELEGRAM_SECTION +
         '<section class="settings-card" data-connected="' + str(connected).lower() + '" '
         'aria-labelledby="moodle-settings-heading"><div class="settings-card-heading">'
         '<span class="settings-card-icon"><svg viewBox="0 0 24 24" aria-hidden="true">'
