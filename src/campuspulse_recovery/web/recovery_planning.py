@@ -9,8 +9,8 @@ from .views.navigation import install_page_navigation, wrap_page
 PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Пары и время для учёбы · CampusPulse AI</title><link rel="stylesheet" href="/assets/planning.css">
-<main class="planning-page"><a href="/#moodle">Задания Moodle</a><h1>Пары и время для учёбы</h1>
-<p>Сохраните пары и время для учёбы. Затем откройте раздел <a href="/#panel">Предложенное расписание</a> и проверьте его перед добавлением в Google Calendar.</p>
+<main class="planning-page"><header class="planning-heading"><h1>Пары и время</h1>
+<p>Загрузите расписание и проверьте пары по дням.</p></header>
 <!-- CLASSES -->
 <!-- PLANNING_START -->
 <section id="planning-inputs" aria-label="Время для заданий">
@@ -38,7 +38,7 @@ PAGE = '''<!doctype html><html lang="ru"><meta charset="utf-8">
 <button type="submit" disabled>Сохранить свободные часы</button></form>
 </section>
 <!-- PLANNING_END -->
-<p><a href="/#panel">К предложенному расписанию</a></p>
+<p class="planning-return"><a href="/#panel">К предложенному расписанию</a></p>
 </main><script src="/assets/recovery-planning.js" defer></script></html>'''
 
 SCRIPT = r'''(() => {
@@ -185,9 +185,13 @@ def install_recovery_planning_page(app, *, auth, inputs, google_calendar_enabled
         if inputs is None:
             start = page.index('<!-- PLANNING_START -->')
             end = page.index('<!-- PLANNING_END -->') + len('<!-- PLANNING_END -->')
-            page = (page[:start] + '<p>Сохраните пары, затем расскажите ассистенту, когда можете учиться '
-                    'и сколько времени нужно на задания. Доступность составления расписания указана в разделе '
-                    '«Предложенное расписание».</p>' + page[end:])
+            page = (page[:start] + '<aside class="planning-study-note" aria-labelledby="study-time-heading">'
+                    '<h2 id="study-time-heading">Время для учёбы</h2>'
+                    '<p>Расскажите ассистенту, когда можете учиться и сколько времени нужно на задания.</p>'
+                    '<a href="/#workspace">Указать время в чате</a>'
+                    '<details><summary>О составлении плана</summary><p>Доступность составления расписания '
+                    'указана в разделе «Предложенное расписание». Перед добавлением в Google Calendar '
+                    'вы проверите и подтвердите расписание.</p></details></aside>' + page[end:])
             page = page.replace('<script src="/assets/recovery-planning.js" defer></script>', '')
         page = page.replace('</html>', '<script src="/assets/planning-classes.js" defer></script></html>')
         page = wrap_page(page, active='planning', title='Пары и время',

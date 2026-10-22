@@ -200,7 +200,8 @@ async def check(app):
         metadata = await browser.get('/auth/session', headers={'X-CSRF-Bootstrap': '1'})
         headers = {'X-CSRF-Token': metadata.json()['csrf_token']}
         page = await browser.get('/planning')
-        assert 'classes-week-complete' in page.text and 'ЛОКАЛЬНЫЙ ТЕСТ' in page.text
+        assert 'id="classes-calendar"' in page.text and 'ЛОКАЛЬНЫЙ ТЕСТ' in page.text
+        assert 'classes-week-complete' not in page.text and 'classes-reviewed' not in page.text
         assert 'effort-form' not in page.text
         imported = await browser.post('/api/account/classes/import', headers={**headers, 'Content-Type': 'image/png'},
             content=b'\x89PNG\r\n\x1a\nsynthetic-fixture')

@@ -11,62 +11,69 @@ from ..security.context import AccessDenied
 from .app import body
 
 
-ACCOUNT_CLASSES = '''<section aria-labelledby="classes-heading"><h2 id="classes-heading">Моё расписание занятий</h2>
-<p>Соберите все пары на неделю: загрузите расписание целиком или добавляйте скриншоты по дням.
-Пары повторяются в выбранный период и исключаются из времени на задания.</p>
-<button id="classes-reload" type="button">Перечитать расписание</button>
-<form id="class-schedule"><fieldset id="classes-fields" disabled><legend>Недельное расписание</legend>
-<label for="classes-file">PDF или скриншот расписания</label>
-<input id="classes-file" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" aria-describedby="classes-file-help">
-<p id="classes-file-help">PDF, PNG или JPEG до 8 МиБ, одна группа. Каждый следующий файл добавляет пары в черновик.
-Файл отправляется AI-провайдеру по кнопке «Распознать пары» и не хранится приложением.</p>
-<button id="classes-import" type="button" disabled>Распознать пары</button>
-<p>Проверьте распознанные пары и добавьте остальные дни. Даты действия укажите сами, если их нет в файле.
-Изменения учитываются в плане после сохранения.</p>
-<details><summary>Как учитываются пары</summary><p>До 30 пар, период от 1 до 91 дня с покрытием ближайших 72 часов.
-Время — по часовому поясу аккаунта. После сохранения можно подготовить пары для Google Calendar,
-просмотреть повторы и отдельно подтвердить добавление.
-Названия и время занятий передаются Gemini при составлении плана.
-Неясные данные могут не распознаться; чередующиеся недели введите вручную.</p></details>
-<label for="classes-from">Действует с</label><input id="classes-from" type="date" required>
-<label for="classes-until">Действует по</label><input id="classes-until" type="date" required>
-<div id="classes-rows"></div><button id="class-add" type="button">Добавить пару</button>
-<p>Если занятий в этом периоде нет, удалите все пары и сохраните пустое расписание.</p>
-<div id="classes-review" hidden><input id="classes-reviewed" type="checkbox">
-<label for="classes-reviewed">Я проверил(а) предметы, дни, время и даты действия</label>
-<input id="classes-week-complete" type="checkbox">
-<label for="classes-week-complete">Все пары недели добавлены. В остальные дни пар нет</label>
-<p>Скриншот одного дня не показывает всю неделю. Добавьте остальные дни перед сохранением.</p></div>
-<button type="submit">Сохранить расписание</button></fieldset></form>
-<button id="classes-calendar" type="button" disabled>Подготовить пары для Google Calendar</button>
-<p><a id="classes-calendar-review" href="/#calendar" hidden>Посмотреть расписание на сайте</a></p>
-<p id="classes-status" role="status" aria-live="polite">Загружаем расписание…</p></section>'''
+ACCOUNT_CLASSES = '''<section class="classes-section" aria-labelledby="classes-heading">
+<form id="class-schedule" novalidate><fieldset id="classes-fields" disabled>
+<legend class="classes-sr-only">Недельное расписание</legend>
+<section class="classes-upload" aria-labelledby="classes-heading">
+<div class="classes-upload-heading"><div><h2 id="classes-heading">Загрузить расписание</h2>
+<p id="classes-file-help">PDF, PNG, JPEG · до 8 МиБ</p></div>
+<details class="classes-upload-help"><summary>О загрузке</summary>
+<p>Выберите расписание одной группы: всю неделю или скриншоты по дням.
+Файл отправляется AI-провайдеру только по кнопке «Распознать пары» и не хранится приложением.
+Распознавание добавляет пары в черновик. Перед сохранением проверьте предметы, время, даты и остальные дни недели.
+Неясные данные могут не распознаться; чередующиеся недели введите вручную.</p></details></div>
+<label class="classes-sr-only" for="classes-file">PDF или скриншот расписания</label>
+<div class="classes-file-line"><input id="classes-file" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" aria-describedby="classes-file-help">
+<button id="classes-import" type="button" disabled>Распознать пары</button></div>
+<p class="classes-upload-note">Можно добавлять файлы по очереди.</p></section>
+<section class="classes-period" aria-label="Период действия расписания">
+<div class="classes-date-fields"><div><label for="classes-from">Действует с</label>
+<input id="classes-from" type="date" required></div><div><label for="classes-until">Действует по</label>
+<input id="classes-until" type="date" required></div></div>
+<p>Пары повторяются каждую неделю. Время — по часовому поясу аккаунта.</p>
+<details class="classes-period-help"><summary>Как учитываются пары</summary><p>До 30 пар, период от 1 до 91 дня с покрытием ближайших 72 часов.
+Сохранённые пары исключаются из времени на задания. Названия и время занятий передаются Gemini при составлении плана.
+Если занятий в этом периоде нет, удалите все пары и сохраните пустое расписание.</p></details></section>
+<section class="classes-list-panel" aria-labelledby="classes-list-heading">
+<div class="classes-list-heading"><h2 id="classes-list-heading">Проверьте расписание</h2></div>
+<p id="classes-empty" class="classes-empty" hidden>Пар пока нет. Загрузите расписание или добавьте первую пару.</p>
+<div id="classes-rows"></div><button id="class-add" type="button">Добавить пару</button></section>
+<div class="classes-actions"><button id="classes-save" type="submit">Сохранить расписание</button>
+<button id="classes-calendar" type="button" disabled>Подготовить пары для Google Calendar</button></div>
+</fieldset></form>
+<div class="classes-calendar-actions"><p><a id="classes-calendar-review" href="/#calendar" hidden>Посмотреть расписание на сайте</a></p>
+<p id="classes-status" role="status" aria-live="polite">Загружаем расписание…</p>
+<button id="classes-reload" type="button">Перечитать расписание</button></div></section>'''
 
 
 CLASSES_SCRIPT = r'''
 (() => {
   'use strict';
   const form = document.getElementById('class-schedule'), fields = document.getElementById('classes-fields');
-  const rows = document.getElementById('classes-rows'), status = document.getElementById('classes-status');
+  const rows = document.getElementById('classes-rows'), empty = document.getElementById('classes-empty'), status = document.getElementById('classes-status');
   const from = document.getElementById('classes-from'), until = document.getElementById('classes-until');
   const add = document.getElementById('class-add'), file = document.getElementById('classes-file');
   const recognize = document.getElementById('classes-import'), reload = document.getElementById('classes-reload');
-  const review = document.getElementById('classes-review'), reviewed = document.getElementById('classes-reviewed');
-  const weekComplete = document.getElementById('classes-week-complete');
   const calendar = document.getElementById('classes-calendar'), calendarReview = document.getElementById('classes-calendar-review');
   const chatDraft = String(location.hash || '').match(/^#draft=([0-9a-f]{64})$/)?.[1];
   const days = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
-  let serial = 0, busy = false, loaded = false, needsReload = true, sessionId = null, reviewRequired = false, sourceVersion = 0, starter = null, savedReady = false, draftPending = !!chatDraft;
+  let serial = 0, busy = false, loaded = false, needsReload = true, sessionId = null, sourceVersion = 0, savedReady = false, draftPending = !!chatDraft, pendingFocus = null;
+  const rowViews = new WeakMap();
+  function classRows() { return Array.from(rows.querySelectorAll('[data-class-row]')); }
+  function focusControl(control) { if(busy) pendingFocus = control; else control.focus(); }
   function controls() {
     fields.disabled = busy || needsReload || !loaded;
     reload.disabled = busy;
-    add.disabled = rows.children.length >= 30;
+    add.disabled = busy || needsReload || !loaded || classRows().length >= 30;
     recognize.disabled = busy || needsReload || !loaded || !file.files.length;
     calendar.disabled = busy || needsReload || !loaded || !savedReady;
     form.setAttribute('aria-busy', String(busy));
   }
-  function resetReview() { reviewed.checked = false; if(weekComplete) weekComplete.checked = false; }
-  function changedSchedule() { savedReady = false; calendarReview.hidden = true; resetReview(); controls(); }
+  function changedSchedule() {
+    savedReady = false; calendarReview.hidden = true;
+    if(loaded && !busy) status.textContent = 'Изменения не сохранены. Нажмите «Сохранить расписание», когда всё готово.';
+    controls();
+  }
   function readRow(fieldset) {
     const value = {};
     fieldset.querySelectorAll('[data-field]').forEach(input => {
@@ -91,12 +98,64 @@ CLASSES_SCRIPT = r'''
         (draft.valid_until >= draft.valid_from && (Date.parse(draft.valid_until)-Date.parse(draft.valid_from))/86400000 <= 90));
   }
   function classKey(value) { return JSON.stringify([value.subject.trim(),value.weekday,value.start,value.end]); }
-  function row(value = {}, isStarter = false) {
+  function updateSummary(fieldset) {
+    const value = readRow(fieldset), view = rowViews.get(fieldset);
+    view.time.textContent = value.start && value.end ? value.start + ' – ' + value.end : 'Укажите время';
+    view.subject.textContent = value.subject || 'Новая пара';
+    view.edit.setAttribute('aria-label', 'Изменить пару: ' + (value.subject || 'Новая пара'));
+  }
+  function openEditor(fieldset, opened, focus = false) {
+    const view = rowViews.get(fieldset);
+    view.editor.hidden = !opened;
+    view.edit.setAttribute('aria-expanded', String(opened));
+    if(focus) focusControl(opened ? view.subjectInput : view.edit);
+  }
+  function organizeRows() {
+    const focused = document.activeElement, entries = classRows(), groups = [];
+    for(let weekday = 0; weekday < days.length; weekday++) {
+      const lessons = entries.filter(entry => {
+        const value = readRow(entry).weekday;
+        return (Number.isInteger(value) && value >= 0 && value <= 6 ? value : 0) === weekday;
+      })
+        .sort((a,b) => readRow(a).start.localeCompare(readRow(b).start));
+      if(!lessons.length) continue;
+      const group = document.createElement('section'), heading = document.createElement('h3');
+      const count = document.createElement('span'), groupRows = document.createElement('div');
+      group.className = 'classes-day'; group.dataset.weekday = String(weekday);
+      heading.className = 'classes-day-heading'; heading.textContent = days[weekday];
+      count.className = 'classes-day-count';
+      const last = lessons.length % 10, teen = lessons.length % 100;
+      count.textContent = ' · ' + lessons.length + ' ' + (teen >= 11 && teen <= 14 ? 'пар' : last === 1 ? 'пара' : last >= 2 && last <= 4 ? 'пары' : 'пар');
+      heading.append(count); groupRows.className = 'classes-day-rows';
+      groupRows.append(...lessons); group.append(heading, groupRows); groups.push(group);
+    }
+    rows.replaceChildren(...groups);
+    empty.hidden = entries.length > 0;
+    if(focused && rows.contains(focused)) focused.focus({preventScroll:true});
+  }
+  function focusInvalid(fieldset, value = readRow(fieldset)) {
+    const key = !value.subject || value.subject.length > 120 ? 'subject' :
+      !Number.isInteger(value.weekday) || value.weekday < 0 || value.weekday > 6 ? 'weekday' :
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.start) ? 'start' : 'end';
+    openEditor(fieldset, true);
+    focusControl(fieldset.querySelector('[data-field="' + key + '"]'));
+  }
+  function row(value = {}, editing = false) {
     const fieldset = document.createElement('fieldset'), legend = document.createElement('legend');
-    if(isStarter) starter = fieldset;
-    legend.textContent = 'Пара'; fieldset.append(legend);
+    const summary = document.createElement('div'), time = document.createElement('span'), subjectText = document.createElement('span');
+    const edit = document.createElement('button'), editor = document.createElement('div'), editorFields = document.createElement('div');
+    const editorActions = document.createElement('div');
+    fieldset.className = 'classes-entry'; fieldset.dataset.classRow = '';
+    legend.className = 'classes-sr-only'; legend.textContent = 'Пара'; fieldset.append(legend);
+    summary.className = 'classes-summary'; time.className = 'classes-time'; subjectText.className = 'classes-subject';
+    edit.type = 'button'; edit.className = 'classes-edit'; edit.dataset.action = 'edit';
+    const icon = document.createElement('span'); icon.setAttribute('aria-hidden', 'true'); icon.textContent = '✎'; edit.append(icon);
+    editor.className = 'classes-editor'; editor.id = 'class-editor-' + (++serial);
+    edit.setAttribute('aria-controls', editor.id); editor.hidden = !editing; edit.setAttribute('aria-expanded', String(editing));
+    editorFields.className = 'classes-editor-fields'; editorActions.className = 'classes-editor-actions';
+    summary.append(time, subjectText, edit); fieldset.append(summary, editor); editor.append(editorFields, editorActions);
     function input(label, key, type, initial) {
-      const id = 'class-' + (++serial), text = document.createElement('label');
+      const id = 'class-' + (++serial), text = document.createElement('label'), field = document.createElement('div');
       text.htmlFor = id; text.textContent = label;
       const control = document.createElement(type === 'select' ? 'select' : 'input');
       control.id = id; control.dataset.field = key; control.required = true;
@@ -104,23 +163,45 @@ CLASSES_SCRIPT = r'''
         const option = document.createElement('option'); option.value = index; option.textContent = day; control.append(option);
       }); else control.type = type;
       if(key === 'subject') control.maxLength = 120;
-      control.value = value[key] ?? initial; fieldset.append(text, control); return control;
+      control.value = value[key] ?? initial; field.className = 'classes-editor-field classes-editor-field-' + key;
+      field.append(text, control); editorFields.append(field); return control;
     }
     const subject = input('Предмет', 'subject', 'text', '');
     input('День недели', 'weekday', 'select', 0); input('Начало', 'start', 'time', '09:00'); input('Окончание', 'end', 'time', '10:20');
-    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Удалить пару';
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'classes-remove'; remove.dataset.action = 'remove'; remove.textContent = 'Удалить пару';
     remove.addEventListener('click', () => {
       if(busy || needsReload) return;
-      fieldset.remove(); changedSchedule(); add.focus();
+      fieldset.remove(); organizeRows(); changedSchedule(); add.focus();
     });
-    fieldset.append(remove); rows.append(fieldset); return subject;
+    const done = document.createElement('button'); done.type = 'button'; done.className = 'classes-done'; done.dataset.action = 'done'; done.textContent = 'Готово';
+    done.addEventListener('click', () => {
+      if(busy || needsReload) return;
+      if(!validClass(readRow(fieldset))) {
+        focusInvalid(fieldset); status.textContent = 'Заполните предмет и укажите окончание пары позже начала.'; return;
+      }
+      updateSummary(fieldset); openEditor(fieldset, false); organizeRows(); edit.focus();
+    });
+    edit.addEventListener('click', () => {
+      if(busy || needsReload) return;
+      if(!editor.hidden && !validClass(readRow(fieldset))) {
+        focusInvalid(fieldset); status.textContent = 'Заполните предмет и укажите окончание пары позже начала.'; return;
+      }
+      openEditor(fieldset, editor.hidden, true);
+    });
+    editorActions.append(remove, done);
+    rowViews.set(fieldset, {time, subject:subjectText, edit, editor, subjectInput:subject});
+    rows.append(fieldset); updateSummary(fieldset); return fieldset;
   }
   add.addEventListener('click', () => {
-    if(!busy && !needsReload && rows.children.length < 30) { row().focus(); changedSchedule(); }
+    if(!busy && !needsReload && loaded && classRows().length < 30) {
+      const entry = row({}, true); organizeRows(); changedSchedule(); openEditor(entry, true, true);
+    }
   });
   function changed(event) {
-    if(event.target === reviewed || event.target === weekComplete) return;
-    if(starter && Array.from(starter.querySelectorAll('[data-field]')).includes(event.target)) starter = null;
+    if(event.target === file) return;
+    const entry = event.target.closest?.('[data-class-row]');
+    if(entry) updateSummary(entry);
+    if(entry && event.type === 'change' && event.target.dataset.field === 'weekday') organizeRows();
     changedSchedule();
   }
   form.addEventListener('input', changed);
@@ -188,10 +269,27 @@ CLASSES_SCRIPT = r'''
   }
   async function action(task) {
     if(busy) return;
+    const origin = document.activeElement;
+    let focusMoved = false;
+    const observeFocus = event => {
+      if(event.target !== origin && event.target !== document.body) focusMoved = true;
+    };
+    document.addEventListener('focusin', observeFocus);
     busy = true; controls();
     try { await task(); }
     catch(error) { status.textContent = error.message; }
-    finally { busy = false; controls(); }
+    finally {
+      busy = false; controls();
+      document.removeEventListener('focusin', observeFocus);
+      const current = document.activeElement;
+      if(!focusMoved && (current === origin || current === document.body || !current)) {
+        const target = needsReload && origin && form.contains(origin) ? reload : pendingFocus ||
+          (origin && (origin === reload || form.contains(origin)) ? origin : null);
+        if(target && target !== document.body && !target.disabled && target.isConnected !== false &&
+            !target.closest('[hidden]') && (target === reload || !fields.disabled)) target.focus({preventScroll:true});
+      }
+      pendingFocus = null;
+    }
   }
   recognize.addEventListener('click', () => {
     if(needsReload || !loaded) return;
@@ -200,12 +298,12 @@ CLASSES_SCRIPT = r'''
       if(!selected) throw Error('Выберите PDF, PNG или JPEG.');
       if(!['application/pdf','image/png','image/jpeg'].includes(selected.type)) throw Error('Поддерживаются PDF, PNG и JPEG. Пары также можно заполнить вручную.');
       if(!selected.size || selected.size > 8 * 1024 * 1024) throw Error('Выберите непустой файл размером до 8 МиБ или заполните пары вручную.');
-      resetReview(); status.textContent = 'Распознаём пары. Сохранённое расписание пока не изменилось…';
+      status.textContent = 'Распознаём пары. Сохранённое расписание пока не изменилось…';
       const value = await api('/api/account/classes/import', selected, selected.type), draft = value && value.draft;
       if(version !== sourceVersion) throw Error('Выбран другой файл. Распознайте его перед проверкой.');
       if(!validDraft(draft))
         throw Error('Не удалось разобрать расписание. Пары можно заполнить вручную.');
-      const existing = Array.from(rows.children).filter(fieldset => fieldset !== starter);
+      const existing = classRows();
       const keys = new Set(existing.map(fieldset => classKey(readRow(fieldset)))), additions = [];
       for(const lesson of draft.classes) {
         const key = classKey(lesson);
@@ -213,39 +311,43 @@ CLASSES_SCRIPT = r'''
       }
       if(existing.length + additions.length > 30)
         throw Error('В черновике может быть до 30 пар. Удалите лишние пары и распознайте файл ещё раз.');
-      if(starter) { starter.remove(); starter = null; }
       additions.forEach(lesson => row(lesson));
+      organizeRows();
       if(!from.value && draft.valid_from) from.value = draft.valid_from;
       if(!until.value && draft.valid_until) until.value = draft.valid_until;
-      reviewRequired = true; review.hidden = false; resetReview();
       savedReady = false; calendarReview.hidden = true;
       status.textContent = additions.length ? 'Пары добавлены в черновик. Загрузите остальные дни или добавьте их вручную. Перед сохранением проверьте всю неделю и даты действия.' :
         'Эти пары уже есть в черновике. Загрузите остальные дни и проверьте всю неделю перед сохранением.';
-      from.focus();
+      focusControl(from);
     });
   });
   form.addEventListener('submit', event => {
     event.preventDefault();
     if(busy || needsReload || !loaded) return;
     action(async () => {
-      const classes = Array.from(rows.children, readRow);
+      const entries = classRows(), classes = entries.map(readRow);
       const period = (Date.parse(until.value) - Date.parse(from.value)) / 86400000;
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(from.value) || !/^\d{4}-\d{2}-\d{2}$/.test(until.value) ||
+      if(!validDate(from.value) || !validDate(until.value) ||
           !Number.isFinite(period) || period < 0 || period > 90) {
-        until.focus(); throw Error('Укажите обе даты действия: период от 1 до 91 дня.');
+        focusControl(!validDate(from.value) ? from : until); throw Error('Укажите обе даты действия: период от 1 до 91 дня.');
       }
-      if(classes.length > 30 || classes.some(c => !c.subject || c.subject.length > 120 ||
-          !Number.isInteger(c.weekday) || c.weekday < 0 || c.weekday > 6 ||
-          !/^([01]\d|2[0-3]):[0-5]\d$/.test(c.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(c.end) || c.end <= c.start))
+      if(classes.length > 30) throw Error('В расписании может быть до 30 пар. Удалите лишние пары перед сохранением.');
+      const invalid = classes.findIndex(value => !validClass(value));
+      if(invalid !== -1) {
+        focusInvalid(entries[invalid], classes[invalid]);
         throw Error('Заполните предметы и укажите окончание каждой пары позже начала.');
-      const sorted = [...classes].sort((a,b) => a.weekday-b.weekday || a.start.localeCompare(b.start));
-      if(sorted.some((c,i) => i && c.weekday === sorted[i-1].weekday && c.start < sorted[i-1].end))
+      }
+      const sorted = entries.map((entry,i) => ({entry, value:classes[i]}))
+        .sort((a,b) => a.value.weekday-b.value.weekday || a.value.start.localeCompare(b.value.start));
+      const overlap = sorted.find((item,i) => i && item.value.weekday === sorted[i-1].value.weekday && item.value.start < sorted[i-1].value.end);
+      if(overlap) {
+        openEditor(overlap.entry, true);
+        focusControl(overlap.entry.querySelector('[data-field="start"]'));
         throw Error('Пары пересекаются. Исправьте время перед сохранением.');
-      if(reviewRequired && !reviewed.checked) { reviewed.focus(); throw Error('Подтвердите, что проверили предметы, дни, время и даты распознанного расписания.'); }
-      if(reviewRequired && !weekComplete?.checked) { weekComplete?.focus(); throw Error('Добавьте все пары недели и подтвердите, что в остальные дни пар нет.'); }
+      }
       status.textContent = 'Сохраняем расписание…';
       await api('/api/account/classes', {valid_from:from.value, valid_until:until.value, classes});
-      reviewRequired = false; review.hidden = true; resetReview();
+      entries.forEach(entry => { updateSummary(entry); openEditor(entry, false); }); organizeRows();
       savedReady = classes.length > 0;
       calendarReview.hidden = false; calendarReview.href = '/#calendar';
       calendarReview.textContent = 'Посмотреть расписание на сайте';
@@ -283,14 +385,14 @@ CLASSES_SCRIPT = r'''
     const draftValue = draftPending ? await api('/api/account/classes/drafts/' + chatDraft) : null;
     await session();
     if(draftValue && !validDraft(draftValue.draft)) throw Error('Не удалось прочитать черновик из чата. Вернитесь в чат и запросите его снова.');
-    rows.replaceChildren(); starter = null; from.value = ''; until.value = ''; file.value = '';
+    rows.replaceChildren(); from.value = ''; until.value = ''; file.value = '';
     if(draftValue) {
       from.value = draftValue.draft.valid_from || ''; until.value = draftValue.draft.valid_until || '';
       draftValue.draft.classes.forEach(lesson => row(lesson));
     } else if(value.schedule) {
       from.value = value.schedule.valid_from; until.value = value.schedule.valid_until; value.schedule.classes.forEach(lesson => row(lesson));
-    } else row({}, true);
-    reviewRequired = !!draftValue; review.hidden = !reviewRequired; resetReview(); sourceVersion++;
+    }
+    organizeRows(); sourceVersion++;
     savedReady = !draftValue && !!value.schedule?.classes.length;
     calendarReview.hidden = true; draftPending = false;
     loaded = true; needsReload = false;

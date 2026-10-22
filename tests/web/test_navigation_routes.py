@@ -55,7 +55,8 @@ def test_authenticated_routes_share_navigation_and_keep_existing_controls(tmp_pa
                     assert '/assets/campuspulse.js' not in scripts
                     assert links['assistant']['href'] == '/#workspace'
                 if path == '/planning':
-                    assert {'class-schedule', 'classes-file', 'classes-reviewed', 'classes-week-complete'} <= set(ids)
+                    assert {'class-schedule', 'classes-file', 'classes-rows', 'classes-calendar'} <= set(ids)
+                    assert not {'classes-reviewed', 'classes-week-complete'} & set(ids)
                     assert '/assets/planning-classes.js' in scripts
                 if path in ('/settings', '/account'):
                     assert {'connect-moodle', 'moodle-url', 'account-status'} <= set(ids)

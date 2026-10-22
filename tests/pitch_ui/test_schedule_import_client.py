@@ -8,7 +8,8 @@ import pytest
 
 @pytest.mark.parametrize('case', ['explicit_import', 'review_dates_save', 'manual', 'failure',
     'duplicate_import', 'new_file', 'session_change', 'double_save', 'uncertain_save', 'local_size',
-    'chat_draft', 'chat_draft_session_change', 'calendar_after_save', 'calendar_failure_keeps_saved_week'])
+    'chat_draft', 'chat_draft_session_change', 'calendar_after_save', 'calendar_failure_keeps_saved_week',
+    'save_focus', 'import_focus_move'])
 def test_schedule_import_client(case):
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run(['node', str(Path(__file__).with_suffix('.cjs')), str(root), case],
