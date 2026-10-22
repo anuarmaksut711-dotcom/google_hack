@@ -53,16 +53,8 @@ function dismiss() {
   scene?.dispose();
   logo.classList.add('is-dismissed');
   logo.dataset.state = 'dismissed';
-  document.removeEventListener('input', onInput, true);
   document.removeEventListener('visibilitychange', syncPlayback);
   reducedMotion.removeEventListener('change', onMotionChange);
-}
-
-function onInput(event) {
-  const field = event.target;
-  if (!(field instanceof Element)) return;
-  const editable = field.closest('textarea, input:not([type]), input[type="text"], input[type="search"], [contenteditable="true"]');
-  if (editable && (editable.value ?? editable.textContent).length > 0) dismiss();
 }
 
 function syncPlayback() {
@@ -84,14 +76,13 @@ function onMotionChange() {
   if (reducedMotion.matches && !dismissed) showStill();
 }
 
-document.addEventListener('input', onInput, true);
-document.addEventListener('campuspulse:chat-history', dismiss, { once: true });
+// Draft edits keep the welcome composition intact. The existing .has-chat
+// layout hides it for conversations; visibility observers pause the scene so
+// returning to a new chat can reuse the logo without a blank space.
 document.addEventListener('visibilitychange', syncPlayback);
-document.getElementById('start').addEventListener('click', dismiss);
 window.addEventListener('pagehide', dismiss, { once: true });
 reducedMotion.addEventListener('change', onMotionChange);
 
-if (document.getElementById('recovery-message')?.value.length || document.getElementById('workspace')?.classList.contains('has-chat')) dismiss();
 
 try {
   if (!dismissed) {

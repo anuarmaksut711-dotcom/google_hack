@@ -335,8 +335,6 @@ footer p { max-width: 65ch; }
 /* Only the assistant owns a viewport-sized shell; other views scroll normally. */
 body[data-view=assistant] { display: flow-root; height: 100dvh; overflow: hidden; }
 body[data-view=assistant] .app-content { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(ellipse at 50% 46%, #14255080 0%, #10162650 35%, #101010 72%); }
-body[data-view=assistant]:has(#recovery-message:not(:placeholder-shown)) .app-content,
-body[data-view=assistant]:has(#workspace.has-chat) .app-content { background: #101010; }
 body[data-view=assistant] .topbar { flex-shrink: 0; }
 body[data-view=assistant] #workspace { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; }
 body[data-view=assistant] .recovery-home { flex: 1; min-height: 0; overflow: hidden; padding: 0; }
