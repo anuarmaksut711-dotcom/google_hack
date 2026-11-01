@@ -381,3 +381,13 @@ recovery-runtime. Они сохранены для истории и не явл
 Выполненные задания пропускаются. Если при включении до дедлайна осталось меньше
 72 часов, напоминание для него не создаётся.
 Настройка бота администратором описана в [TELEGRAM.md](setup/TELEGRAM.md).
+
+## Участники хакатона
+
+Проект разработан совместно участниками команды:
+
+- [@anuarmaksut711-dotcom](https://github.com/anuarmaksut711-dotcom)
+- [@tnaumovv](https://github.com/tnaumovv)
+- [@bossmerej-ship-it](https://github.com/bossmerej-ship-it) — подключение API и финальная доработка дизайна.
+
+Участники работали над разными частями проекта. Подробная история изменений доступна в [Contributors](https://github.com/anuarmaksut711-dotcom/google_hack/graphs/contributors).
